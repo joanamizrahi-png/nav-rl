@@ -153,11 +153,20 @@ def load_clip(
     # --- frames ---
     # Load via imageio (Mac-friendly; no decord dependency). Then center-crop
     # to 560x336 to match SAM3's label resolution.
+    #
+    # IMPORTANT: SAM3 sampled frames via np.linspace(0, total-1, num_frames) in
+    # sam3_precompute_labels.load_video. We MUST use the same sampling here so
+    # RGB frame i corresponds to label frame i. Otherwise labels drift ahead
+    # of RGB (SAM3 covers the whole video length; sequential-first-N covers
+    # only the initial fraction).
     import imageio.v3 as iio
     all_frames = list(iio.imiter(str(video_path)))
-    if len(all_frames) < num_frames:
-        raise ValueError(f"video has {len(all_frames)} frames, need >= {num_frames}")
-    frames_rgb = _center_crop_frames(np.stack(all_frames[:num_frames], axis=0), 560, 336)
+    total_frames = len(all_frames)
+    if total_frames < num_frames:
+        raise ValueError(f"video has {total_frames} frames, need >= {num_frames}")
+    idxs = np.linspace(0, total_frames - 1, num_frames, dtype=int)
+    sampled = [all_frames[i] for i in idxs]
+    frames_rgb = _center_crop_frames(np.stack(sampled, axis=0), 560, 336)
     T, H, W = frames_rgb.shape[:3]
 
     # --- labels ---
