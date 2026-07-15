@@ -192,18 +192,25 @@ class RealWorldBackend:
         self.cfg = cfg
         self.H = cfg.H
         self.W = cfg.W
-        self._pipe = None                       # lazy-loaded
+        self._pipe = None                       # lazy-loaded, full pipeline (reconstructor + diffusion)
+        self._reconstructor = None              # lazy-loaded, reconstructor only (memory-efficient)
         self._current_scene_id: Optional[str] = None
         self._cache = {}                         # scene_id -> per-scene state
 
     # ------------ WorldBackend API ------------
 
     def load_scene(self, scene_id: str) -> None:
-        """Reconstruct the source video (once per scene) and cache Gaussians + K."""
+        """Reconstruct the source video (once per scene) and cache Gaussians + K.
+
+        Only loads the reconstructor here (cheap ~2 GB VRAM). The full pipeline
+        (with diffusion) is deferred until the first render() call in
+        rasterizer_plus_diffusion mode — avoids blowing memory during
+        reconstruction.
+        """
         if scene_id in self._cache:
             self._current_scene_id = scene_id
             return
-        self._ensure_pipe_loaded()
+        self._ensure_reconstructor_loaded()
 
         video_path = self.cfg.scene_video_paths.get(scene_id)
         if not video_path:
@@ -243,10 +250,28 @@ class RealWorldBackend:
 
     # ------------ heavy lifting (deferred to NeoVerse) ------------
 
+    def _ensure_reconstructor_loaded(self):
+        """Load JUST the reconstructor. Cheap (~2 GB VRAM). Sufficient for
+        load_scene()'s Gaussian caching step."""
+        if self._reconstructor is not None:
+            return
+        import torch
+        from diffsynth.utils import ModelConfig
+        from diffsynth.models import ModelManager
+        self._torch = torch
+
+        print(f"[RealWorldBackend] loading reconstructor only from {self.cfg.reconstructor_path} ...", flush=True)
+        mm = ModelManager()
+        cfg = ModelConfig(path=self.cfg.reconstructor_path, offload_device="cuda")
+        cfg.download_if_necessary()
+        mm.load_model(cfg.path, device="cuda", torch_dtype=torch.bfloat16)
+        self._reconstructor = mm.fetch_model("reconstructor")
+
     def _ensure_pipe_loaded(self):
+        """Load the FULL pipeline (reconstructor + diffusion). ~40+ GB VRAM.
+        Only needed for rasterizer_plus_diffusion render mode."""
         if self._pipe is not None:
             return
-        # Deferred import so this file can be imported without NeoVerse on path.
         import torch
         from diffsynth.pipelines.wan_video_neoverse import WanVideoNeoVersePipeline
         self._torch = torch
@@ -263,22 +288,30 @@ class RealWorldBackend:
             lora_path=lora_path, lora_alpha=1.0,
             device="cuda", torch_dtype=torch.bfloat16,
         )
+        # Reconstructor is inside the pipe; use pipe's copy for consistency.
+        self._reconstructor = self._pipe.reconstructor
 
     def _reconstruct_scene(self, video_path: str) -> dict:
-        """Run the reconstructor once and cache Gaussians + K + first-frame pose."""
+        """Run the reconstructor once and cache Gaussians + K + first-frame pose.
+
+        Uses `self._reconstructor` directly (loaded lazily), not the full pipe.
+        This lets load_scene() run before we've paid the ~30GB VRAM cost of the
+        Wan diffusion weights.
+        """
         import torch
         from torchvision.transforms import functional as F
-        from diffsynth.utils.auxiliary import load_video, homo_matrix_inverse
+        from diffsynth.utils.auxiliary import load_video
 
         cfg = self.cfg
-        pipe = self._pipe
+        reconstructor = self._reconstructor
+        device = next(reconstructor.parameters()).device
+        dtype = next(reconstructor.parameters()).dtype
 
         print(f"[RealWorldBackend] loading source video: {video_path}", flush=True)
         images = load_video(
             video_path, cfg.num_frames,
             resolution=(cfg.W, cfg.H), resize_mode="center_crop", static_scene=False,
         )
-        device = pipe.device
         views = {
             "img": torch.stack([F.to_tensor(im)[None] for im in images], dim=1).to(device),
             "is_target": torch.zeros((1, len(images)), dtype=torch.bool, device=device),
@@ -286,8 +319,8 @@ class RealWorldBackend:
             "timestamp": torch.arange(0, len(images), dtype=torch.int64, device=device).unsqueeze(0),
         }
         print(f"[RealWorldBackend] running reconstructor ...", flush=True)
-        with torch.amp.autocast("cuda", dtype=pipe.torch_dtype):
-            predictions = pipe.reconstructor(views, is_inference=True, use_motion=False)
+        with torch.amp.autocast("cuda", dtype=dtype):
+            predictions = reconstructor(views, is_inference=True, use_motion=False)
 
         return {
             "gaussians": predictions["splats"],
@@ -298,15 +331,20 @@ class RealWorldBackend:
         }
 
     def _rasterize_and_diffuse(self, scene: dict, pose_recon: np.ndarray):
-        """Rasterize the cached Gaussians at pose_recon, then run diffusion.
+        """Rasterize the cached Gaussians at pose_recon, optionally diffuse.
 
         pose_recon: (4, 4) camera-to-recon-world matrix (numpy).
+
+        For `rasterizer_only` mode we use only `self._reconstructor` (which was
+        loaded during load_scene). For `rasterizer_plus_diffusion` mode we
+        lazily load the full pipe here — deferring the ~30GB Wan diffusion
+        weights until absolutely needed.
         """
         import torch
         from diffsynth.utils.auxiliary import homo_matrix_inverse
 
-        pipe = self._pipe
-        device = pipe.device
+        reconstructor = self._reconstructor
+        device = next(reconstructor.parameters()).device
         N = len(scene["timestamps"])
 
         # Broadcast our single requested pose to N frames (matches the reconstructor's timestamp layout).
@@ -314,7 +352,7 @@ class RealWorldBackend:
         fixed_w2c = homo_matrix_inverse(fixed_c2w)
         K_rep = scene["K"][0:1].repeat(N, 1, 1)
 
-        target_rgb, target_depth, target_alpha = pipe.reconstructor.gs_renderer.rasterizer.forward(
+        target_rgb, target_depth, target_alpha = reconstructor.gs_renderer.rasterizer.forward(
             scene["gaussians"],
             render_viewmats=[fixed_w2c], render_Ks=[K_rep],
             render_timestamps=[scene["timestamps"]],
@@ -332,6 +370,9 @@ class RealWorldBackend:
         # Slow path: full 4-step diffusion. Runs on all N frames at once and takes
         # the FIRST rendered frame as the observation. Cleaner output but has
         # video-prior hallucinations (see freeze_camera_diffuse.py test on driving.mp4).
+        # Lazy-load the full pipe now — deferred from load_scene() to keep memory low.
+        self._ensure_pipe_loaded()
+        pipe = self._pipe
         target_mask = (target_alpha > 1.0).float()
         wrapped_data = {
             "source_views": scene["views"],
