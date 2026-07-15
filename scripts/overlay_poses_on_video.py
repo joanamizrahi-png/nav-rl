@@ -50,10 +50,11 @@ def _draw_trajectory_minimap(
     img = Image.new("RGBA", (size, size), (30, 30, 30, 220))
     d = ImageDraw.Draw(img)
 
-    # Choose the two axes with the largest ranges — usually x and z.
-    ranges = positions.max(axis=0) - positions.min(axis=0)
-    top2 = np.argsort(ranges)[-2:]        # indices of two largest-range axes
-    ax_a, ax_b = int(top2[0]), int(top2[1])
+    # Always use xz (the ground plane in reconstructor's world frame; y is the
+    # up axis). Previously we auto-picked "largest range" per clip, but that
+    # picked yz for clips like cityscapes where x barely varies -- inconsistent
+    # visualization across clips.
+    ax_a, ax_b = 0, 2   # x, z
 
     px = positions[:, ax_a]
     py = positions[:, ax_b]
