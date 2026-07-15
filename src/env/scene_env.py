@@ -38,7 +38,12 @@ except ImportError:  # gym is a soft dep at import time so this file can be read
     gym = None
     spaces = None
 
-from .reward import RewardConfig, SemanticBackend, compute_reward
+from .reward import SemanticBackend                             # keep the Protocol only
+
+from ..eval.reward_2d import (
+    RewardWeights, RewardBreakdown, compute_reward, GO2_BODY_LENGTH, GO2_BODY_WIDTH,
+)
+from ..eval.traversability import load_traversability, NUM_CLASSES
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +89,10 @@ class SceneEnvConfig:
     max_steps: int = 100
     step_size_m: float = 0.3            # meters per unit forward action
     yaw_step_rad: float = 0.5           # radians per unit yaw action
-    reward: RewardConfig = field(default_factory=RewardConfig)
+    reward: RewardWeights = field(default_factory=RewardWeights)
+    look_ahead_dist: float = 1.5        # meters; passed to the reward
+    goal_radius: float = 0.5            # meters; within this counts as "reached goal"
+    collision_threshold: float = 0.1    # class score at/below which counts as collision
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +118,10 @@ class SceneEnv(gym.Env if gym is not None else object):
         self.scene_ids = list(scene_ids)
         self.cfg = cfg
 
+        # Pre-load traversability table + collision mask (rewards use these each step).
+        self._trav_scores = load_traversability()                    # (NUM_CLASSES,) float32
+        self._non_trav = self._trav_scores <= cfg.collision_threshold
+
         H, W = world_backend.H, world_backend.W
         self.observation_space = spaces.Dict({
             "rgb":  spaces.Box(low=0, high=255, shape=(H, W, 3), dtype=np.uint8),
@@ -121,6 +133,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._scene_id: Optional[str] = None
         self._robot_pose_world: Optional[np.ndarray] = None
         self._goal_world: Optional[np.ndarray] = None
+        self._prev_position: Optional[np.ndarray] = None
         self._steps: int = 0
 
         # Cache the latest render so step() can compute the reward without a fresh render.
@@ -141,6 +154,7 @@ class SceneEnv(gym.Env if gym is not None else object):
 
         self._robot_pose_world = self.world_backend.start_pose(self._scene_id).copy()
         self._goal_world = self.world_backend.goal_position(self._scene_id).copy()
+        self._prev_position = None
         self._steps = 0
 
         self._render_current()
@@ -150,28 +164,48 @@ class SceneEnv(gym.Env if gym is not None else object):
         assert self._robot_pose_world is not None, "call reset() first"
         action = np.asarray(action, dtype=np.float32).clip(-1.0, 1.0)
 
-        # ---- reward uses the CURRENT view + intended action ----
-        reward, info = compute_reward(
-            rgb=self._last_rgb,
+        # Semantic labels for the current view (from mock cache OR real segmenter).
+        semantic_image = self.semantic_backend.segment(self._last_rgb)
+
+        # Extract robot position + heading from the 4x4 pose. Heading = local +x
+        # of the robot (its "forward"), transformed to world coords.
+        robot_position = self._robot_pose_world[:3, 3].copy()
+        robot_heading = self._robot_pose_world[:3, :3] @ np.array([1.0, 0.0, 0.0], dtype=np.float32)
+
+        # ---- decomposed reward on the CURRENT view + robot pose ----
+        breakdown = compute_reward(
+            semantic_image=semantic_image,
             K=self._last_K,
             w2c=self._last_w2c,
-            robot_pose_world=self._robot_pose_world,
-            action=action,
-            goal_world=self._goal_world,
-            semantic_backend=self.semantic_backend,
-            cfg=self.cfg.reward,
+            robot_position=robot_position,
+            robot_heading=robot_heading,
+            goal=self._goal_world,
+            traversability_scores=self._trav_scores,
+            non_traversable_mask=self._non_trav,
+            previous_position=self._prev_position,
+            look_ahead_dist=self.cfg.look_ahead_dist,
+            body_length=GO2_BODY_LENGTH,
+            body_width=GO2_BODY_WIDTH,
+            weights=self.cfg.reward,
         )
 
         # ---- apply the action to advance the robot pose ----
+        self._prev_position = robot_position
         self._advance_pose(action)
         self._steps += 1
 
         # ---- render the new view for the NEXT step's observation ----
         self._render_current()
 
-        terminated = bool(info.get("reached_goal", False))
+        # Reached goal?
+        dist_to_goal = float(np.linalg.norm(self._robot_pose_world[:3, 3] - self._goal_world))
+        terminated = dist_to_goal < self.cfg.goal_radius
         truncated = self._steps >= self.cfg.max_steps
-        return self._obs(), reward, terminated, truncated, info
+
+        info = breakdown.to_dict()
+        info["dist_to_goal"] = dist_to_goal
+        info["reached_goal"] = terminated
+        return self._obs(), breakdown.total, terminated, truncated, info
 
     def render(self):
         return self._last_rgb
