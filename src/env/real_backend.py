@@ -117,8 +117,18 @@ class RealWorldBackendConfig:
     # Where the goal is in scene frame per scene_id.
     scene_goals: dict = field(default_factory=dict)
 
-    # Camera mounted this high above the robot in scene frame (along scene +z).
-    camera_height_scene: float = 0.4
+    # Camera mounted this high above the robot's body-origin in SceneEnv's world
+    # frame (along scene +z, up).
+    #
+    # DEFAULT = 0.0: identity pose_scene puts the camera exactly where the
+    # SOURCE VIDEO's frame-0 camera was. Simplest, matches what the reconstructor
+    # actually gives us. Any real-robot calibration (Go2 camera is ~0.4m above
+    # its feet in real world) happens at deploy time by mapping physical actions
+    # to sim actions -- not by trying to compensate here.
+    #
+    # A non-zero value would try to invent a "body position" below the camera,
+    # which never existed in the source video and can produce off-manifold renders.
+    camera_height_scene: float = 0.0
 
     # Rendering config
     H: int = 336
@@ -131,6 +141,17 @@ class RealWorldBackendConfig:
     prompt: str = ("A smooth video with complete scene content. Inpaint any missing "
                    "regions or margins naturally to match the surrounding scene.")
     negative_prompt: str = ""
+
+    # Rendering mode:
+    #   "rasterizer_plus_diffusion" (DEFAULT) — run 4-step diffusion on top of the
+    #       raw Gaussian rasterization. Clean output, ~5x slower per step. Video
+    #       prior may hallucinate small dynamics (parked cars fake-driving on
+    #       driving.mp4-style scenes). Less problematic on natural / static
+    #       scenes like RUGD trails.
+    #   "rasterizer_only" — raw rasterizer, no diffusion. Deterministic and cheap
+    #       BUT holey outside the reconstructed volume — likely too bad for RL
+    #       observations (holes as big as the visible area). Retained for tests.
+    render_mode: str = "rasterizer_plus_diffusion"
 
     # Model paths
     model_path: str = "/scratch/m000204-pm06b/joana/NeoVerse/models"
@@ -284,12 +305,19 @@ class RealWorldBackend:
             render_timestamps=[scene["timestamps"]],
             sh_degree=0, width=self.W, height=self.H,
         )
-        target_mask = (target_alpha > 1.0).float()
 
-        # NOTE: for a first prototype we run the full diffusion here on N frames.
-        # In production we'd probably batch multiple render() calls together, but
-        # this keeps the interface simple: 1 render() = 1 clean RGB frame.
-        # We take the FIRST rendered frame (index 0) as the observation.
+        if self.cfg.render_mode == "rasterizer_only":
+            # Fast path: raw rasterizer output, no diffusion, no video-prior
+            # hallucinations. Take the first rendered frame as the observation.
+            rgb_frame = (target_rgb[0, 0].detach().clamp(0, 1).float().cpu().numpy() * 255).astype(np.uint8)
+            K_np = scene["K"][0].detach().cpu().float().numpy()
+            w2c_np = fixed_w2c[0].detach().cpu().float().numpy()
+            return rgb_frame, K_np, w2c_np
+
+        # Slow path: full 4-step diffusion. Runs on all N frames at once and takes
+        # the FIRST rendered frame as the observation. Cleaner output but has
+        # video-prior hallucinations (see freeze_camera_diffuse.py test on driving.mp4).
+        target_mask = (target_alpha > 1.0).float()
         wrapped_data = {
             "source_views": scene["views"],
             "target_rgb": target_rgb, "target_depth": target_depth, "target_mask": target_mask,
@@ -303,11 +331,7 @@ class RealWorldBackend:
                 cfg_scale=self.cfg.cfg_scale, num_inference_steps=4 if self.cfg.use_lora else 50,
                 tiled=False, **wrapped_data,
             )
-
-        # generated is a list-like of N frames. Take the first as the observation.
-        # (In a proper implementation we might use a specific timestamp offset from
-        # the source video, but for a static-scene prototype this is fine.)
-        rgb_frame = np.array(generated[0])                              # (H, W, 3) uint8
-        K_np = scene["K"][0].detach().cpu().float().numpy()             # (3, 3)
-        w2c_np = fixed_w2c[0].detach().cpu().float().numpy()            # (4, 4)
+        rgb_frame = np.array(generated[0])
+        K_np = scene["K"][0].detach().cpu().float().numpy()
+        w2c_np = fixed_w2c[0].detach().cpu().float().numpy()
         return rgb_frame, K_np, w2c_np
