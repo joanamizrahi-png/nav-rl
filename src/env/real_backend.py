@@ -10,10 +10,13 @@ SceneEnv's world frame (from scene_env.py):
     y = robot right
     z = up (gravity)
 
-Reconstructor's world frame (from pose diagnostics on 12 clips):
+Reconstructor's world frame (OpenCV / gsplat convention; verified empirically
+after the 380492 rasterizer_only test showed y-flipped renders):
     x = right (ground plane)
-    y = up (perpendicular to ground)
+    y = DOWN (perpendicular to ground, standard CV image-y direction)
     z = forward (camera looks along +z at frame 0)
+Our earlier "y = up" guess from the pose diagnostic was wrong-signed — the
+diagnostic only told us y was the ground-normal axis, not which direction.
 
 Robot's local frame (what SceneEnv._advance_pose assumes):
     local +x = forward direction the robot is facing
@@ -57,14 +60,16 @@ import numpy as np
 # Coordinate conversion constants
 # ---------------------------------------------------------------------------
 
-# Scene world -> Reconstructor world (both right-handed, y-up in recon, z-up in scene).
-# scene_y (right) -> recon_x (right)
-# scene_z (up)    -> recon_y (up)
-# scene_x (fwd)   -> recon_z (fwd)
+# Scene world -> Reconstructor world.
+# Scene:  x=fwd,   y=right, z=up
+# Recon:  x=right, y=DOWN,  z=fwd    (OpenCV convention)
+# scene_y (right) ->  recon_x (right)   row 0
+# scene_z (up)    -> -recon_y (down)    row 1  <-- flipped after 380492 upside-down bug
+# scene_x (fwd)   ->  recon_z (fwd)     row 2
 R_SCENE_TO_RECON = np.array([
-    [0.0, 1.0, 0.0],
-    [0.0, 0.0, 1.0],
-    [1.0, 0.0, 0.0],
+    [0.0, 1.0,  0.0],
+    [0.0, 0.0, -1.0],
+    [1.0, 0.0,  0.0],
 ], dtype=np.float32)
 
 # Robot local -> Camera local (takes a point expressed in robot frame -> camera frame).
