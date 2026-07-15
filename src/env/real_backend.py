@@ -67,7 +67,7 @@ R_SCENE_TO_RECON = np.array([
     [1.0, 0.0, 0.0],
 ], dtype=np.float32)
 
-# Robot local -> Camera local (both applied on the LEFT of the local axes).
+# Robot local -> Camera local (takes a point expressed in robot frame -> camera frame).
 # robot_x (fwd)  -> camera_z (fwd)
 # robot_y (right)-> camera_x (right)
 # robot_z (up)   -> -camera_y (up = -down)
@@ -76,6 +76,16 @@ R_ROBOT_TO_CAM = np.array([
     [0.0, 0.0, -1.0],
     [1.0, 0.0, 0.0],
 ], dtype=np.float32)
+
+# Camera local -> Robot local (inverse of above; for rotation matrices, transpose).
+# We APPLY this on the right of pose_scene (r2w) to build c2w:
+#     c2w = r2w @ R_CAM_TO_ROBOT
+# Because c2w takes camera-frame points to world, and we want:
+#     point_world = c2w @ point_camera_frame
+#                 = r2w @ R_CAM_TO_ROBOT @ point_camera_frame
+#                 = r2w @ point_robot_frame
+#                 = point_world  ✓
+R_CAM_TO_ROBOT = R_ROBOT_TO_CAM.T
 
 
 def _pose_scene_to_recon(pose_scene: np.ndarray, camera_height_scene: float = 0.0) -> np.ndarray:
@@ -91,15 +101,20 @@ def _pose_scene_to_recon(pose_scene: np.ndarray, camera_height_scene: float = 0.
     T_lift[2, 3] = camera_height_scene    # scene z is up
 
     # Build the two 4x4 rotations
-    T_rc = np.eye(4, dtype=np.float32)
-    T_rc[:3, :3] = R_ROBOT_TO_CAM
+    T_c2r_local = np.eye(4, dtype=np.float32)
+    T_c2r_local[:3, :3] = R_CAM_TO_ROBOT           # camera-local axes -> robot-local axes
     T_sr = np.eye(4, dtype=np.float32)
     T_sr[:3, :3] = R_SCENE_TO_RECON
 
-    # pose_scene assumed shape (4,4) float32
-    # camera_to_world_scene = T_lift @ pose_scene @ T_rc
-    # camera_to_world_recon = T_sr @ camera_to_world_scene
-    return T_sr @ (T_lift @ pose_scene @ T_rc)
+    # pose_scene: robot-to-scene-world (r2w).
+    # camera-to-scene-world (c2w):
+    #     c2w = T_lift @ pose_scene @ T_c2r_local
+    #     (T_lift adjusts the world position of the camera above the robot,
+    #      T_c2r_local converts a point expressed in camera-local axes into
+    #      robot-local axes before r2w maps it to world.)
+    # camera-to-recon-world:
+    #     c2w_recon = T_sr @ c2w_scene
+    return T_sr @ (T_lift @ pose_scene @ T_c2r_local)
 
 
 # ---------------------------------------------------------------------------
