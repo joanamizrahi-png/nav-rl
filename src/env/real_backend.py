@@ -88,6 +88,19 @@ R_ROBOT_TO_CAM = np.array([
 R_CAM_TO_ROBOT = R_ROBOT_TO_CAM.T
 
 
+def _move_tree_to(x, device):
+    """Recursively move tensors inside a dict / list / tuple / tensor to `device`."""
+    import torch
+    if torch.is_tensor(x):
+        return x.detach().to(device)
+    if isinstance(x, dict):
+        return {k: _move_tree_to(v, device) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        moved = [_move_tree_to(v, device) for v in x]
+        return type(x)(moved)
+    return x
+
+
 def _pose_scene_to_recon(pose_scene: np.ndarray, camera_height_scene: float = 0.0) -> np.ndarray:
     """Convert a 4x4 robot-to-scene-world pose into a 4x4 camera-to-recon-world pose.
 
@@ -322,13 +335,38 @@ class RealWorldBackend:
         with torch.amp.autocast("cuda", dtype=dtype):
             predictions = reconstructor(views, is_inference=True, use_motion=False)
 
-        return {
-            "gaussians": predictions["splats"],
-            "K": predictions["rendered_intrinsics"][0],                # (T, 3, 3)
-            "cam2world": predictions["rendered_extrinsics"][0],        # (T, 4, 4)
-            "timestamps": predictions["rendered_timestamps"][0],       # (T,)
-            "views": views,
-        }
+        # Move all cached tensors to CPU so we can free VRAM before loading the
+        # ~30GB Wan diffusion pipeline. During render() we'll move them back to
+        # GPU on demand. Skipped if we're in rasterizer_only mode -- no need for
+        # the round trip.
+        # CRITICAL: don't hold any local Python name that references the GPU
+        # tensor after we've made the CPU copy. Otherwise the GPU tensor stays
+        # alive and empty_cache() can't reclaim its memory.
+        move_to_cpu = (self.cfg.render_mode == "rasterizer_plus_diffusion")
+        if move_to_cpu:
+            cache = {
+                "gaussians": _move_tree_to(predictions["splats"], "cpu"),
+                "K": predictions["rendered_intrinsics"][0].detach().cpu(),
+                "cam2world": predictions["rendered_extrinsics"][0].detach().cpu(),
+                "timestamps": predictions["rendered_timestamps"][0].detach().cpu(),
+                "views": _move_tree_to(views, "cpu"),
+            }
+            del predictions, views
+            # Also free any reconstructor intermediate state on GPU.
+            import gc
+            gc.collect()
+            torch.cuda.empty_cache()
+            free, total = torch.cuda.mem_get_info()
+            print(f"[RealWorldBackend] moved scene cache to CPU. VRAM free {free / 1e9:.1f} GB / {total / 1e9:.1f} GB", flush=True)
+        else:
+            cache = {
+                "gaussians": predictions["splats"],
+                "K": predictions["rendered_intrinsics"][0],
+                "cam2world": predictions["rendered_extrinsics"][0],
+                "timestamps": predictions["rendered_timestamps"][0],
+                "views": views,
+            }
+        return cache
 
     def _rasterize_and_diffuse(self, scene: dict, pose_recon: np.ndarray):
         """Rasterize the cached Gaussians at pose_recon, optionally diffuse.
@@ -345,6 +383,14 @@ class RealWorldBackend:
 
         reconstructor = self._reconstructor
         device = next(reconstructor.parameters()).device
+
+        # If the scene was moved to CPU (diffusion mode) after reconstruction,
+        # move it back to GPU now that we're about to rasterize / diffuse.
+        # Rasterizer_only mode leaves the scene on GPU already, so this is a no-op there.
+        needs_move_back = self.cfg.render_mode == "rasterizer_plus_diffusion"
+        if needs_move_back and torch.is_tensor(scene["K"]) and scene["K"].device.type == "cpu":
+            scene = _move_tree_to(scene, device)
+
         N = len(scene["timestamps"])
 
         # Broadcast our single requested pose to N frames (matches the reconstructor's timestamp layout).
