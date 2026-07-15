@@ -1,0 +1,210 @@
+"""SceneEnv — Gym environment wrapping the NeoVerse world model as an RL simulator.
+
+Interface (Gymnasium API):
+  reset() -> (observation, info)
+  step(action) -> (observation, reward, terminated, truncated, info)
+
+Observation:
+  Dict({
+    "rgb":  Box(0, 255, (H, W, 3), uint8)   -- the current camera view
+    "goal": Box(-inf, inf, (3,), float32)   -- (dx, dy, dyaw) to goal, robot frame
+  })
+
+Action:
+  Box(-1, 1, (2,), float32) = (v_forward, omega_yaw), each in [-1, 1].
+  Scaled inside step() by config.step_size and config.yaw_step_rad.
+
+This file is deliberately thin. The two things that actually do work live in
+their own modules and are injected here:
+  - `world_backend`  — turns (scene, pose) into an RGB image + camera intrinsics/extrinsics.
+                       Real backend calls NeoVerse; the mock backend returns cached images.
+  - `semantic_backend` — turns an RGB image into a per-pixel class-id map.
+                         Default = SAM3-on-RGB. Later = the fine-tuned diffusion output.
+
+Nothing in this file is NeoVerse-specific, which is what lets us develop the
+env, the reward, and the PPO loop entirely on the Mac before cluster access.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Optional, Protocol
+
+import numpy as np
+
+try:
+    import gymnasium as gym
+    from gymnasium import spaces
+except ImportError:  # gym is a soft dep at import time so this file can be read anywhere
+    gym = None
+    spaces = None
+
+from .reward import RewardConfig, SemanticBackend, compute_reward
+
+
+# ---------------------------------------------------------------------------
+# World-model backend abstraction
+# ---------------------------------------------------------------------------
+
+class WorldBackend(Protocol):
+    """Anything that can render an RGB view at a requested pose."""
+    H: int
+    W: int
+
+    def load_scene(self, scene_id: str) -> None:
+        """Prepare a scene (may build a pose cache, load Gaussians, etc.)."""
+        ...
+
+    def render(self, pose_world: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Render at the given robot pose in world frame.
+
+        Args:
+            pose_world: (4, 4) camera-to-world matrix.
+        Returns:
+            rgb:  (H, W, 3) uint8
+            K:    (3, 3)    float32 — camera intrinsics for this render
+            w2c:  (4, 4)    float32 — world->camera for this render
+        """
+        ...
+
+    def start_pose(self, scene_id: str) -> np.ndarray:
+        """Where the robot starts in this scene, as a (4, 4) pose."""
+        ...
+
+    def goal_position(self, scene_id: str) -> np.ndarray:
+        """Where the robot should reach. (3,) world coords."""
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Env config
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SceneEnvConfig:
+    max_steps: int = 100
+    step_size_m: float = 0.3            # meters per unit forward action
+    yaw_step_rad: float = 0.5           # radians per unit yaw action
+    reward: RewardConfig = field(default_factory=RewardConfig)
+
+
+# ---------------------------------------------------------------------------
+# The env itself
+# ---------------------------------------------------------------------------
+
+class SceneEnv(gym.Env if gym is not None else object):
+    """RL environment where the world model is our simulator."""
+    metadata = {"render_modes": ["rgb_array"], "render_fps": 4}
+
+    def __init__(
+        self,
+        world_backend: WorldBackend,
+        semantic_backend: SemanticBackend,
+        scene_ids: list[str],
+        cfg: SceneEnvConfig = SceneEnvConfig(),
+    ):
+        if gym is None:
+            raise ImportError("gymnasium is required to instantiate SceneEnv")
+        super().__init__()
+        self.world_backend = world_backend
+        self.semantic_backend = semantic_backend
+        self.scene_ids = list(scene_ids)
+        self.cfg = cfg
+
+        H, W = world_backend.H, world_backend.W
+        self.observation_space = spaces.Dict({
+            "rgb":  spaces.Box(low=0, high=255, shape=(H, W, 3), dtype=np.uint8),
+            "goal": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
+        })
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
+
+        # Populated on reset()
+        self._scene_id: Optional[str] = None
+        self._robot_pose_world: Optional[np.ndarray] = None
+        self._goal_world: Optional[np.ndarray] = None
+        self._steps: int = 0
+
+        # Cache the latest render so step() can compute the reward without a fresh render.
+        # (We render at the START of each step because that's what the policy sees;
+        # after action, the NEXT render is done for the NEXT observation.)
+        self._last_rgb: Optional[np.ndarray] = None
+        self._last_K: Optional[np.ndarray] = None
+        self._last_w2c: Optional[np.ndarray] = None
+
+    # ---------------- gym API ----------------
+
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        super().reset(seed=seed)
+        # Choose a scene (round-robin for now; can be random later).
+        idx = self.np_random.integers(0, len(self.scene_ids))
+        self._scene_id = self.scene_ids[idx]
+        self.world_backend.load_scene(self._scene_id)
+
+        self._robot_pose_world = self.world_backend.start_pose(self._scene_id).copy()
+        self._goal_world = self.world_backend.goal_position(self._scene_id).copy()
+        self._steps = 0
+
+        self._render_current()
+        return self._obs(), {"scene_id": self._scene_id}
+
+    def step(self, action: np.ndarray):
+        assert self._robot_pose_world is not None, "call reset() first"
+        action = np.asarray(action, dtype=np.float32).clip(-1.0, 1.0)
+
+        # ---- reward uses the CURRENT view + intended action ----
+        reward, info = compute_reward(
+            rgb=self._last_rgb,
+            K=self._last_K,
+            w2c=self._last_w2c,
+            robot_pose_world=self._robot_pose_world,
+            action=action,
+            goal_world=self._goal_world,
+            semantic_backend=self.semantic_backend,
+            cfg=self.cfg.reward,
+        )
+
+        # ---- apply the action to advance the robot pose ----
+        self._advance_pose(action)
+        self._steps += 1
+
+        # ---- render the new view for the NEXT step's observation ----
+        self._render_current()
+
+        terminated = bool(info.get("reached_goal", False))
+        truncated = self._steps >= self.cfg.max_steps
+        return self._obs(), reward, terminated, truncated, info
+
+    def render(self):
+        return self._last_rgb
+
+    # ---------------- helpers ----------------
+
+    def _obs(self) -> dict:
+        goal_robot = self._goal_in_robot_frame()
+        return {
+            "rgb":  self._last_rgb.copy(),
+            "goal": goal_robot.astype(np.float32),
+        }
+
+    def _render_current(self) -> None:
+        rgb, K, w2c = self.world_backend.render(self._robot_pose_world)
+        self._last_rgb, self._last_K, self._last_w2c = rgb, K, w2c
+
+    def _advance_pose(self, action: np.ndarray) -> None:
+        v_forward = float(action[0]) * self.cfg.step_size_m
+        omega_yaw = float(action[1]) * self.cfg.yaw_step_rad
+
+        # Rotate yaw first (about world +z), then translate forward.
+        c, s = np.cos(omega_yaw), np.sin(omega_yaw)
+        R_yaw = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]], dtype=np.float32)
+        self._robot_pose_world[:3, :3] = R_yaw @ self._robot_pose_world[:3, :3]
+
+        forward_world = self._robot_pose_world[:3, :3] @ np.array([1.0, 0.0, 0.0])
+        self._robot_pose_world[:3, 3] += v_forward * forward_world
+
+    def _goal_in_robot_frame(self) -> np.ndarray:
+        # (dx, dy, dyaw_to_goal) in the robot's local frame.
+        dp_world = self._goal_world - self._robot_pose_world[:3, 3]
+        R_wr = self._robot_pose_world[:3, :3]                                 # world->robot rotation
+        dp_robot = R_wr.T @ dp_world
+        dyaw = float(np.arctan2(dp_robot[1], dp_robot[0]))
+        return np.array([dp_robot[0], dp_robot[1], dyaw])

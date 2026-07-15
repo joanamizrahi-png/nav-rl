@@ -1,0 +1,153 @@
+# Per-class traversability scores for a Go2 quadruped on outdoor terrain.
+#
+# score in [0.0, 1.0]:
+#   1.0 = ideal walkable surface (grass, sidewalk)
+#   0.5 = walkable with care (rock, stairs)
+#   0.0 = do not step here (water, building, person)
+#
+# Class IDs must stay in LOCKSTEP with:
+#   - NeoVerse/sam3_precompute_labels.CLASSES
+#   - NeoVerse/diffsynth/utils/semantics.CLASS_COLORS
+#   - nav-rl/src/env/reward.TRAVERSABLE (legacy 2D-image reward)
+#
+# Score reasoning notes are Go2W-specific: assumes a small quadruped with
+# ~0.15m step lift, ~0.4m body height, 4 legs w/ traction, no wheels.
+# Verify-on-real-robot flags noted in `note` field where relevant.
+
+# ---------- Class 0: unknown ----------
+0:
+  name: void
+  score: 0.0
+  note: "unlabeled pixels/gaussians; conservative default"
+
+# ---------- Class 1: sky ----------
+1:
+  name: sky
+  score: 0.0
+  note: "N/A - not a ground surface, robot never stands here"
+
+# ---------- Classes 2-9: ground materials (off-road) ----------
+2:
+  name: dirt
+  score: 0.9
+  note: "primary off-road surface; hard-packed dirt is ideal"
+3:
+  name: sand
+  score: 0.6
+  note: "loose sand causes foot slip; slower gait needed. Verify on real robot."
+4:
+  name: grass
+  score: 0.95
+  note: "ideal for legged navigation - soft, high traction, forgiving"
+5:
+  name: gravel
+  score: 0.8
+  note: "small pebbles OK; large loose gravel may shift under foot"
+6:
+  name: mulch
+  score: 0.7
+  note: "loose organic matter; soft landing but slight sink"
+7:
+  name: mud
+  score: 0.3
+  note: "wet & slippery; not lethal but risky. Not fully non-traversable."
+8:
+  name: water
+  score: 0.0
+  note: "hazard; do not step. Even shallow water damages Go2 motors."
+9:
+  name: rock
+  score: 0.4
+  note: "large uneven rocks; tripping risk. Small pebbles handled fine (see gravel)."
+
+# ---------- Classes 10-14: pavement / urban ground ----------
+10:
+  name: asphalt
+  score: 0.9
+  note: "hard flat surface, high traction"
+11:
+  name: concrete
+  score: 0.95
+  note: "ideal urban surface"
+12:
+  name: road
+  score: 0.6
+  note: "PAVED but semantically discouraged - cars use roads. Prefer sidewalk over road for Go2 (pedestrian robot)."
+13:
+  name: sidewalk
+  score: 0.95
+  note: "designed for pedestrians; primary urban surface for Go2"
+14:
+  name: crosswalk
+  score: 0.9
+  note: "designed for pedestrians crossing roads; slight risk (traffic)"
+
+# ---------- Classes 15-18: large statics ----------
+15:
+  name: building
+  score: 0.0
+  note: "solid obstacle"
+16:
+  name: wall
+  score: 0.0
+  note: "solid obstacle"
+17:
+  name: fence
+  score: 0.0
+  note: "obstacle; potentially climbable but not for Go2"
+18:
+  name: bridge
+  score: 0.8
+  note: "walkable surface but edge fall risk; conservative score"
+
+# ---------- Classes 19-21: vegetation / natural obstacles ----------
+19:
+  name: tree
+  score: 0.0
+  note: "solid obstacle (trunk)"
+20:
+  name: vegetation
+  score: 0.2
+  note: "bushes/plants; soft obstacles, robot COULD push through small ones. Non-zero for edge cases."
+21:
+  name: log
+  score: 0.1
+  note: "tripping hazard; Go2 could step over small logs but not on"
+
+# ---------- Class 22: stairs ----------
+22:
+  name: stairs
+  score: 0.5
+  note: "Go2 handles stairs with dedicated gait but slow. Verify on real robot."
+
+# ---------- Classes 23-25: small vertical objects (usually overhead or edge) ----------
+23:
+  name: pole
+  score: 0.0
+  note: "thin vertical obstacle"
+24:
+  name: traffic_sign
+  score: 0.0
+  note: "obstacle; usually above ground level"
+25:
+  name: traffic_light
+  score: 0.0
+  note: "obstacle; usually above ground level"
+
+# ---------- Classes 26-29: dynamic objects ----------
+26:
+  name: vehicle
+  score: 0.0
+  note: "collision hazard; also safety concern for RL policy"
+27:
+  name: motorcycle
+  score: 0.0
+  note: "collision hazard"
+28:
+  name: bicycle
+  score: 0.0
+  note: "collision hazard"
+29:
+  name: person
+  score: 0.0
+  note: "safety-critical; robot must never step toward a person"
