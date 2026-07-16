@@ -42,6 +42,10 @@ def main():
     ap.add_argument("--render_mode", default="rasterizer_plus_diffusion",
                     choices=["rasterizer_plus_diffusion", "rasterizer_only"])
     ap.add_argument("--num_frames", type=int, default=81)
+    ap.add_argument("--use_lora", type=int, default=0,
+                    help="1 = merge lightx2v 4-step distill LoRA (fast, +VRAM spike). "
+                         "0 = 50-step schedule (slower, no merge). Default 0 to avoid "
+                         "OOM during LoRA merge on 80GB GPUs.")
     args = ap.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -56,6 +60,7 @@ def main():
         reconstructor_path=args.reconstructor_path,
         render_mode=args.render_mode,
         num_frames=args.num_frames,
+        use_lora=bool(args.use_lora),
     )
 
     world = RealWorldBackend(cfg=cfg)
