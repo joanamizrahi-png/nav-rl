@@ -170,28 +170,43 @@ def poses_from_c2w_recon(
 
 
 def _extract_gaussian_means(splats) -> np.ndarray:
-    """Pull (N, 3) position means out of the reconstructor's splats structure,
-    tolerating dict / attribute / per-frame-list layouts."""
+    """Pull (N, 3) position means out of the reconstructor's splats structure.
+
+    Actual layout (rasterization.py Rasterizer.forward + rasterize_splats):
+    predictions["splats"] is a LIST over batch; each element is a LIST of
+    Gaussians objects (constant + dynamic), each with a `.means` tensor.
+    We recurse through any list/dict nesting and collect every means tensor.
+    """
     import torch
 
     def _to_np(x):
         return x.detach().float().cpu().numpy().reshape(-1, 3)
 
-    for key in ("means", "means3d", "xyz", "positions"):
-        val = None
-        if isinstance(splats, dict) and key in splats:
-            val = splats[key]
-        elif hasattr(splats, key):
-            val = getattr(splats, key)
-        if val is None:
-            continue
-        if torch.is_tensor(val):
-            return _to_np(val)
-        if isinstance(val, (list, tuple)) and len(val) and torch.is_tensor(val[0]):
-            return np.concatenate([_to_np(v) for v in val], axis=0)
-    raise RuntimeError(
-        f"couldn't find gaussian means; splats type={type(splats)}, "
-        f"keys/attrs={list(splats.keys()) if isinstance(splats, dict) else dir(splats)}")
+    collected = []
+
+    def _collect(node):
+        if node is None:
+            return
+        if isinstance(node, (list, tuple)):
+            for item in node:
+                _collect(item)
+            return
+        for key in ("means", "means3d", "xyz", "positions"):
+            val = None
+            if isinstance(node, dict) and key in node:
+                val = node[key]
+            elif hasattr(node, key):
+                val = getattr(node, key)
+            if torch.is_tensor(val) and val.numel() and val.shape[-1] == 3:
+                collected.append(_to_np(val))
+                return
+
+    _collect(splats)
+    if not collected:
+        raise RuntimeError(
+            f"couldn't find gaussian means; splats type={type(splats)}, "
+            f"keys/attrs={list(splats.keys()) if isinstance(splats, dict) else dir(splats)}")
+    return np.concatenate(collected, axis=0)
 
 
 # ---------------------------------------------------------------------------
