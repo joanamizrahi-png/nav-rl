@@ -83,8 +83,13 @@ def main():
     p3[0, 3] = 0.2
     test_poses["03_fwd_0.2"] = p3
 
-    # 4. Yaw right by 30 degrees (rotation around scene +z, right-hand rule = left is positive)
-    angle = -np.pi / 6           # negative = clockwise viewed from above = right turn
+    # 4. Yaw right by 30 degrees.
+    # In SceneEnv frame (x=fwd, y=right, z=up), a right turn rotates the robot's
+    # +x (fwd) TOWARD +y (right). R_z(theta) applied to (1,0,0) gives
+    # (cos theta, sin theta, 0); to get positive y (=right), we need theta > 0.
+    # Verified empirically: prior sign choice made the world pan RIGHT in frame
+    # (i.e., the camera turned LEFT). Positive angle here is a right turn.
+    angle = +np.pi / 6
     c, s = np.cos(angle), np.sin(angle)
     p4 = np.eye(4, dtype=np.float32)
     p4[:3, :3] = np.array([
