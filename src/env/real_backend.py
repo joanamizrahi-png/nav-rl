@@ -291,6 +291,7 @@ class RealWorldBackend:
         if self._pipe is not None:
             return
         import torch
+        import gc
         from diffsynth.pipelines.wan_video_neoverse import WanVideoNeoVersePipeline
         self._torch = torch
 
@@ -298,6 +299,17 @@ class RealWorldBackend:
         if self.cfg.use_lora:
             lora_path = str(Path(self.cfg.model_path) /
                             "NeoVerse/loras/Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank64.safetensors")
+
+        # Free our separately-loaded reconstructor before pipe load. The pipe's
+        # from_pretrained loads its own reconstructor internally; keeping ours
+        # around means two copies on GPU. We swap over to the pipe's copy below.
+        if self._reconstructor is not None:
+            del self._reconstructor
+            self._reconstructor = None
+            gc.collect()
+            torch.cuda.empty_cache()
+            free, _ = torch.cuda.mem_get_info()
+            print(f"[RealWorldBackend] freed pre-existing reconstructor. VRAM free {free/1e9:.1f} GB", flush=True)
 
         print(f"[RealWorldBackend] loading NeoVerse pipeline from {self.cfg.model_path} ...", flush=True)
         self._pipe = WanVideoNeoVersePipeline.from_pretrained(
@@ -308,6 +320,8 @@ class RealWorldBackend:
         )
         # Reconstructor is inside the pipe; use pipe's copy for consistency.
         self._reconstructor = self._pipe.reconstructor
+        free, _ = torch.cuda.mem_get_info()
+        print(f"[RealWorldBackend] pipe loaded. VRAM free {free/1e9:.1f} GB", flush=True)
 
     def _reconstruct_scene(self, video_path: str) -> dict:
         """Run the reconstructor once and cache Gaussians + K + first-frame pose.
@@ -337,8 +351,16 @@ class RealWorldBackend:
             "timestamp": torch.arange(0, len(images), dtype=torch.int64, device=device).unsqueeze(0),
         }
         print(f"[RealWorldBackend] running reconstructor ...", flush=True)
-        with torch.amp.autocast("cuda", dtype=dtype):
+        free_before, _ = torch.cuda.mem_get_info()
+        # torch.no_grad() is CRITICAL: WorldMirror is a 40-layer transformer.
+        # Without it, the full forward computation graph is kept alive for
+        # backprop (~50-70 GB of activations at 82 frames), which then can't be
+        # reclaimed by empty_cache(). This is what blew our VRAM before Wan
+        # could load.
+        with torch.no_grad(), torch.amp.autocast("cuda", dtype=dtype):
             predictions = reconstructor(views, is_inference=True, use_motion=False)
+        free_after, _ = torch.cuda.mem_get_info()
+        print(f"[RealWorldBackend] reconstructor VRAM: free {free_before/1e9:.1f} -> {free_after/1e9:.1f} GB", flush=True)
 
         # Move all cached tensors to CPU so we can free VRAM before loading the
         # ~30GB Wan diffusion pipeline. During render() we'll move them back to
