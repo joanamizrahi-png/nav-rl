@@ -1,0 +1,309 @@
+"""Metric-calibrated real backend + Gaussian-label semantic backend (Milestone B/C glue).
+
+Adds two things on top of real_backend.RealWorldBackend, using artifacts we
+already produced and validated:
+
+1. CalibratedRealWorldBackend — SceneEnv talks METERS in a gravity-aligned
+   "nav frame" (x/y ground plane, z up, ground at z=0 — the same frame
+   scripts/extract_poses.py writes poses.npz in). This backend converts nav-frame
+   robot poses to recon-frame camera poses using the per-scene calibration
+   stored in that npz (plane normal/offset + metric scale), so
+   SceneEnvConfig.step_size_m, look_ahead_dist, and the GO2 body dims are all
+   REAL meters. start_pose()/goal_position() come from the clip's real
+   trajectory (start = frame 0, goal = a configurable frame index's position).
+
+2. GaussianLabelBackend — SemanticBackend for the reward that NEVER looks at
+   generated RGB. On each render, the world backend also rasterizes the
+   `labels` feature from the SAM3-labeled Gaussians at the same pose (real
+   observed geometry -> projected class map). Holey/unseen pixels come out as
+   void, which the traversability table already treats as collision-worthy →
+   "unknown = risky" keeps the policy inside the reconstructed volume, where
+   observations are trustworthy too.
+
+The math here inverts scripts/extract_poses.poses_from_c2w_recon exactly:
+    forward:  p_nav = s * (R_up @ R_rs @ p_recon - [0, 0, ground_z])
+    inverse:  p_recon = (R_up @ R_rs)^T @ (p_nav / s + [0, 0, ground_z])
+Verified by round-trip test (see scripts/test_calibration.py).
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+import numpy as np
+
+from .real_backend import RealWorldBackend, RealWorldBackendConfig, R_SCENE_TO_RECON
+
+
+def _rotation_aligning_to_z(normal: np.ndarray) -> np.ndarray:
+    """Same Rodrigues construction as scripts/extract_poses.py (kept in sync)."""
+    n = normal / np.linalg.norm(normal)
+    z = np.array([0.0, 0.0, 1.0])
+    c = float(np.clip(n @ z, -1.0, 1.0))
+    if c > 1.0 - 1e-8:
+        return np.eye(3)
+    if c < -1.0 + 1e-8:
+        return np.diag([1.0, -1.0, -1.0])
+    axis = np.cross(n, z)
+    axis /= np.linalg.norm(axis)
+    s = np.sqrt(1.0 - c * c)
+    Kx = np.array([[0.0, -axis[2], axis[1]],
+                   [axis[2], 0.0, -axis[0]],
+                   [-axis[1], axis[0], 0.0]])
+    return np.eye(3) + s * Kx + (1.0 - c) * (Kx @ Kx)
+
+
+@dataclass
+class NavCalibration:
+    """Per-scene nav(metric, z-up, ground z=0) <-> recon(normalized) transform."""
+    A: np.ndarray            # (3,3) = R_up @ R_rs : recon -> aligned-scene rotation
+    ground_z: float          # aligned-scene z of the ground plane (pre-scale)
+    scale: float             # meters per recon unit
+    positions: np.ndarray    # (T,3) real robot trajectory in nav frame (meters)
+    headings: np.ndarray     # (T,3)
+    camera_height_m: float   # camera mount height used at extraction
+
+    @classmethod
+    def from_npz(cls, path: str | Path) -> "NavCalibration":
+        d = np.load(path)
+        R_rs = R_SCENE_TO_RECON.T.astype(np.float64)
+        R_up = _rotation_aligning_to_z(d["plane_normal_scene"].astype(np.float64))
+        return cls(
+            A=R_up @ R_rs,
+            ground_z=float(-d["plane_offset_scene"]),
+            scale=float(d["scale_m_per_unit"]),
+            positions=d["positions"].astype(np.float64),
+            headings=d["headings"].astype(np.float64),
+            camera_height_m=float(d["camera_height_m"]) if "camera_height_m" in d else 0.6,
+        )
+
+    # ---- point maps ----
+    def nav_to_recon_point(self, p_nav: np.ndarray) -> np.ndarray:
+        return self.A.T @ (p_nav / self.scale + np.array([0.0, 0.0, self.ground_z]))
+
+    def recon_to_nav_point(self, p_recon: np.ndarray) -> np.ndarray:
+        return self.scale * (self.A @ p_recon - np.array([0.0, 0.0, self.ground_z]))
+
+    # ---- pose maps ----
+    def nav_cam_to_recon_cam(self, c2w_nav: np.ndarray) -> np.ndarray:
+        """(4,4) camera-to-world in nav frame -> camera-to-world in recon frame."""
+        out = np.eye(4)
+        out[:3, :3] = self.A.T @ c2w_nav[:3, :3]
+        out[:3, 3] = self.nav_to_recon_point(c2w_nav[:3, 3])
+        return out
+
+    def nav_world_to_recon_homogeneous(self) -> np.ndarray:
+        """(4,4) M with X_recon_h = M @ X_nav_h (linear part includes 1/scale).
+        Composing w2c_recon @ M gives a w2c usable on nav-frame points: the
+        uniform 1/scale on xyz cancels in the pinhole division, so pixel
+        coordinates are exact."""
+        M = np.eye(4)
+        M[:3, :3] = self.A.T / self.scale
+        M[:3, 3] = self.A.T @ np.array([0.0, 0.0, self.ground_z])
+        return M
+
+    def robot_pose_nav(self, frame: int) -> np.ndarray:
+        """(4,4) robot-to-nav-world pose from the real trajectory (z=0, yaw from heading)."""
+        fwd = self.headings[frame].copy()
+        fwd[2] = 0.0
+        fwd /= max(np.linalg.norm(fwd), 1e-8)
+        up = np.array([0.0, 0.0, 1.0])
+        pose = np.eye(4)
+        # SceneEnv convention: robot local +x = forward, z = up; right-handed
+        # => local +y = up x fwd (points LEFT, ROS-style).
+        pose[:3, 0] = fwd
+        pose[:3, 1] = np.cross(up, fwd)
+        pose[:3, 2] = up
+        pose[:3, 3] = self.positions[frame] * np.array([1.0, 1.0, 0.0])
+        return pose.astype(np.float32)
+
+
+@dataclass
+class CalibratedBackendConfig(RealWorldBackendConfig):
+    # scene_id -> extract_poses npz (metric calibration + real trajectory)
+    scene_poses_paths: dict = field(default_factory=dict)
+    # scene_id -> SAM3 label npz (labels attach to Gaussians -> reward rasterization)
+    scene_labels_paths: dict = field(default_factory=dict)
+    # goal = real-trajectory position at this frame index (metric nav frame)
+    goal_frame: int = 45
+
+
+class CalibratedRealWorldBackend(RealWorldBackend):
+    """RealWorldBackend that speaks the metric nav frame and rasterizes labels.
+
+    render(pose) takes a (4,4) ROBOT-to-nav-world pose in METERS. Returns
+    (rgb, K, w2c_nav) where w2c_nav projects nav-frame points to pixels —
+    exactly what SceneEnv's reward needs. After every render, the label map
+    rasterized from the Gaussians at the same pose is stored in
+    `_last_semantic_image` for GaussianLabelBackend.
+    """
+
+    def __init__(self, cfg: CalibratedBackendConfig):
+        super().__init__(cfg)
+        self.cfg: CalibratedBackendConfig = cfg
+        self._calib: dict[str, NavCalibration] = {}
+        self._last_semantic_image: Optional[np.ndarray] = None
+
+    # ---------- scene registration ----------
+
+    def load_scene(self, scene_id: str) -> None:
+        if scene_id not in self._calib:
+            poses_path = self.cfg.scene_poses_paths.get(scene_id)
+            if not poses_path:
+                raise ValueError(f"no poses npz configured for scene {scene_id}")
+            self._calib[scene_id] = NavCalibration.from_npz(poses_path)
+        # Parent calls _reconstruct_scene(video_path) without the scene id;
+        # stash it so the label-attachment override can find the labels npz.
+        self._current_loading_scene_id = scene_id
+        super().load_scene(scene_id)
+
+    def start_pose(self, scene_id: str) -> np.ndarray:
+        return self._calib[scene_id].robot_pose_nav(0)
+
+    def goal_position(self, scene_id: str) -> np.ndarray:
+        cal = self._calib[scene_id]
+        frame = min(self.cfg.goal_frame, len(cal.positions) - 1)
+        goal = cal.positions[frame].copy()
+        goal[2] = 0.0
+        return goal.astype(np.float32)
+
+    # ---------- label attachment (SAM3 -> Gaussians) ----------
+
+    def _reconstruct_scene(self, video_path: str) -> dict:
+        """Same as the parent, plus: attach the scene's SAM3 labels to the views
+        BEFORE reconstruction so the Gaussians carry class ids and the labels
+        feature can be rasterized for the reward."""
+        import torch
+
+        # Parent builds views internally; easiest robust hook is to temporarily
+        # wrap load_video is invasive — instead reimplement the small view-build
+        # with labels, then call the parent's heavy path via monkey-free copy.
+        # To keep this maintainable we call the parent and then re-reconstruct
+        # ONLY if labels are configured (labels change the gaussians).
+        scene_id = self._current_loading_scene_id
+        labels_path = self.cfg.scene_labels_paths.get(scene_id)
+        if labels_path is None:
+            return super()._reconstruct_scene(video_path)
+
+        from torchvision.transforms import functional as F
+        from diffsynth.utils.auxiliary import load_video
+
+        cfg = self.cfg
+        reconstructor = self._reconstructor
+        device = next(reconstructor.parameters()).device
+        dtype = next(reconstructor.parameters()).dtype
+
+        images = load_video(video_path, cfg.num_frames,
+                            resolution=(cfg.W, cfg.H), resize_mode="center_crop",
+                            static_scene=False)
+        labels = np.load(labels_path)["labels"]
+        n = min(len(images), len(labels))
+        views = {
+            "img": torch.stack([F.to_tensor(im)[None] for im in images[:n]], dim=1).to(device),
+            "is_target": torch.zeros((1, n), dtype=torch.bool, device=device),
+            "is_static": torch.zeros((1, n), dtype=torch.bool, device=device),
+            "timestamp": torch.arange(0, n, dtype=torch.int64, device=device).unsqueeze(0),
+            "labels": torch.as_tensor(labels[:n], dtype=torch.long, device=device).unsqueeze(0),
+        }
+        with torch.no_grad(), torch.amp.autocast("cuda", dtype=dtype):
+            predictions = reconstructor(views, is_inference=True, use_motion=False)
+        cache = {
+            "gaussians": predictions["splats"],
+            "K": predictions["rendered_intrinsics"][0],
+            "cam2world": predictions["rendered_extrinsics"][0],
+            "timestamps": predictions["rendered_timestamps"][0],
+            "views": views,
+        }
+        del predictions
+        torch.cuda.empty_cache()
+        return cache
+
+    _current_loading_scene_id: Optional[str] = None
+
+    # ---------- rendering in the nav frame ----------
+
+    def render(self, pose_nav_robot: np.ndarray):
+        import torch
+        from diffsynth.utils.auxiliary import homo_matrix_inverse
+
+        scene = self._cache.get(self._current_scene_id)
+        if scene is None:
+            raise RuntimeError("call load_scene() first")
+        cal = self._calib[self._current_scene_id]
+
+        # robot(nav) -> camera(nav): lift by mount height, robot->camera axes.
+        c2w_nav = pose_nav_robot.astype(np.float64).copy()
+        c2w_nav[:3, 3] += np.array([0.0, 0.0, cal.camera_height_m])
+        # Columns = camera local axes expressed in ROBOT axes (robot: x fwd,
+        # y LEFT, z up; camera: x right, y down, z fwd):
+        #   cam_x (right) = -robot_y -> col0 (0,-1,0)
+        #   cam_y (down)  = -robot_z -> col1 (0,0,-1)
+        #   cam_z (fwd)   =  robot_x -> col2 (1,0,0)
+        R_cam_local = np.array([
+            [0.0,  0.0, 1.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, -1.0, 0.0],
+        ])
+        c2w_nav[:3, :3] = c2w_nav[:3, :3] @ R_cam_local
+
+        # nav camera pose -> recon camera pose.
+        pose_recon = cal.nav_cam_to_recon_cam(c2w_nav)
+        if self.cfg.render_mode == "rasterizer_only":
+            # Single-frame rasterization (the parent broadcasts to all 81 frames
+            # for the diffusion path — 81x wasted work per RL step here).
+            rgb, K, w2c_recon = self._rasterize_single(scene, pose_recon)
+        else:
+            rgb, K, w2c_recon = self._rasterize_and_diffuse(scene, pose_recon.astype(np.float32))
+
+        # Label rasterization at the SAME pose (reward source; never generated RGB).
+        self._last_semantic_image = self._rasterize_labels(scene, pose_recon)
+
+        # Return a w2c usable on NAV-frame (metric) points.
+        w2c_nav = w2c_recon.astype(np.float64) @ cal.nav_world_to_recon_homogeneous()
+        return rgb, K, w2c_nav.astype(np.float32)
+
+    def _single_frame_inputs(self, scene: dict, pose_recon: np.ndarray):
+        import torch
+        from diffsynth.utils.auxiliary import homo_matrix_inverse
+        device = next(self._reconstructor.parameters()).device
+        c2w = torch.from_numpy(pose_recon.astype(np.float32)).to(
+            device=device, dtype=scene["cam2world"].dtype).unsqueeze(0)
+        w2c = homo_matrix_inverse(c2w)
+        return w2c, scene["K"][0:1], scene["timestamps"][0:1]
+
+    def _rasterize_single(self, scene: dict, pose_recon: np.ndarray):
+        import torch
+        w2c, K1, ts1 = self._single_frame_inputs(scene, pose_recon)
+        rgb, _, _ = self._reconstructor.gs_renderer.rasterizer.forward(
+            scene["gaussians"], render_viewmats=[w2c], render_Ks=[K1],
+            render_timestamps=[ts1], sh_degree=0, width=self.W, height=self.H,
+        )
+        rgb_np = (rgb[0, 0].detach().clamp(0, 1).float().cpu().numpy() * 255).astype(np.uint8)
+        return rgb_np, K1[0].detach().cpu().float().numpy(), w2c[0].detach().cpu().float().numpy()
+
+    def _rasterize_labels(self, scene: dict, pose_recon: np.ndarray) -> np.ndarray:
+        import torch
+        w2c, K1, ts1 = self._single_frame_inputs(scene, pose_recon)
+        sem_probs, _, _ = self._reconstructor.gs_renderer.rasterizer.forward(
+            scene["gaussians"], render_viewmats=[w2c], render_Ks=[K1],
+            render_timestamps=[ts1], sh_degree=0, width=self.W, height=self.H,
+            feature="labels",
+        )
+        return sem_probs[0, 0].argmax(dim=-1).to(torch.int32).cpu().numpy()
+
+
+class GaussianLabelBackend:
+    """SemanticBackend whose labels come from the 3D Gaussians, not from RGB.
+
+    Real observed geometry projected at the current pose. Unseen regions ->
+    void -> treated as collision-worthy by the traversability table, which
+    keeps the policy inside the reconstructed volume.
+    """
+    def __init__(self, world_backend: CalibratedRealWorldBackend):
+        self._world = world_backend
+
+    def segment(self, rgb: np.ndarray) -> np.ndarray:
+        if self._world._last_semantic_image is None:
+            raise RuntimeError("GaussianLabelBackend.segment called before world.render()")
+        return self._world._last_semantic_image
