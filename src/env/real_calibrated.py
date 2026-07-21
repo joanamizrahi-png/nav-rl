@@ -257,32 +257,43 @@ class CalibratedRealWorldBackend(RealWorldBackend):
 
         # nav camera pose -> recon camera pose.
         pose_recon = cal.nav_cam_to_recon_cam(c2w_nav)
+
+        # TIME MATTERS (debugged 2026-07-21 via panning-then-black replay): the
+        # scene is reconstructed as DYNAMIC — Gaussians are time-associated, and
+        # rendering everything at timestamp 0 culls content that belongs to later
+        # moments (works near frame 0's position, black further along). Render at
+        # the timestamp of the NEAREST source-trajectory point instead: scene
+        # content is densest at the time the camera actually stood nearby.
+        t_idx = int(np.argmin(np.linalg.norm(
+            cal.positions[:, :2] - pose_nav_robot[:2, 3], axis=1)))
+
         if self.cfg.render_mode == "rasterizer_only":
             # Single-frame rasterization (the parent broadcasts to all 81 frames
             # for the diffusion path — 81x wasted work per RL step here).
-            rgb, K, w2c_recon = self._rasterize_single(scene, pose_recon)
+            rgb, K, w2c_recon = self._rasterize_single(scene, pose_recon, t_idx)
         else:
             rgb, K, w2c_recon = self._rasterize_and_diffuse(scene, pose_recon.astype(np.float32))
 
-        # Label rasterization at the SAME pose (reward source; never generated RGB).
-        self._last_semantic_image = self._rasterize_labels(scene, pose_recon)
+        # Label rasterization at the SAME pose + time (reward source; never generated RGB).
+        self._last_semantic_image = self._rasterize_labels(scene, pose_recon, t_idx)
 
         # Return a w2c usable on NAV-frame (metric) points.
         w2c_nav = w2c_recon.astype(np.float64) @ cal.nav_world_to_recon_homogeneous()
         return rgb, K, w2c_nav.astype(np.float32)
 
-    def _single_frame_inputs(self, scene: dict, pose_recon: np.ndarray):
+    def _single_frame_inputs(self, scene: dict, pose_recon: np.ndarray, t_idx: int):
         import torch
         from diffsynth.utils.auxiliary import homo_matrix_inverse
         device = next(self._reconstructor.parameters()).device
         c2w = torch.from_numpy(pose_recon.astype(np.float32)).to(
             device=device, dtype=scene["cam2world"].dtype).unsqueeze(0)
         w2c = homo_matrix_inverse(c2w)
-        return w2c, scene["K"][0:1], scene["timestamps"][0:1]
+        t_idx = int(np.clip(t_idx, 0, len(scene["timestamps"]) - 1))
+        return w2c, scene["K"][0:1], scene["timestamps"][t_idx:t_idx + 1]
 
-    def _rasterize_single(self, scene: dict, pose_recon: np.ndarray):
+    def _rasterize_single(self, scene: dict, pose_recon: np.ndarray, t_idx: int = 0):
         import torch
-        w2c, K1, ts1 = self._single_frame_inputs(scene, pose_recon)
+        w2c, K1, ts1 = self._single_frame_inputs(scene, pose_recon, t_idx)
         rgb, _, _ = self._reconstructor.gs_renderer.rasterizer.forward(
             scene["gaussians"], render_viewmats=[w2c], render_Ks=[K1],
             render_timestamps=[ts1], sh_degree=0, width=self.W, height=self.H,
@@ -290,9 +301,9 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         rgb_np = (rgb[0, 0].detach().clamp(0, 1).float().cpu().numpy() * 255).astype(np.uint8)
         return rgb_np, K1[0].detach().cpu().float().numpy(), w2c[0].detach().cpu().float().numpy()
 
-    def _rasterize_labels(self, scene: dict, pose_recon: np.ndarray) -> np.ndarray:
+    def _rasterize_labels(self, scene: dict, pose_recon: np.ndarray, t_idx: int = 0) -> np.ndarray:
         import torch
-        w2c, K1, ts1 = self._single_frame_inputs(scene, pose_recon)
+        w2c, K1, ts1 = self._single_frame_inputs(scene, pose_recon, t_idx)
         sem_probs, _, _ = self._reconstructor.gs_renderer.rasterizer.forward(
             scene["gaussians"], render_viewmats=[w2c], render_Ks=[K1],
             render_timestamps=[ts1], sh_degree=0, width=self.W, height=self.H,
