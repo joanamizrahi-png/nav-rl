@@ -16,9 +16,10 @@ export PYTHONNOUSERSITE=1
 hash -r
 cd /scratch/m000204-pm06b/joana/nav-rl
 python scripts/dump_scene_cloud.py \
-    --scenes rugd_trail_00 rugd_creek_00 rugd_park-1_00 rugd_park-2_00 \
+    --scenes $(ls /scratch/m000204-pm06b/joana/outputs/poses/*_poses.npz | xargs -n1 basename | sed "s/_poses.npz//" | grep -v village) \
     --clips_dir /scratch/m000204-pm06b/joana/data/rugd_clips \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
     --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels \
-    --out_dir /scratch/m000204-pm06b/joana/outputs/scene_clouds
+    --out_dir /scratch/m000204-pm06b/joana/outputs/scene_clouds \
+    --ply
 echo "==> clouds in /scratch/m000204-pm06b/joana/outputs/scene_clouds"
