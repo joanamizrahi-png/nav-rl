@@ -110,10 +110,18 @@ class NavCalibration:
         fwd /= max(np.linalg.norm(fwd), 1e-8)
         up = np.array([0.0, 0.0, 1.0])
         pose = np.eye(4)
-        # SceneEnv convention: robot local +x = forward, z = up; right-handed
-        # => local +y = up x fwd (points LEFT, ROS-style).
+        # SUBTLE (debugged 2026-07-20 via black replay frames): the nav frame is
+        # MIRRORED — real_backend's R_SCENE_TO_RECON has det=-1 (its "x fwd,
+        # y right, z up" scene convention is left-handed), so every stored c2w
+        # in the poses npz is an improper rotation. Robot poses must match that
+        # handedness or the composed recon-frame camera comes out det=-1 and
+        # gsplat renders garbage/black. Hence +y = fwd x up (det -1, matching
+        # the frame), NOT the right-handed up x fwd. Verified against the npz's
+        # own c2w: <=9 deg per-axis error (residual = real camera pitch).
+        # Deployment note: left/right yaw sign must be mirrored when
+        # transferring actions to a real robot.
         pose[:3, 0] = fwd
-        pose[:3, 1] = np.cross(up, fwd)
+        pose[:3, 1] = np.cross(fwd, up)
         pose[:3, 2] = up
         pose[:3, 3] = self.positions[frame] * np.array([1.0, 1.0, 0.0])
         return pose.astype(np.float32)
