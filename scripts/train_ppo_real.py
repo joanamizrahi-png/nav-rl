@@ -67,15 +67,62 @@ def make_env(args):
 
 
 def save_rollout_video(model, env, out_path: Path, max_frames=120):
+    """Eval rollout with a HUD (step/action/reward/dist) + top-down map inset:
+    agent path (white), recorded real trajectory (gray), goal (green). Makes
+    off-manifold wandering legible — black frames = outside the reconstructed
+    volume, and the map shows exactly where the agent is relative to the trail."""
     import imageio.v3 as iio
-    frames = []
+    from PIL import Image, ImageDraw
+
+    base_env = env.unwrapped if hasattr(env, "unwrapped") else env
+    world = base_env.world_backend
+    cal = world._calib[base_env.scene_ids[0]] if hasattr(world, "_calib") else None
+    ref_traj = cal.positions[:, :2] if cal is not None else None
+
+    frames, path_xy, rows = [], [], []
     obs, _ = env.reset()
-    done = False
+    goal = base_env._goal_world[:2].copy()
+    done, r, info = False, 0.0, {}
     while not done and len(frames) < max_frames:
-        frames.append(env.render().copy())
+        pose = base_env._robot_pose_world
+        path_xy.append(pose[:2, 3].copy())
         action, _ = model.predict(obs, deterministic=True)
+
+        img = Image.fromarray(env.render().copy())
+        draw = ImageDraw.Draw(img, "RGBA")
+        H, W = img.height, img.width
+
+        # --- top-down map inset (bottom-right), fixed world window ---
+        m = 110
+        all_pts = np.array(path_xy + ([goal] if goal is not None else []))
+        if ref_traj is not None:
+            all_pts = np.vstack([all_pts, ref_traj])
+        lo, hi = all_pts.min(0) - 1.0, all_pts.max(0) + 1.0
+        span = float(max(hi[0] - lo[0], hi[1] - lo[1], 1e-3))
+        def to_px(p):
+            return (W - m - 6 + (p[0] - lo[0]) / span * m,
+                    H - 6 - (p[1] - lo[1]) / span * m)
+        draw.rectangle([W - m - 10, H - m - 10, W - 2, H - 2], fill=(0, 0, 0, 170))
+        if ref_traj is not None:
+            draw.line([to_px(p) for p in ref_traj[::4]], fill=(160, 160, 160, 255), width=1)
+        if len(path_xy) > 1:
+            draw.line([to_px(p) for p in path_xy], fill=(255, 255, 255, 255), width=2)
+        gx, gy = to_px(goal)
+        draw.ellipse([gx - 3, gy - 3, gx + 3, gy + 3], fill=(0, 255, 0, 255))
+        ax, ay = to_px(path_xy[-1])
+        draw.ellipse([ax - 2, ay - 2, ax + 2, ay + 2], fill=(255, 80, 80, 255))
+
+        # --- HUD banner ---
+        draw.rectangle([0, 0, W, 14], fill=(0, 0, 0, 180))
+        draw.text((4, 2), f"t={len(frames):3d} v={float(action[0]):+.2f} "
+                          f"w={float(action[1]):+.2f} r={float(r):+.2f} "
+                          f"dist={info.get('dist_to_goal', float('nan')):.1f}m",
+                  fill=(255, 255, 255, 255))
+        frames.append(np.array(img.convert("RGB")))
+
         obs, r, terminated, truncated, info = env.step(action)
         done = terminated or truncated
+
     iio.imwrite(str(out_path), np.stack(frames), fps=8,
                 codec="libx264", macro_block_size=1,
                 ffmpeg_params=["-pix_fmt", "yuv420p"])
