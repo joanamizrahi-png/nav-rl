@@ -39,6 +39,9 @@ from src.eval.palette import CLASS_COLORS_255
 
 COLOR_MODE = "rgb"
 MIN_OPACITY = 0.05
+HIDE_SKY = False
+SIZE_BY_SCALE = False
+GROUND_PCT = 5.0
 
 
 def local_ground_from_cloud(points: np.ndarray, xy: np.ndarray,
@@ -62,7 +65,11 @@ def run(npz_path: Path):
     traj = d["traj_positions"]
     true_ground = d["traj_cam_z"] - float(d["camera_height_m"])
     scene = npz_path.stem.replace("_cloud", "")
-    out_dir = npz_path.parent
+    # Folder layout (option A): scene_clouds/{clouds,splats,html,ground}/.
+    # Accept npz paths inside clouds/ or flat (older layout).
+    root = npz_path.parent.parent if npz_path.parent.name == "clouds" else npz_path.parent
+    html_dir = root / "html"; ground_dir = root / "ground"
+    html_dir.mkdir(exist_ok=True); ground_dir.mkdir(exist_ok=True)
 
     # ---- 1. interactive 3D + top-down panel (plotly) ----
     # Filter floaters by opacity when available (they clutter the point view but
@@ -71,7 +78,9 @@ def run(npz_path: Path):
     sizes = d["sizes"] if "sizes" in d else np.zeros(len(pts))
     times = d["times"] if "times" in d else np.full(len(pts), -1.0)
     keep = opac >= MIN_OPACITY
-    print(f"  opacity filter >= {MIN_OPACITY}: kept {keep.mean():.0%} of points")
+    if HIDE_SKY:                      # optional, off by default (--hide_sky)
+        keep &= ~np.isin(labels, (0, 1))
+    print(f"  filters kept {keep.mean():.0%} of points")
     kpts, kcol, klab = pts[keep], colors[keep], labels[keep]
     kop, ksz, ktm = opac[keep], sizes[keep], times[keep]
     sub = np.random.default_rng(0).choice(len(kpts), min(len(kpts), 120_000), replace=False)
@@ -90,9 +99,17 @@ def run(npz_path: Path):
             cvals = ktm[sub]
         else:  # rgb
             cvals = [f"rgb({r},{g},{b})" for r, g, b in kcol[sub]]
-        # marker size from gaussian scale: 1px (tiny) .. 4px (big blobs)
-        msize = 1 + 3 * np.clip(ksz[sub] / max(np.percentile(ksz[sub], 95), 1e-6), 0, 1)
-        marker = dict(size=msize, color=cvals, opacity=0.8)
+        # Constant small markers by default. The size-by-scale mapping
+        # (--size_by_scale) inflates far/uncertain gaussians into huge blobs
+        # that bury the scene ("white avalanche") — root cause of the earlier
+        # all-white view, so it's opt-in only. Sizes as plain list, not numpy
+        # (plotly's binary encoding can silently kill the WebGL trace).
+        if SIZE_BY_SCALE:
+            msize = (1.5 + 1.5 * np.clip(ksz[sub] / max(np.percentile(ksz[sub], 95), 1e-6), 0, 1))
+            size_arg = [round(float(s), 2) for s in msize]
+        else:
+            size_arg = 1.5
+        marker = dict(size=size_arg, color=cvals, opacity=0.8)
         if COLOR_MODE in ("height", "time"):
             marker["colorscale"] = "Viridis"; marker["showscale"] = True
 
@@ -121,7 +138,7 @@ def run(npz_path: Path):
         fig.update_yaxes(scaleanchor="x", scaleratio=1, row=1, col=2)
         fig.update_layout(scene=dict(aspectmode="data", bgcolor="black"),
                           template="plotly_dark", title=scene)
-        html = out_dir / f"{scene}_cloud3d.html"
+        html = html_dir / f"{scene}_cloud3d.html"
         fig.write_html(str(html))
         print(f"  {html}  <- open in browser; left: rotate/zoom, right: floor plan")
     except ImportError:
@@ -133,17 +150,18 @@ def run(npz_path: Path):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    gauss_ground = local_ground_from_cloud(pts, traj[:, :2])
+    gauss_ground = local_ground_from_cloud(pts, traj[:, :2], pct=GROUND_PCT)
     x = np.arange(len(traj))
     fig, ax = plt.subplots(figsize=(9, 3.5))
     ax.axhline(0, color="gray", ls="--", lw=1, label="flat assumption (z=0)")
     ax.plot(x, true_ground, color="goldenrod", lw=2, label="TRUE ground (trajectory-derived)")
-    ax.plot(x, gauss_ground, color="tab:blue", lw=1.5, label="Gaussian-derived local ground")
+    ax.plot(x, gauss_ground, color="tab:blue", lw=1.5,
+            label=f"Gaussian-derived local ground (p{GROUND_PCT:g})")
     ax.set_xlabel("frame along real trajectory"); ax.set_ylabel("ground height (m)")
     ax.set_title(f"Test A — can the Gaussians tell us the ground shape?  [{scene}]")
     ax.legend(fontsize=8); ax.grid(alpha=0.3)
     fig.tight_layout()
-    png = out_dir / f"{scene}_ground_testA.png"
+    png = ground_dir / f"{scene}_ground_testA_p{GROUND_PCT:g}.png"
     fig.savefig(png, dpi=120); plt.close(fig)
 
     ok = ~np.isnan(gauss_ground)
@@ -160,6 +178,12 @@ if __name__ == "__main__":
         i = argv.index("--color"); COLOR_MODE = argv[i + 1]; del argv[i:i + 2]
     if "--min_opacity" in argv:
         i = argv.index("--min_opacity"); MIN_OPACITY = float(argv[i + 1]); del argv[i:i + 2]
+    if "--hide_sky" in argv:
+        HIDE_SKY = True; argv.remove("--hide_sky")
+    if "--size_by_scale" in argv:
+        SIZE_BY_SCALE = True; argv.remove("--size_by_scale")
+    if "--pct" in argv:
+        i = argv.index("--pct"); GROUND_PCT = float(argv[i + 1]); del argv[i:i + 2]
     for p in argv:
         print(f"=== {p} ===")
         run(Path(p))
