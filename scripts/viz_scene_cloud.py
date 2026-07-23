@@ -138,7 +138,7 @@ def run(npz_path: Path):
         fig.update_yaxes(scaleanchor="x", scaleratio=1, row=1, col=2)
         fig.update_layout(scene=dict(aspectmode="data", bgcolor="black"),
                           template="plotly_dark", title=scene)
-        html = html_dir / f"{scene}_cloud3d.html"
+        html = html_dir / f"{scene}_cloud3d_{COLOR_MODE}.html"
         fig.write_html(str(html))
         print(f"  {html}  <- open in browser; left: rotate/zoom, right: floor plan")
     except ImportError:

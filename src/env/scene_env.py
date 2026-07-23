@@ -93,6 +93,9 @@ class SceneEnvConfig:
     look_ahead_dist: float = 1.5        # meters; passed to the reward
     goal_radius: float = 0.5            # meters; within this counts as "reached goal"
     collision_threshold: float = 0.1    # class score at/below which counts as collision
+    spin_cost: float = 0.0              # shaping v2: penalty * |yaw action| (taxes circling)
+    random_spawn: bool = False          # shaping v2: spawn along the real trajectory if the
+                                        # backend offers sample_start_pose(scene_id, rng)
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +155,11 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._scene_id = self.scene_ids[idx]
         self.world_backend.load_scene(self._scene_id)
 
-        self._robot_pose_world = self.world_backend.start_pose(self._scene_id).copy()
+        if self.cfg.random_spawn and hasattr(self.world_backend, "sample_start_pose"):
+            self._robot_pose_world = self.world_backend.sample_start_pose(
+                self._scene_id, self.np_random).copy()
+        else:
+            self._robot_pose_world = self.world_backend.start_pose(self._scene_id).copy()
         self._goal_world = self.world_backend.goal_position(self._scene_id).copy()
         self._prev_position = None
         self._steps = 0
@@ -202,10 +209,15 @@ class SceneEnv(gym.Env if gym is not None else object):
         terminated = dist_to_goal < self.cfg.goal_radius
         truncated = self._steps >= self.cfg.max_steps
 
+        spin_term = -self.cfg.spin_cost * abs(float(action[1]))
+        reward = breakdown.total + spin_term
+
         info = breakdown.to_dict()
+        info["spin"] = spin_term
+        info["total"] = reward
         info["dist_to_goal"] = dist_to_goal
         info["reached_goal"] = terminated
-        return self._obs(), breakdown.total, terminated, truncated, info
+        return self._obs(), reward, terminated, truncated, info
 
     def render(self):
         return self._last_rgb

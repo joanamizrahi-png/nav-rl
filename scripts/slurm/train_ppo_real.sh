@@ -34,8 +34,8 @@ python scripts/train_ppo_real.py \
     --clips_dir /scratch/m000204-pm06b/joana/data/rugd_clips \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
     --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels \
-    --total_steps 10000 \
-    --output_dir /scratch/m000204-pm06b/joana/outputs/ppo_real_trail00 \
+    --total_steps 200000 \
+    --output_dir /scratch/m000204-pm06b/joana/outputs/ppo_shaped_v2_trail00 \
     --use_wandb
 
-echo "==> done: /scratch/m000204-pm06b/joana/outputs/ppo_real_trail00 (rollout.mp4 + curves)"
+echo "==> done: /scratch/m000204-pm06b/joana/outputs/ppo_shaped_v2_trail00 (rollout.mp4 + curves)"

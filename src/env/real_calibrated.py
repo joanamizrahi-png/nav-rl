@@ -75,7 +75,7 @@ class NavCalibration:
             scale=float(d["scale_m_per_unit"]),
             positions=d["positions"].astype(np.float64),
             headings=d["headings"].astype(np.float64),
-            camera_height_m=float(d["camera_height_m"]) if "camera_height_m" in d else 0.6,
+            camera_height_m=float(d["camera_height_m"]) if "camera_height_m" in d else 0.25,
         )
 
     # ---- point maps ----
@@ -168,6 +168,13 @@ class CalibratedRealWorldBackend(RealWorldBackend):
 
     def start_pose(self, scene_id: str) -> np.ndarray:
         return self._calib[scene_id].robot_pose_nav(0)
+
+    def sample_start_pose(self, scene_id: str, rng) -> np.ndarray:
+        """Spawn curriculum: a random pose along the REAL trajectory, upstream
+        of the goal (so some spawns are near it -> early successes to learn from)."""
+        cal = self._calib[scene_id]
+        hi = max(1, min(self.cfg.goal_frame - 5, len(cal.positions) - 6))
+        return cal.robot_pose_nav(int(rng.integers(0, hi)))
 
     def goal_position(self, scene_id: str) -> np.ndarray:
         cal = self._calib[scene_id]

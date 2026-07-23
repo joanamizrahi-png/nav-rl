@@ -169,14 +169,17 @@ def load_clip(
     frames_rgb = _center_crop_frames(np.stack(sampled, axis=0), 560, 336)
     T, H, W = frames_rgb.shape[:3]
 
-    # --- labels ---
-    d = np.load(labels_path)
-    labels = d["labels"].astype(np.int32)
-    if labels.shape[0] > T:
-        labels = labels[:T]
-    elif labels.shape[0] < T:
-        raise ValueError(f"label frames {labels.shape[0]} < video frames {T}; "
-                         f"re-run SAM3 with --num_frames {T}")
+    # --- labels (optional: pose-only consumers like test_projection pass None) ---
+    if labels_path is None:
+        labels = None
+    else:
+        d = np.load(labels_path)
+        labels = d["labels"].astype(np.int32)
+        if labels.shape[0] > T:
+            labels = labels[:T]
+        elif labels.shape[0] < T:
+            raise ValueError(f"label frames {labels.shape[0]} < video frames {T}; "
+                             f"re-run SAM3 with --num_frames {T}")
 
     # --- poses ---
     if pose_source == "synthetic":

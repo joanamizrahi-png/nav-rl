@@ -52,14 +52,21 @@ def make_env(args):
     )
     world = CalibratedRealWorldBackend(cfg)
     sem = GaussianLabelBackend(world)
+    # Shaping v2 (approved 2026-07-23): void split from obstacles (mild penalty),
+    # collision 5->1, goal pull 0.5->1.5, anti-spin tax, spawn curriculum,
+    # goals ~3 real meters. Corrected metric scale (camera 0.25 m): blind zone
+    # starts ~0.6 m, so look_ahead 1.5 m is safely visible.
     env_cfg = SceneEnvConfig(
         max_steps=args.max_steps,
-        step_size_m=0.3,                     # real robot pace (extract_poses: 0.2-0.4 m/frame)
+        step_size_m=0.15,                    # real pace at corrected scale (~0.3-0.5 m/s)
         yaw_step_rad=0.3,
-        reward=RewardWeights(semantic=1.0, goal=0.5, collision=5.0, step_cost=0.05),
-        look_ahead_dist=2.0,                 # level-camera blind zone ends ~1.6 m
-        goal_radius=1.0,
+        reward=RewardWeights(semantic=1.0, goal=1.5, collision=1.0,
+                             step_cost=0.05, void_cost=0.3),
+        look_ahead_dist=1.5,
+        goal_radius=0.75,
         collision_threshold=0.1,
+        spin_cost=0.05,
+        random_spawn=True,
     )
     env = SceneEnv(world_backend=world, semantic_backend=sem,
                    scene_ids=[args.scene], cfg=env_cfg)
@@ -141,8 +148,8 @@ def main():
                     default="/scratch/m000204-pm06b/joana/NeoVerse/models/NeoVerse/reconstructor.ckpt")
     ap.add_argument("--total_steps", type=int, default=10_000)
     ap.add_argument("--max_steps", type=int, default=60)
-    ap.add_argument("--goal_frame", type=int, default=45,
-                    help="goal = real-trajectory position at this frame (~45 => a dozen meters in)")
+    ap.add_argument("--goal_frame", type=int, default=30,
+                    help="goal = real-trajectory position at this frame (~30 => ~3-4 real m)")
     ap.add_argument("--output_dir", type=Path, default=Path("outputs/ppo_real"))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--use_wandb", action="store_true")
@@ -171,7 +178,7 @@ def main():
         try:
             import wandb
             from wandb.integration.sb3 import WandbCallback
-            wandb.init(project="nav-rl", name=f"ppo_real_{args.scene}",
+            wandb.init(project="nav-rl", name=f"ppo_shaped_v2_{args.scene}",
                        config=vars(args) | {"total_steps": args.total_steps},
                        sync_tensorboard=True, dir=str(args.output_dir))
             callbacks.append(WandbCallback())

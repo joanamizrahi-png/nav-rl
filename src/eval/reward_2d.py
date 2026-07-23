@@ -33,6 +33,11 @@ class RewardWeights:
     goal: float = 0.5
     collision: float = 5.0     # collision term already scaled to ~[0,1], so this is the actual weight
     step_cost: float = 0.05    # constant per-frame negative; kills "stand still and accumulate reward"
+    # Shaping v2 (2026-07-23): void (unknown/unseen) split from true obstacles.
+    # Default 0.0 keeps old behavior (void stays inside `collision` via the
+    # non_traversable mask); setting > 0 moves void into its own mild penalty
+    # so exploring near the unknown isn't as punishing as hitting a tree.
+    void_cost: float = 0.0
 
 
 @dataclass
@@ -42,6 +47,7 @@ class RewardBreakdown:
     goal: float
     collision: float
     step: float = 0.0               # constant per-frame step cost (negative when weights.step_cost > 0)
+    void: float = 0.0               # unknown-region term (only when weights.void_cost > 0)
     # Debug info for plots/logs:
     n_footprint_pixels: int = 0
     n_traversable_pixels: int = 0
@@ -152,6 +158,7 @@ def compute_reward(
         dominant_class_id = -1
         off_frame_frac = 1.0
         collision_frac = 0.0
+        void_frac = 0.0
     else:
         mask = _fill_polygon(H, W, corners_uv)
         # Clip mask to image bounds — polygon may extend past edges.
@@ -165,15 +172,24 @@ def compute_reward(
             dominant_class_id = -1
             off_frame_frac = 1.0
             collision_frac = 0.0
+            void_frac = 0.0
         else:
             classes = semantic_image[in_bounds]
             scores = traversability_scores[classes]
             mean_class_score = float(scores.mean())
             sem_score = mean_class_score
 
-            # Collision = fraction of footprint pixels on non-traversable classes.
             n_traversable_pixels = int((~non_traversable_mask[classes]).sum())
-            collision_frac = float(non_traversable_mask[classes].mean())
+            if weights.void_cost > 0:
+                # Void (class 0 = unknown/unseen) is its own mild term; collision
+                # counts only REAL obstacle classes. Otherwise void rides inside
+                # collision (original behavior).
+                void_sel = classes == 0
+                collision_frac = float((non_traversable_mask[classes] & ~void_sel).mean())
+                void_frac = float(void_sel.mean())
+            else:
+                collision_frac = float(non_traversable_mask[classes].mean())
+                void_frac = 0.0
 
             counts = np.bincount(classes, minlength=len(traversability_scores))
             dominant_class_id = int(np.argmax(counts))
@@ -191,8 +207,9 @@ def compute_reward(
     semantic_term = weights.semantic * sem_score
     goal_term = weights.goal * goal_score
     collision_term = -weights.collision * collision_frac
+    void_term = -weights.void_cost * void_frac
     step_term = -weights.step_cost                      # constant per-frame negative
-    total = semantic_term + goal_term + collision_term + step_term
+    total = semantic_term + goal_term + collision_term + void_term + step_term
 
     return RewardBreakdown(
         total=float(total),
@@ -200,6 +217,7 @@ def compute_reward(
         goal=float(goal_term),
         collision=float(collision_term),
         step=float(step_term),
+        void=float(void_term),
         n_footprint_pixels=n_footprint_pixels,
         n_traversable_pixels=n_traversable_pixels,
         mean_class_score=mean_class_score,

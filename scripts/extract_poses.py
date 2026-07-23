@@ -30,7 +30,8 @@ The geometry, step by step (conventions verified in src/env/real_backend.py):
      exactly +z, with the ground at z=0.
   4. Metric scale: the camera's median height above the fitted plane, in recon
      units, must equal the physical mount height (--camera_height_m; RUGD was
-     recorded on a Clearpath Husky, camera ~0.6 m up). scale = mount_m / median.
+     recorded on a Clearpath Husky; paper Sec III-A: viewpoint <25 cm off the
+     ground -> 0.25 m). scale = mount_m / median.
      Scaling world points AND c2w translations by the same factor leaves pixel
      projections bit-identical, so the reward's meter-based footprint
      (GO2 body 0.6x0.3 m, look_ahead 0.5 m) becomes meaningful without
@@ -269,9 +270,10 @@ def main():
     ap.add_argument("--num_frames", type=int, default=81)
     ap.add_argument("--width", type=int, default=560)
     ap.add_argument("--height", type=int, default=336)
-    ap.add_argument("--camera_height_m", type=float, default=0.6,
+    ap.add_argument("--camera_height_m", type=float, default=0.25,
                     help="physical camera mount height used ONLY for metric scale "
-                         "(RUGD: Clearpath Husky, ~0.6 m). Getting this off by 20%% "
+                         "(RUGD paper Sec III-A: viewpoint <25 cm off ground -> 0.25). "
+                         "Getting this off by 20%% "
                          "scales the footprint/look-ahead by 20%% — mild, not fatal.")
     ap.add_argument("--max_gaussians_for_plane", type=int, default=200_000)
     args = ap.parse_args()
