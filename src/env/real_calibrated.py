@@ -231,6 +231,15 @@ class CalibratedRealWorldBackend(RealWorldBackend):
             "views": views,
         }
         del predictions
+        # MEMORY DISCIPLINE (parity with the parent class, lost in this override
+        # and cause of the probe OOM): in diffusion mode the scene — including
+        # the hefty one-hot label tensors — must live on CPU so the ~30GB Wan
+        # pipeline can load; renders move it back per call.
+        if self.cfg.render_mode == "rasterizer_plus_diffusion":
+            from .real_backend import _move_tree_to
+            import gc
+            cache = _move_tree_to(cache, "cpu")
+            gc.collect()
         torch.cuda.empty_cache()
         return cache
 
