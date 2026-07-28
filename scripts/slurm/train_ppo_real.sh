@@ -39,6 +39,10 @@ else
     BC_ARGS=""
     OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v2_shaped_trail00
 fi
+if [ "${RUNG5:-0}" = "1" ]; then
+    BC_ARGS="$BC_ARGS --spawn_max_frame 3"
+    OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v5_traverse_trail00
+fi
 echo "==> rung: ${BC_ARGS:-pure-shaped}  out: $OUT"
 python scripts/train_ppo_real.py \
     --scene rugd_trail_00 \

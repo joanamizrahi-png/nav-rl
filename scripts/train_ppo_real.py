@@ -46,6 +46,7 @@ def make_env(args):
         scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
         goal_frame=args.goal_frame,
+        spawn_max_frame=args.spawn_max_frame,
         render_mode="rasterizer_only",       # cheap per-step; diffusion later
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -116,6 +117,10 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
         if len(path_xy) > 1:
             draw.line([to_px(p) for p in path_xy], fill=(255, 255, 255, 255), width=2)
         gx, gy = to_px(goal)
+        # success disc (goal_radius) so terminations look right, then the dot
+        rr = base_env.cfg.goal_radius / span * m
+        draw.ellipse([gx - rr, gy - rr, gx + rr, gy + rr],
+                     outline=(0, 255, 0, 200), width=1)
         draw.ellipse([gx - 3, gy - 3, gx + 3, gy + 3], fill=(0, 255, 0, 255))
         ax, ay = to_px(path_xy[-1])
         draw.ellipse([ax - 2, ay - 2, ax + 2, ay + 2], fill=(255, 80, 80, 255))
@@ -130,6 +135,15 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
 
         obs, r, terminated, truncated, info = env.step(action)
         done = terminated or truncated
+
+    # Arrival frame: the loop above draws BEFORE stepping, so the terminal pose
+    # (entering the goal disc) was never rendered — append it.
+    final = Image.fromarray(env.render().copy())
+    fd = ImageDraw.Draw(final, "RGBA")
+    fd.rectangle([0, 0, final.width, 14], fill=(0, 0, 0, 180))
+    fd.text((4, 2), f"t={len(frames):3d} DONE reached_goal={info.get('reached_goal')} "
+                    f"r={float(r):+.2f}", fill=(0, 255, 0, 255))
+    frames.append(np.array(final.convert("RGB")))
 
     iio.imwrite(str(out_path), np.stack(frames), fps=8,
                 codec="libx264", macro_block_size=1,
@@ -187,6 +201,8 @@ def main():
                     default="/scratch/m000204-pm06b/joana/NeoVerse/models/NeoVerse/reconstructor.ckpt")
     ap.add_argument("--total_steps", type=int, default=10_000)
     ap.add_argument("--max_steps", type=int, default=60)
+    ap.add_argument("--spawn_max_frame", type=int, default=None,
+                    help="cap spawn range; 3 = full traverses from the trail start (rung 5)")
     ap.add_argument("--goal_frame", type=int, default=30,
                     help="goal = real-trajectory position at this frame (~30 => ~3-4 real m)")
     ap.add_argument("--output_dir", type=Path, default=Path("outputs/ppo_real"))

@@ -135,6 +135,9 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     scene_labels_paths: dict = field(default_factory=dict)
     # goal = real-trajectory position at this frame index (metric nav frame)
     goal_frame: int = 45
+    # spawn curriculum: cap the spawn range. None = anywhere up to goal_frame-5
+    # (short-range task); small value (e.g. 3) = full traverses from the start.
+    spawn_max_frame: "int | None" = None
 
 
 class CalibratedRealWorldBackend(RealWorldBackend):
@@ -174,6 +177,8 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         of the goal (so some spawns are near it -> early successes to learn from)."""
         cal = self._calib[scene_id]
         hi = max(1, min(self.cfg.goal_frame - 5, len(cal.positions) - 6))
+        if self.cfg.spawn_max_frame is not None:
+            hi = max(1, min(hi, self.cfg.spawn_max_frame))
         return cal.robot_pose_nav(int(rng.integers(0, hi)))
 
     def goal_position(self, scene_id: str) -> np.ndarray:
