@@ -9,7 +9,7 @@ a decomposed reward with 4 components:
       - w_col  * collision                    # 1 if any gaussian in robot body volume
 
 Returned as a `RewardBreakdown` so each component can be plotted separately
-(that's what Jing asked for).
+(the requested preliminary reward evaluation).
 
 Note: goal_progress is only meaningful when we have a previous position to
 compare against, so the reward function takes an optional `previous_position`.

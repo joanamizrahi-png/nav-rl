@@ -137,6 +137,44 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
           f"({len(frames)} frames, reached_goal={info.get('reached_goal')})")
 
 
+def bc_pretrain(model, demos_path: Path, epochs: int = 25, batch_size: int = 64):
+    """Behavior-clone the PPO policy on real-trajectory demonstrations.
+
+    Maximizes log-prob of demo actions under the policy (SB3 evaluate_actions
+    handles preprocessing internally, incl. image normalization). The policy
+    then enters PPO already knowing roughly how to drive a trail.
+    """
+    import torch as th
+    d = np.load(demos_path, allow_pickle=True)
+    obs_rgb = d["obs"]                      # [N,H,W,3] uint8
+    goal = d["goal"].astype(np.float32)
+    act = d["act"].astype(np.float32)
+    n = len(act)
+    device = model.policy.device
+    # Model observation space is channel-first (SB3 VecTransposeImage).
+    rgb_chw = np.transpose(obs_rgb, (0, 3, 1, 2))
+    print(f"[bc] {n} demos, {epochs} epochs", flush=True)
+    opt = th.optim.Adam(model.policy.parameters(), lr=3e-4)
+    idx = np.arange(n)
+    for ep in range(epochs):
+        np.random.shuffle(idx)
+        losses = []
+        for s in range(0, n, batch_size):
+            b = idx[s:s + batch_size]
+            obs_t = {
+                "rgb": th.as_tensor(rgb_chw[b]).to(device),
+                "goal": th.as_tensor(goal[b]).to(device),
+            }
+            act_t = th.as_tensor(act[b]).to(device)
+            _, log_prob, entropy = model.policy.evaluate_actions(obs_t, act_t)
+            loss = -log_prob.mean() - 1e-3 * entropy.mean()
+            opt.zero_grad(); loss.backward()
+            th.nn.utils.clip_grad_norm_(model.policy.parameters(), 1.0)
+            opt.step()
+            losses.append(float(loss))
+        print(f"[bc] epoch {ep+1}/{epochs} loss {np.mean(losses):.3f}", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scene", default="rugd_trail_00")
@@ -153,6 +191,10 @@ def main():
     ap.add_argument("--output_dir", type=Path, default=Path("outputs/ppo_real"))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--use_wandb", action="store_true")
+    ap.add_argument("--bc_demos", type=Path, default=None,
+                    help="npz from make_demo_dataset.py; if set, behavior-clone the "
+                         "policy on real-trajectory demonstrations before PPO")
+    ap.add_argument("--bc_epochs", type=int, default=25)
     args = ap.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -170,6 +212,10 @@ def main():
         clip_range=0.2, ent_coef=0.01,
         policy_kwargs=dict(net_arch=[dict(pi=[64, 64], vf=[64, 64])]),
     )
+
+    if args.bc_demos is not None:
+        bc_pretrain(model, args.bc_demos, epochs=args.bc_epochs)
+        model.save(str(args.output_dir / "policy_after_bc.zip"))
 
     callbacks = [CheckpointCallback(save_freq=2_000,
                                     save_path=str(args.output_dir / "checkpoints"),

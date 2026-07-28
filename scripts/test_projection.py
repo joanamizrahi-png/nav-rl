@@ -1,4 +1,4 @@
-"""Test B — Jing's literal test: project the robot's NEXT position into the
+"""Test B — the next-step projection test: project the robot's NEXT position into the
 current image and check it lands well. Runs on the Mac (no GPU, no cluster).
 
 For each frame t of the real trajectory, find the future frame j ~2 m ahead
@@ -12,7 +12,7 @@ its footprint into frame t's image TWICE:
            (needs outputs/scene_clouds/clouds/)        0.75 m; the locked estimator
 
 The vertical pixel gap between the two IS the projection error caused by the
-flat-ground assumption — the "inaccuracy" Jing asked us to handle. Output:
+flat-ground assumption — the projection inaccuracy we need to handle. Output:
 an overlay MP4 per scene + per-scene offset statistics.
 
 Usage: python scripts/test_projection.py [scene ...]   (default: the 3 local scenes)
