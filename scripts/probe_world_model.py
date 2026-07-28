@@ -72,6 +72,65 @@ def yaw_pose(cal, frame, yaw_deg, lateral_m=0.0):
     return base.astype(np.float32)
 
 
+# Stage 2: (yaw_deg, lateral_m) pairs spanning trustworthy -> pure invention,
+# chosen from stage 1's coverage map.
+S2_POSES = [(0, 0.0), (0, 0.5), (0, 1.0), (0, 2.0), (45, 0.0), (90, 0.0), (180, 0.0)]
+
+
+def run_diffusion_stage(args):
+    """For each scene: render S2_POSES with BOTH the rasterizer and the full
+    diffusion pipeline; save paired strips (top: raster + coverage, bottom:
+    diffused). ~30 s per diffused view (81-frame batch under the hood)."""
+    from PIL import Image, ImageDraw
+
+    raster_cfg = CalibratedBackendConfig(
+        scene_video_paths={s: f"{args.clips_dir}/{s}.mp4" for s in args.scenes},
+        scene_poses_paths={s: f"{args.poses_dir}/{s}_poses.npz" for s in args.scenes},
+        scene_labels_paths={s: f"{args.labels_dir}/{s}.npz" for s in args.scenes},
+        render_mode="rasterizer_only",
+        model_path=args.model_path, reconstructor_path=args.reconstructor_path)
+    diff_cfg = CalibratedBackendConfig(
+        scene_video_paths=dict(raster_cfg.scene_video_paths),
+        scene_poses_paths=dict(raster_cfg.scene_poses_paths),
+        scene_labels_paths=dict(raster_cfg.scene_labels_paths),
+        render_mode="rasterizer_plus_diffusion",
+        model_path=args.model_path, reconstructor_path=args.reconstructor_path)
+    world_r = CalibratedRealWorldBackend(raster_cfg)
+    world_d = CalibratedRealWorldBackend(diff_cfg)
+
+    for scene in args.scenes:
+        print(f"=== {scene} (diffusion stage) ===", flush=True)
+        world_r.load_scene(scene)
+        world_d.load_scene(scene)
+        cal = world_r._calib[scene]
+        f = PROBE_FRAMES[len(PROBE_FRAMES) // 2]
+        f = min(f, len(cal.positions) - 1)
+        pairs = []
+        for yaw, off in S2_POSES:
+            pose = yaw_pose(cal, f, yaw, off)
+            r_rgb, cov = render_with_alpha(world_r, world_r._cache[scene], cal, pose)
+            d_rgb, _, _ = world_d.render(pose)
+            pairs.append((yaw, off, cov, r_rgb, np.asarray(d_rgb)))
+            print(f"  yaw {yaw:>3} off {off:>3} cov {cov:.0%} rendered", flush=True)
+
+        W, H = world_r.W // 2, world_r.H // 2
+        sheet = Image.new("RGB", (W * len(pairs), 2 * H + 20), (0, 0, 0))
+        dr = ImageDraw.Draw(sheet)
+        for n, (yaw, off, cov, r_rgb, d_rgb) in enumerate(pairs):
+            sheet.paste(Image.fromarray(r_rgb).resize((W, H)), (n * W, 20))
+            sheet.paste(Image.fromarray(d_rgb).resize((W, H)), (n * W, 20 + H))
+            dr.text((n * W + 4, 2), f"yaw{yaw} off{off}m cov{cov:.0%}",
+                    fill=(255, 255, 255))
+        dr.text((4, 10), "", fill=(255, 255, 255))
+        out = args.out_dir / f"{scene}_diffusion_pairs.png"
+        sheet.save(out)
+        print(f"  wrote {out} (top=raster, bottom=diffused)", flush=True)
+
+        world_r._cache.pop(scene, None)
+        world_d._cache.pop(scene, None)
+        import torch; torch.cuda.empty_cache()
+
+
 def main():
     from PIL import Image, ImageDraw
 
@@ -85,8 +144,13 @@ def main():
                     default="/scratch/m000204-pm06b/joana/NeoVerse/models/NeoVerse/reconstructor.ckpt")
     ap.add_argument("--out_dir", type=Path,
                     default=Path("/scratch/m000204-pm06b/joana/outputs/probe"))
+    ap.add_argument("--diffuse", action="store_true",
+                    help="stage 2: paired raster/diffused renders at S2_POSES")
     args = ap.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    if args.diffuse:
+        run_diffusion_stage(args)
+        return
 
     cfg = CalibratedBackendConfig(
         scene_video_paths={s: f"{args.clips_dir}/{s}.mp4" for s in args.scenes},
