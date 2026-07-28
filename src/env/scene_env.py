@@ -94,6 +94,8 @@ class SceneEnvConfig:
     goal_radius: float = 0.5            # meters; within this counts as "reached goal"
     collision_threshold: float = 0.1    # class score at/below which counts as collision
     spin_cost: float = 0.0              # shaping v2: penalty * |yaw action| (taxes circling)
+    goal_bonus: float = 0.0             # v4: one-time reward on reaching the goal — must
+                                        # exceed what an episode could farm (~+35 in v3)
     random_spawn: bool = False          # shaping v2: spawn along the real trajectory if the
                                         # backend offers sample_start_pose(scene_id, rng)
 
@@ -210,10 +212,12 @@ class SceneEnv(gym.Env if gym is not None else object):
         truncated = self._steps >= self.cfg.max_steps
 
         spin_term = -self.cfg.spin_cost * abs(float(action[1]))
-        reward = breakdown.total + spin_term
+        bonus = self.cfg.goal_bonus if terminated else 0.0
+        reward = breakdown.total + spin_term + bonus
 
         info = breakdown.to_dict()
         info["spin"] = spin_term
+        info["goal_bonus"] = bonus
         info["total"] = reward
         info["dist_to_goal"] = dist_to_goal
         info["reached_goal"] = terminated

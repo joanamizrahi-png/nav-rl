@@ -34,7 +34,7 @@ cd "$NAVRL_ROOT"
 DEMOS=/scratch/m000204-pm06b/joana/outputs/demos_v1.npz
 if [ -f "$DEMOS" ]; then
     BC_ARGS="--bc_demos $DEMOS"
-    OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v3_bc_trail00
+    OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v4_cost_trail00
 else
     BC_ARGS=""
     OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v2_shaped_trail00

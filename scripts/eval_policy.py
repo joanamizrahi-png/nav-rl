@@ -54,9 +54,10 @@ def build_env(args):
     env_cfg = SceneEnvConfig(
         max_steps=60, step_size_m=0.25, yaw_step_rad=0.3,
         reward=RewardWeights(semantic=1.0, goal=1.5, collision=1.0,
-                             step_cost=0.05, void_cost=0.3),
+                             step_cost=0.05, void_cost=0.3,
+                             terrain_as_cost=True),
         look_ahead_dist=1.5, goal_radius=0.75, collision_threshold=0.1,
-        spin_cost=0.05, random_spawn=True,
+        spin_cost=0.05, goal_bonus=50.0, random_spawn=True,
     )
     return SceneEnv(world_backend=world, semantic_backend=sem,
                     scene_ids=[args.scene], cfg=env_cfg)

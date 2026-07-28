@@ -61,11 +61,13 @@ def make_env(args):
         step_size_m=0.25,                    # matches demo action scale; 0.15 clipped 43% of demos
         yaw_step_rad=0.3,
         reward=RewardWeights(semantic=1.0, goal=1.5, collision=1.0,
-                             step_cost=0.05, void_cost=0.3),
+                             step_cost=0.05, void_cost=0.3,
+                             terrain_as_cost=True),          # v4
         look_ahead_dist=1.5,
         goal_radius=0.75,
         collision_threshold=0.1,
         spin_cost=0.05,
+        goal_bonus=50.0,                                     # v4
         random_spawn=True,
     )
     env = SceneEnv(world_backend=world, semantic_backend=sem,
@@ -207,7 +209,7 @@ def main():
         verbose=1, seed=args.seed,
         tensorboard_log=str(args.output_dir / "tensorboard"),
         n_steps=128, batch_size=64,
-        learning_rate=3e-4, gamma=0.99, gae_lambda=0.95,
+        learning_rate=1e-4,   # v4: collapse medicine gamma=0.99, gae_lambda=0.95,
         clip_range=0.2, ent_coef=0.01,
         policy_kwargs=dict(net_arch=[dict(pi=[64, 64], vf=[64, 64])]),
     )
@@ -223,7 +225,7 @@ def main():
         try:
             import wandb
             from wandb.integration.sb3 import WandbCallback
-            wandb.init(project="nav-rl", name=f"ppo_shaped_v2_{args.scene}",
+            wandb.init(project="nav-rl", name=f"ppo_v4_cost_{args.scene}",
                        config=vars(args) | {"total_steps": args.total_steps},
                        sync_tensorboard=True, dir=str(args.output_dir))
             callbacks.append(WandbCallback())

@@ -38,6 +38,11 @@ class RewardWeights:
     # non_traversable mask); setting > 0 moves void into its own mild penalty
     # so exploring near the unknown isn't as punishing as hitting a tree.
     void_cost: float = 0.0
+    # v4: terrain as CONSTRAINT, not income. When True the semantic term becomes
+    # (score - 1) <= 0: perfect terrain pays zero, bad terrain pays negative.
+    # Kills reward-farming (v3 policy paced walkable ground forever instead of
+    # finishing). Default False preserves all older behavior/evals.
+    terrain_as_cost: bool = False
 
 
 @dataclass
@@ -204,7 +209,8 @@ def compute_reward(
         goal_score = prev_dist - curr_dist    # positive => closed distance this step
 
     # --- 3. Combine ---
-    semantic_term = weights.semantic * sem_score
+    semantic_term = weights.semantic * ((sem_score - 1.0) if weights.terrain_as_cost
+                                        else sem_score)
     goal_term = weights.goal * goal_score
     collision_term = -weights.collision * collision_frac
     void_term = -weights.void_cost * void_frac
