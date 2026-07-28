@@ -29,14 +29,25 @@ PY
 NAVRL_ROOT=/scratch/m000204-pm06b/joana/nav-rl
 cd "$NAVRL_ROOT"
 
+# Ladder-aware: if the demos file exists we run the BC rung (v3); otherwise the
+# pure shaped rung (v2). Output dirs are versioned accordingly — no overwrites.
+DEMOS=/scratch/m000204-pm06b/joana/outputs/demos_v1.npz
+if [ -f "$DEMOS" ]; then
+    BC_ARGS="--bc_demos $DEMOS"
+    OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v3_bc_trail00
+else
+    BC_ARGS=""
+    OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v2_shaped_trail00
+fi
+echo "==> rung: ${BC_ARGS:-pure-shaped}  out: $OUT"
 python scripts/train_ppo_real.py \
     --scene rugd_trail_00 \
     --clips_dir /scratch/m000204-pm06b/joana/data/rugd_clips \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
     --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels \
     --total_steps 200000 \
-    --output_dir /scratch/m000204-pm06b/joana/outputs/ppo_bc_v3_trail00 \
-    --bc_demos /scratch/m000204-pm06b/joana/outputs/demos_v1.npz \
+    --output_dir "$OUT" \
+    $BC_ARGS \
     --use_wandb
 
-echo "==> done: /scratch/m000204-pm06b/joana/outputs/ppo_bc_v3_trail00 (rollout.mp4 + curves)"
+echo "==> done: $OUT (rollout.mp4 + curves)"
