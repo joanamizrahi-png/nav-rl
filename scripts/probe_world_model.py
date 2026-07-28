@@ -78,52 +78,43 @@ S2_POSES = [(0, 0.0), (0, 0.5), (0, 1.0), (0, 2.0), (45, 0.0), (90, 0.0), (180, 
 
 
 def run_diffusion_stage(args):
-    """For each scene: render S2_POSES with BOTH the rasterizer and the full
-    diffusion pipeline; save paired strips (top: raster + coverage, bottom:
-    diffused). ~30 s per diffused view (81-frame batch under the hood)."""
+    """Single-backend stage 2 (attempts 1-3 OOM'd with two backends / late pipe
+    load). Order matters: load the ~30GB diffusion pipeline FIRST onto an empty
+    GPU, then cycle scenes around it — the configuration the backend was
+    designed for. Raster twins come from the same backend's rasterizer."""
+    import torch
     from PIL import Image, ImageDraw
+    from src.env.real_backend import _move_tree_to
 
-    raster_cfg = CalibratedBackendConfig(
+    cfg = CalibratedBackendConfig(
         scene_video_paths={s: f"{args.clips_dir}/{s}.mp4" for s in args.scenes},
         scene_poses_paths={s: f"{args.poses_dir}/{s}_poses.npz" for s in args.scenes},
         scene_labels_paths={s: f"{args.labels_dir}/{s}.npz" for s in args.scenes},
-        render_mode="rasterizer_only",
-        model_path=args.model_path, reconstructor_path=args.reconstructor_path)
-    diff_cfg = CalibratedBackendConfig(
-        scene_video_paths=dict(raster_cfg.scene_video_paths),
-        scene_poses_paths=dict(raster_cfg.scene_poses_paths),
-        scene_labels_paths=dict(raster_cfg.scene_labels_paths),
         render_mode="rasterizer_plus_diffusion",
         model_path=args.model_path, reconstructor_path=args.reconstructor_path)
-    world_r = CalibratedRealWorldBackend(raster_cfg)
-    world_d = CalibratedRealWorldBackend(diff_cfg)
+    world = CalibratedRealWorldBackend(cfg)
+    print("loading diffusion pipeline first (empty GPU)...", flush=True)
+    world._ensure_pipe_loaded()          # 30GB resident from here on; scenes cycle around it
 
     for scene in args.scenes:
         print(f"=== {scene} (diffusion stage) ===", flush=True)
-        import torch
-        f = None
-        # Pass A: all raster renders, then EVICT the raster scene from GPU
-        # before the 30GB diffusion pipe loads (OOM otherwise).
-        world_r.load_scene(scene)
-        cal = world_r._calib[scene]
+        world.load_scene(scene)          # reconstruct; cache lands on CPU (offload fix)
+        cal = world._calib[scene]
         f = min(PROBE_FRAMES[len(PROBE_FRAMES) // 2], len(cal.positions) - 1)
-        rasters = []
+        # Move the scene to GPU ONCE for the whole pose set (raster + diffused).
+        device = next(world._reconstructor.parameters()).device
+        world._cache[scene] = _move_tree_to(world._cache[scene], device)
+        cache = world._cache[scene]
+
+        pairs = []
         for yaw, off in S2_POSES:
             pose = yaw_pose(cal, f, yaw, off)
-            r_rgb, cov = render_with_alpha(world_r, world_r._cache[scene], cal, pose)
-            rasters.append((r_rgb, cov))
-        world_r._cache.pop(scene, None)
-        torch.cuda.empty_cache()
-        # Pass B: diffused renders.
-        world_d.load_scene(scene)
-        pairs = []
-        for (yaw, off), (r_rgb, cov) in zip(S2_POSES, rasters):
-            pose = yaw_pose(cal, f, yaw, off)
-            d_rgb, _, _ = world_d.render(pose)
+            r_rgb, cov = render_with_alpha(world, cache, cal, pose)
+            d_rgb, _, _ = world.render(pose)
             pairs.append((yaw, off, cov, r_rgb, np.asarray(d_rgb)))
             print(f"  yaw {yaw:>3} off {off:>3} cov {cov:.0%} rendered", flush=True)
 
-        W, H = world_r.W // 2, world_r.H // 2
+        W, H = world.W // 2, world.H // 2
         sheet = Image.new("RGB", (W * len(pairs), 2 * H + 20), (0, 0, 0))
         dr = ImageDraw.Draw(sheet)
         for n, (yaw, off, cov, r_rgb, d_rgb) in enumerate(pairs):
@@ -131,12 +122,11 @@ def run_diffusion_stage(args):
             sheet.paste(Image.fromarray(d_rgb).resize((W, H)), (n * W, 20 + H))
             dr.text((n * W + 4, 2), f"yaw{yaw} off{off}m cov{cov:.0%}",
                     fill=(255, 255, 255))
-        dr.text((4, 10), "", fill=(255, 255, 255))
         out = args.out_dir / f"{scene}_diffusion_pairs.png"
         sheet.save(out)
         print(f"  wrote {out} (top=raster, bottom=diffused)", flush=True)
 
-        world_d._cache.pop(scene, None)
+        world._cache.pop(scene, None)
         torch.cuda.empty_cache()
 
 
