@@ -82,12 +82,11 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
     from PIL import Image, ImageDraw
 
     base_env = env.unwrapped if hasattr(env, "unwrapped") else env
+    frames, path_xy, rows = [], [], []
+    obs, _ = env.reset()          # MUST precede calib access: reset loads the scene
     world = base_env.world_backend
     cal = world._calib[base_env.scene_ids[0]] if hasattr(world, "_calib") else None
     ref_traj = cal.positions[:, :2] if cal is not None else None
-
-    frames, path_xy, rows = [], [], []
-    obs, _ = env.reset()
     goal = base_env._goal_world[:2].copy()
     done, r, info = False, 0.0, {}
     while not done and len(frames) < max_frames:

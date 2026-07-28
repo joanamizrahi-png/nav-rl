@@ -100,15 +100,25 @@ def run_diffusion_stage(args):
 
     for scene in args.scenes:
         print(f"=== {scene} (diffusion stage) ===", flush=True)
+        import torch
+        f = None
+        # Pass A: all raster renders, then EVICT the raster scene from GPU
+        # before the 30GB diffusion pipe loads (OOM otherwise).
         world_r.load_scene(scene)
-        world_d.load_scene(scene)
         cal = world_r._calib[scene]
-        f = PROBE_FRAMES[len(PROBE_FRAMES) // 2]
-        f = min(f, len(cal.positions) - 1)
-        pairs = []
+        f = min(PROBE_FRAMES[len(PROBE_FRAMES) // 2], len(cal.positions) - 1)
+        rasters = []
         for yaw, off in S2_POSES:
             pose = yaw_pose(cal, f, yaw, off)
             r_rgb, cov = render_with_alpha(world_r, world_r._cache[scene], cal, pose)
+            rasters.append((r_rgb, cov))
+        world_r._cache.pop(scene, None)
+        torch.cuda.empty_cache()
+        # Pass B: diffused renders.
+        world_d.load_scene(scene)
+        pairs = []
+        for (yaw, off), (r_rgb, cov) in zip(S2_POSES, rasters):
+            pose = yaw_pose(cal, f, yaw, off)
             d_rgb, _, _ = world_d.render(pose)
             pairs.append((yaw, off, cov, r_rgb, np.asarray(d_rgb)))
             print(f"  yaw {yaw:>3} off {off:>3} cov {cov:.0%} rendered", flush=True)
@@ -126,9 +136,8 @@ def run_diffusion_stage(args):
         sheet.save(out)
         print(f"  wrote {out} (top=raster, bottom=diffused)", flush=True)
 
-        world_r._cache.pop(scene, None)
         world_d._cache.pop(scene, None)
-        import torch; torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
 
 def main():
