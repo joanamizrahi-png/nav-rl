@@ -71,16 +71,28 @@ def main():
         # project the goal point (at true local ground height) into frame k
         gz = float(cam_z[j] - CAMERA_HEIGHT_M)
         p = np.array([g["goal_xy"][0], g["goal_xy"][1], gz, 1.0])
-        pc = (w2c[k] @ p)[:3]
         img = Image.fromarray(left)
         draw = ImageDraw.Draw(img, "RGBA")
-        if pc[2] > 0.05:
-            u = K[0, 0] * pc[0] / pc[2] + K[0, 2]
-            v = K[1, 1] * pc[1] / pc[2] + K[1, 2]
-            r = max(8, 420 * 0.3 / pc[2])          # ~0.3 m radius disc at that depth
-            draw.ellipse([u - r, v - r, u + r, v + r], outline=(0, 255, 0, 255), width=3)
-            draw.line([u - r * 1.4, v, u + r * 1.4, v], fill=(0, 255, 0, 180), width=1)
-            draw.line([u, v - r * 1.4, u, v + r * 1.4], fill=(0, 255, 0, 180), width=1)
+        # Ground ring: a REAL 0.3 m-radius circle lying ON the ground at the goal,
+        # each rim point projected separately -> a foreshortened ellipse that sits
+        # in the scene like a hula hoop on the grass. This is the scale cue: it
+        # should read as a ~60 cm-wide hoop a Go2 could stand inside.
+        ring = []
+        behind = False
+        for ang in np.linspace(0, 2 * np.pi, 32):
+            q = np.array([g["goal_xy"][0] + 0.3 * np.cos(ang),
+                          g["goal_xy"][1] + 0.3 * np.sin(ang), gz, 1.0])
+            qc = (w2c[k] @ q)[:3]
+            if qc[2] <= 0.05:
+                behind = True
+                break
+            ring.append((K[0, 0] * qc[0] / qc[2] + K[0, 2],
+                         K[1, 1] * qc[1] / qc[2] + K[1, 2]))
+        if not behind and ring:
+            draw.polygon(ring, outline=(0, 255, 0, 255))
+            for i in range(len(ring)):
+                draw.line([ring[i], ring[(i + 1) % len(ring)]],
+                          fill=(0, 255, 0, 255), width=3)
         draw.rectangle([0, 0, img.width, 16], fill=(0, 0, 0, 190))
         draw.text((4, 2), f"{scene}  goal frame {j} ({g['dist_m']} m, walk {g['walkability']:.0%})"
                           f"  LEFT: approach view +marker  RIGHT: at the goal",
