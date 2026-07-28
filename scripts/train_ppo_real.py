@@ -58,7 +58,7 @@ def make_env(args):
     # starts ~0.6 m, so look_ahead 1.5 m is safely visible.
     env_cfg = SceneEnvConfig(
         max_steps=args.max_steps,
-        step_size_m=0.15,                    # real pace at corrected scale (~0.3-0.5 m/s)
+        step_size_m=0.25,                    # matches demo action scale; 0.15 clipped 43% of demos
         yaw_step_rad=0.3,
         reward=RewardWeights(semantic=1.0, goal=1.5, collision=1.0,
                              step_cost=0.05, void_cost=0.3),

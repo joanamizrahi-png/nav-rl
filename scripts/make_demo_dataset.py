@@ -35,7 +35,8 @@ if NEOVERSE_ROOT.exists():
 
 from src.env.real_calibrated import CalibratedRealWorldBackend, CalibratedBackendConfig
 
-STEP_SIZE_M = 0.15      # MUST match SceneEnvConfig in train_ppo_real.py
+STEP_SIZE_M = 0.25      # MUST match SceneEnvConfig in train_ppo_real.py
+                        # (0.15 saturated 43% of demo actions; real steps run up to ~0.25 m)
 YAW_STEP_RAD = 0.3
 
 
