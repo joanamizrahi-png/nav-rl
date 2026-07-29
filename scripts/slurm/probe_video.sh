@@ -19,5 +19,5 @@ python scripts/probe_video.py \
     --scenes rugd_trail_00 rugd_park-2_00 \
     --clips_dir /scratch/m000204-pm06b/joana/data/rugd_clips \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
-    --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels \
+    --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels
 echo "==> probe done: /scratch/m000204-pm06b/joana/outputs/probe/"

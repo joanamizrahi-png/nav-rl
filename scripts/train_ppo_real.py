@@ -241,7 +241,7 @@ def main():
         try:
             import wandb
             from wandb.integration.sb3 import WandbCallback
-            wandb.init(project="nav-rl", name=f"ppo_v4_cost_{args.scene}",
+            wandb.init(project="nav-rl", name=args.output_dir.name,
                        config=vars(args) | {"total_steps": args.total_steps},
                        sync_tensorboard=True, dir=str(args.output_dir))
             callbacks.append(WandbCallback())

@@ -45,6 +45,7 @@ def build_env(args):
         scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
         goal_frame=args.goal_frame,
+        spawn_max_frame=args.spawn_max_frame,
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -69,6 +70,8 @@ def main():
     ap.add_argument("--scene", default="rugd_trail_00")
     ap.add_argument("--episodes", type=int, default=20)
     ap.add_argument("--goal_frame", type=int, default=30)
+    ap.add_argument("--spawn_max_frame", type=int, default=None,
+                    help="match the training rung: 3 = full traverses (rung 5)")
     ap.add_argument("--clips_dir", required=True)
     ap.add_argument("--poses_dir", required=True)
     ap.add_argument("--labels_dir", required=True)
