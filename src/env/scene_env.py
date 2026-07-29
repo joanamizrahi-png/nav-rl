@@ -162,7 +162,14 @@ class SceneEnv(gym.Env if gym is not None else object):
                 self._scene_id, self.np_random).copy()
         else:
             self._robot_pose_world = self.world_backend.start_pose(self._scene_id).copy()
-        self._goal_world = self.world_backend.goal_position(self._scene_id).copy()
+        if hasattr(self.world_backend, "sample_goal_position"):
+            # per-episode goal when the backend has goal_frame_range set;
+            # falls back to the fixed goal otherwise
+            self._goal_world = self.world_backend.sample_goal_position(
+                self._scene_id, self.np_random,
+                self._robot_pose_world[:2, 3]).copy()
+        else:
+            self._goal_world = self.world_backend.goal_position(self._scene_id).copy()
         self._prev_position = None
         self._steps = 0
 

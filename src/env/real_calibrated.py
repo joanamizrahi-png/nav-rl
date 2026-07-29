@@ -138,6 +138,10 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # spawn curriculum: cap the spawn range. None = anywhere up to goal_frame-5
     # (short-range task); small value (e.g. 3) = full traverses from the start.
     spawn_max_frame: "int | None" = None
+    # rung 6: sample the goal frame per EPISODE from this inclusive range instead
+    # of the fixed goal_frame. Spawns then range over the whole trajectory, so
+    # the policy also sees goals BEHIND it (learns to turn around / not overshoot).
+    goal_frame_range: "tuple[int, int] | None" = None
 
 
 class CalibratedRealWorldBackend(RealWorldBackend):
@@ -176,7 +180,11 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         """Spawn curriculum: a random pose along the REAL trajectory, upstream
         of the goal (so some spawns are near it -> early successes to learn from)."""
         cal = self._calib[scene_id]
-        hi = max(1, min(self.cfg.goal_frame - 5, len(cal.positions) - 6))
+        if self.cfg.goal_frame_range is not None:
+            hi = len(cal.positions) - 6      # goal varies: spawn anywhere on the trail
+        else:
+            hi = min(self.cfg.goal_frame - 5, len(cal.positions) - 6)
+        hi = max(1, hi)
         if self.cfg.spawn_max_frame is not None:
             hi = max(1, min(hi, self.cfg.spawn_max_frame))
         return cal.robot_pose_nav(int(rng.integers(0, hi)))
@@ -186,6 +194,25 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         frame = min(self.cfg.goal_frame, len(cal.positions) - 1)
         goal = cal.positions[frame].copy()
         goal[2] = 0.0
+        return goal.astype(np.float32)
+
+    def sample_goal_position(self, scene_id: str, rng, spawn_xy,
+                             min_sep_m: float = 1.5) -> np.ndarray:
+        """Per-episode goal (rung 6). With goal_frame_range set, draw a frame
+        uniformly, rejecting draws closer than min_sep_m to the spawn (those
+        episodes are pre-won and teach nothing). Range unset -> fixed goal."""
+        if self.cfg.goal_frame_range is None:
+            return self.goal_position(scene_id)
+        cal = self._calib[scene_id]
+        lo, hi = self.cfg.goal_frame_range
+        hi = min(hi, len(cal.positions) - 1)
+        goal = None
+        for _ in range(20):
+            frame = int(rng.integers(lo, hi + 1))
+            goal = cal.positions[frame].copy()
+            goal[2] = 0.0
+            if np.linalg.norm(goal[:2] - np.asarray(spawn_xy)) >= min_sep_m:
+                break
         return goal.astype(np.float32)
 
     # ---------- label attachment (SAM3 -> Gaussians) ----------
