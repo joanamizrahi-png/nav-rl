@@ -197,7 +197,10 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         return goal.astype(np.float32)
 
     def sample_goal_position(self, scene_id: str, rng, spawn_xy,
-                             min_sep_m: float = 1.5) -> np.ndarray:
+                             min_sep_m: float = 1.0) -> np.ndarray:
+        # min_sep 1.5 -> 1.0 (v6b): the 306k eval swept goal distance and found a
+        # monotonic close-range deficit (0% at ~1.5 m .. 100% from ~4 m). Guarding
+        # too far above goal_radius (0.75) had excluded near-goal spawns entirely.
         """Per-episode goal (rung 6). With goal_frame_range set, draw a frame
         uniformly, rejecting draws closer than min_sep_m to the spawn (those
         episodes are pre-won and teach nothing). Range unset -> fixed goal."""

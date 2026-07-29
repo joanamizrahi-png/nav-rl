@@ -40,7 +40,13 @@ else
     OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v2_shaped_trail00
 fi
 STEPS=200000
-if [ "${RUNG6:-0}" = "1" ]; then
+if [ "${RUNG6B:-0}" = "1" ]; then
+    # v6b = v6 recipe + close-range exposure (min_sep 1.0) + collapse protection
+    # (lr decay + target_kl). Code-side changes; only the out dir differs here.
+    BC_ARGS="$BC_ARGS --goal_frame_range 15 70"
+    OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v6b_randomgoal_trail00
+    STEPS=400000
+elif [ "${RUNG6:-0}" = "1" ]; then
     # random goals (15-70) + spawns over the whole trail; harder task -> 2x steps
     BC_ARGS="$BC_ARGS --goal_frame_range 15 70"
     OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v6_randomgoal_trail00

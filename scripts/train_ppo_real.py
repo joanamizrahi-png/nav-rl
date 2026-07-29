@@ -229,7 +229,11 @@ def main():
         verbose=1, seed=args.seed,
         tensorboard_log=str(args.output_dir / "tensorboard"),
         n_steps=128, batch_size=64,
-        learning_rate=1e-4,   # v4: collapse medicine gamma=0.99, gae_lambda=0.95,
+        # v6b collapse protection: PPO destroyed its own peak in 3/3 long runs
+        # (v3 @130k, v4-era, v6 @306k->400k). Linear lr decay + a KL trust region
+        # cap how far late updates can drag a converged policy.
+        learning_rate=(lambda p: 1e-4 * p),
+        target_kl=0.02, gamma=0.99, gae_lambda=0.95,
         clip_range=0.2, ent_coef=0.01,
         policy_kwargs=dict(net_arch=[dict(pi=[64, 64], vf=[64, 64])]),
     )
