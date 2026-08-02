@@ -40,7 +40,13 @@ else
     OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v2_shaped_trail00
 fi
 STEPS=200000
-if [ "${RUNG6B:-0}" = "1" ]; then
+if [ "${RUNG6C:-0}" = "1" ]; then
+    # v6c = v6b curriculum (random goals 15-70, min_sep 1.0) at CONSTANT lr,
+    # target_kl as the only collapse protection (v6b post-mortem: decay -> 0%).
+    BC_ARGS="$BC_ARGS --goal_frame_range 15 70"
+    OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v6c_randomgoal_trail00
+    STEPS=400000
+elif [ "${RUNG6B:-0}" = "1" ]; then
     # v6b = v6 recipe + close-range exposure (min_sep 1.0) + collapse protection
     # (lr decay + target_kl). Code-side changes; only the out dir differs here.
     BC_ARGS="$BC_ARGS --goal_frame_range 15 70"
