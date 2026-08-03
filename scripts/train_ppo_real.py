@@ -47,6 +47,7 @@ def make_env(args):
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
         goal_frame=args.goal_frame,
         goal_frame_range=tuple(args.goal_frame_range) if args.goal_frame_range else None,
+        goal_min_sep_m=args.goal_min_sep,
         spawn_max_frame=args.spawn_max_frame,
         render_mode="rasterizer_only",       # cheap per-step; diffusion later
         model_path=args.model_path,
@@ -209,6 +210,8 @@ def main():
     ap.add_argument("--goal_frame_range", type=int, nargs=2, default=None,
                     metavar=("LO", "HI"),
                     help="rung 6: sample the goal frame per episode from [LO, HI]")
+    ap.add_argument("--goal_min_sep", type=float, default=1.0,
+                    help="spawn-goal separation guard in meters (v6 used 1.5)")
     ap.add_argument("--output_dir", type=Path, default=Path("outputs/ppo_real"))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--use_wandb", action="store_true")

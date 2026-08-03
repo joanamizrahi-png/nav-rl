@@ -142,6 +142,10 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # of the fixed goal_frame. Spawns then range over the whole trajectory, so
     # the policy also sees goals BEHIND it (learns to turn around / not overshoot).
     goal_frame_range: "tuple[int, int] | None" = None
+    # v6d: spawn-goal separation guard is now a config knob. 1.0 was v6b/v6c's
+    # close-range-exposure value; 1.5 is v6's (the only config that has learned
+    # this task). Suspect in the v6c post-mortem — knob added to test it.
+    goal_min_sep_m: float = 1.0
 
 
 class CalibratedRealWorldBackend(RealWorldBackend):
@@ -197,10 +201,9 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         return goal.astype(np.float32)
 
     def sample_goal_position(self, scene_id: str, rng, spawn_xy,
-                             min_sep_m: float = 1.0) -> np.ndarray:
-        # min_sep 1.5 -> 1.0 (v6b): the 306k eval swept goal distance and found a
-        # monotonic close-range deficit (0% at ~1.5 m .. 100% from ~4 m). Guarding
-        # too far above goal_radius (0.75) had excluded near-goal spawns entirely.
+                             min_sep_m: "float | None" = None) -> np.ndarray:
+        if min_sep_m is None:
+            min_sep_m = self.cfg.goal_min_sep_m
         """Per-episode goal (rung 6). With goal_frame_range set, draw a frame
         uniformly, rejecting draws closer than min_sep_m to the spawn (those
         episodes are pre-won and teach nothing). Range unset -> fixed goal."""

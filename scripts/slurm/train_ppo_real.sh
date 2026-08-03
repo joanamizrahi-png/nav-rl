@@ -40,7 +40,15 @@ else
     OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v2_shaped_trail00
 fi
 STEPS=200000
-if [ "${RUNG6C:-0}" = "1" ]; then
+SEED=${SEED:-0}
+if [ "${RUNG6D:-0}" = "1" ]; then
+    # v6d = v6c with min_sep back at v6's 1.5 (the one env difference from the
+    # only config that ever learned). Paired with a 6c seed-rerun, this splits
+    # "min_sep poisoned it" from "PPO seed variance".
+    BC_ARGS="$BC_ARGS --goal_frame_range 15 70 --goal_min_sep 1.5"
+    OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v6d_minsep15_trail00
+    STEPS=400000
+elif [ "${RUNG6C:-0}" = "1" ]; then
     # v6c = v6b curriculum (random goals 15-70, min_sep 1.0) at CONSTANT lr,
     # target_kl as the only collapse protection (v6b post-mortem: decay -> 0%).
     BC_ARGS="$BC_ARGS --goal_frame_range 15 70"
@@ -60,6 +68,10 @@ elif [ "${RUNG6:-0}" = "1" ]; then
 elif [ "${RUNG5:-0}" = "1" ]; then
     BC_ARGS="$BC_ARGS --spawn_max_frame 3"
     OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v5_traverse_trail00
+fi
+if [ "$SEED" != "0" ]; then
+    BC_ARGS="$BC_ARGS --seed $SEED"
+    OUT="${OUT}_seed${SEED}"
 fi
 echo "==> rung: ${BC_ARGS:-pure-shaped}  steps: $STEPS  out: $OUT"
 python scripts/train_ppo_real.py \
