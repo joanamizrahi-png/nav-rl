@@ -106,19 +106,28 @@ def main():
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    # goal_bonus (+50, one step) flattens every other trace to invisibility if
+    # plotted together — it gets a title mention, not a line, and the share
+    # chart shows the PER-STEP economy (the thing the weights actually tune).
+    step_terms = [t for t in TERMS if t != "goal_bonus"]
     n_show = min(3, len(episodes))
     fig, axes = plt.subplots(n_show + 1, 1, figsize=(10, 3 * (n_show + 1)))
     for i in range(n_show):
         ax = axes[i]
-        for t in TERMS:
+        for t in step_terms:
             if any(abs(v) > 1e-6 for v in episodes[i][t]):
                 ax.plot(episodes[i][t], label=t, alpha=0.8)
-        ax.set_title(f"episode {i}: per-step reward terms")
+        got_bonus = any(v > 0 for v in episodes[i]["goal_bonus"])
+        ax.set_title(f"episode {i}: per-step reward terms"
+                     f" (goal_bonus +50 at end: {'yes' if got_bonus else 'NO'})")
         ax.grid(alpha=0.3); ax.legend(fontsize=7, ncol=4)
     ax = axes[-1]
-    shares = [agg[t]["abs_share"] for t in TERMS]
-    ax.bar(TERMS, shares)
-    ax.set_title("mean |contribution| share per term (all episodes)")
+    step_total = sum(np.sum(all_abs[t]) for t in step_terms) or 1.0
+    shares = [float(np.sum(all_abs[t]) / step_total) for t in step_terms]
+    ax.bar(step_terms, shares)
+    bonus_share = agg["goal_bonus"]["abs_share"]
+    ax.set_title(f"per-step |contribution| share (terminal goal_bonus excluded; "
+                 f"it is {bonus_share:.0%} of ALL reward moved)")
     ax.grid(alpha=0.3, axis="y")
     fig.tight_layout()
     fig.savefig(args.out_dir / "reward_audit.png", dpi=120)
