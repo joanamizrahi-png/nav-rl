@@ -27,10 +27,14 @@ if [[ "${GOAL_FRAME:-}" != "" ]]; then
     EXTRA_ARGS+=(--goal_frame "$GOAL_FRAME")       # generalization: goal the policy never trained on
     OUT_SUFFIX="_goal${GOAL_FRAME}"
 fi
-echo "==> eval: $RUN_NAME / $(basename "$CKPT") spawn_max=${SPAWN_MAX:-default} goal=${GOAL_FRAME:-train(30)}"
+SCENE=${SCENE:-rugd_trail_00}
+if [ "$SCENE" != "rugd_trail_00" ]; then
+    OUT_SUFFIX="${OUT_SUFFIX}_${SCENE}"    # zero-shot evals get their own dir
+fi
+echo "==> eval: $RUN_NAME / $(basename "$CKPT") scene=$SCENE spawn_max=${SPAWN_MAX:-default} goal=${GOAL_FRAME:-train(30)}"
 python scripts/eval_policy.py \
     --checkpoint "$CKPT" \
-    --scene rugd_trail_00 --episodes 20 \
+    --scene "$SCENE" --episodes 20 \
     --clips_dir /scratch/m000204-pm06b/joana/data/rugd_clips \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
     --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels \
