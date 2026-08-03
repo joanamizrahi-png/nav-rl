@@ -1,0 +1,52 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="wm" name="Semantic world model">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="v" value="monocular video&#10;81 frames, 560x336" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="40" y="80" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="sam3" value="SAM3 labeler&#10;(once per scene)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="40" y="200" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="rec" value="RECONSTRUCT&#10;WorldMirror / VGGT&#10;feed-forward" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="270" y="80" width="170" height="70" as="geometry"/></mxCell>
+        <mxCell id="gs" value="~15M 4D Gaussians&#10;+ per-Gaussian labels&#10;(one-hot fused)" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="500" y="80" width="180" height="70" as="geometry"/></mxCell>
+        <mxCell id="rast" value="RENDER (gsplat)&#10;any pose + time" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="740" y="80" width="160" height="70" as="geometry"/></mxCell>
+        <mxCell id="rough" value="rough RGB + depth&#10;+ HOLEY semantic&#10;+ alpha (trust mask)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1"><mxGeometry x="740" y="210" width="160" height="80" as="geometry"/></mxCell>
+        <mxCell id="vae" value="VAE encode&#10;RGB 16ch | colorized labels 16ch&#10;= 32 latent channels" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="440" y="340" width="220" height="70" as="geometry"/></mxCell>
+        <mxCell id="dit" value="Wan 2.1 DiT (32ch co-denoise)&#10;expanded: parallel _sem patch-embed/head&#10;+ rank-8 trunk LoRA&#10;conditioned on rough render (control branch)" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="410" y="450" width="280" height="90" as="geometry"/></mxCell>
+        <mxCell id="out" value="clean RGB + dense semantics&#10;(2D, co-generated)" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="770" y="470" width="190" height="60" as="geometry"/></mxCell>
+        <mxCell id="loss" value="v8 training losses (semantic half):&#10;1. x0-prediction MSE (predict the CLEAN latent)&#10;2. decoded-space CE (VAE-decode → class head → per-pixel CE)&#10;3. SAM2 segment homogeneity (pixels agree within a segment)&#10;RGB half: distill-matched velocity MSE (unchanged)" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;align=left;" vertex="1" parent="1"><mxGeometry x="60" y="450" width="320" height="110" as="geometry"/></mxCell>
+        <mxCell id="twopass" value="deployment inference: TWO-PASS&#10;RGB from vanilla weights; semantics from finetuned pass&#10;(planned: RGB-anchored — sem pass clamped to vanilla RGB latents)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;align=left;" vertex="1" parent="1"><mxGeometry x="410" y="590" width="380" height="70" as="geometry"/></mxCell>
+        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="v" target="rec"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="sam3" target="rec"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="rec" target="gs"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="gs" target="rast"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="rast" target="rough"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="hint / conditioning" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="rough" target="dit"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="training targets (RUGD GT + clean RGB)" style="edgeStyle=orthogonalEdgeStyle;dashed=1;" edge="1" parent="1" source="vae" target="dit"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="dit" target="out"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;dashed=1;" edge="1" parent="1" source="loss" target="dit"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="rl" name="RL loop">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="wm2" value="WORLD MODEL&#10;(reconstructed scene)&#10;render(pose) → RGB&#10;rasterize(labels) → class map&#10;alpha → trust mask" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="420" y="60" width="220" height="100" as="geometry"/></mxCell>
+        <mxCell id="obs" value="OBSERVATION&#10;RGB (egocentric, 0.25 m eye height)&#10;+ goal vector (dx, dy, dyaw)" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="120" y="220" width="240" height="80" as="geometry"/></mxCell>
+        <mxCell id="pol" value="POLICY (SB3 MultiInputPolicy)&#10;CNN(image) + MLP(goal) → 64-64&#10;actor: (forward, turn) ∈ [−1,1]&#10;critic: value estimate" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="120" y="380" width="240" height="100" as="geometry"/></mxCell>
+        <mxCell id="act" value="ACTION&#10;≤0.25 m forward, ≤0.3 rad turn&#10;→ new robot pose" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="460" y="400" width="220" height="70" as="geometry"/></mxCell>
+        <mxCell id="rew" value="REWARD (per step)&#10;1.0·(terrain score − 1)  [labels from GAUSSIANS —&#10;cannot reward hallucination]&#10;+1.5·progress − 1.0·collision − 0.3·void&#10;−0.05 step − 0.05·|turn|&#10;+50 at goal (only large positive)" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;align=left;" vertex="1" parent="1"><mxGeometry x="740" y="200" width="330" height="130" as="geometry"/></mxCell>
+        <mxCell id="ppo" value="PPO (lr 1e-4, target_kl 0.02, ckpt every 2k)&#10;+ BC warm-start from real trajectories (2,480 pairs)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="420" y="540" width="330" height="60" as="geometry"/></mxCell>
+        <mxCell id="ep" value="EPISODE&#10;spawn on real trajectory (curriculum)&#10;goal sampled per episode (frames 15–70)&#10;success: within 0.75 m | timeout: 60 steps" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;" vertex="1" parent="1"><mxGeometry x="740" y="60" width="330" height="90" as="geometry"/></mxCell>
+        <mxCell id="f1" value="render at pose" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="wm2" target="obs"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f2" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="obs" target="pol"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f3" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="pol" target="act"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f4" value="new pose" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="act" target="wm2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f5" value="semantic labels" style="edgeStyle=orthogonalEdgeStyle;dashed=1;" edge="1" parent="1" source="wm2" target="rew"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f6" value="updates the policy" style="edgeStyle=orthogonalEdgeStyle;dashed=1;" edge="1" parent="1" source="ppo" target="pol"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="f7" style="edgeStyle=orthogonalEdgeStyle;dashed=1;" edge="1" parent="1" source="rew" target="ppo"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
