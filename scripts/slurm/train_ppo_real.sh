@@ -73,6 +73,12 @@ if [ "$SEED" != "0" ]; then
     BC_ARGS="$BC_ARGS --seed $SEED"
     OUT="${OUT}_seed${SEED}"
 fi
+# STEPS_OVERRIDE: extend any rung without a new branch (v6d was still climbing
+# at its 400k cap -> 800k continuation). Output dir gets the step count.
+if [ -n "${STEPS_OVERRIDE:-}" ]; then
+    STEPS=$STEPS_OVERRIDE
+    OUT="${OUT}_${STEPS}"
+fi
 echo "==> rung: ${BC_ARGS:-pure-shaped}  steps: $STEPS  out: $OUT"
 python scripts/train_ppo_real.py \
     --scene rugd_trail_00 \
