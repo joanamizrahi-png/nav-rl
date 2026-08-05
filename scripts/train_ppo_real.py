@@ -41,10 +41,13 @@ from src.eval.reward_2d import RewardWeights
 
 
 def make_env(args):
+    # rung 7: --scenes trains one policy over several scenes (round-robin per
+    # episode in SceneEnv). Single --scene remains the default path.
+    scenes = args.scenes if getattr(args, "scenes", None) else [args.scene]
     cfg = CalibratedBackendConfig(
-        scene_video_paths={args.scene: f"{args.clips_dir}/{args.scene}.mp4"},
-        scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
-        scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
+        scene_video_paths={s: f"{args.clips_dir}/{s}.mp4" for s in scenes},
+        scene_poses_paths={s: f"{args.poses_dir}/{s}_poses.npz" for s in scenes},
+        scene_labels_paths={s: f"{args.labels_dir}/{s}.npz" for s in scenes},
         goal_frame=args.goal_frame,
         goal_frame_range=tuple(args.goal_frame_range) if args.goal_frame_range else None,
         goal_min_sep_m=args.goal_min_sep,
@@ -74,7 +77,7 @@ def make_env(args):
         random_spawn=True,
     )
     env = SceneEnv(world_backend=world, semantic_backend=sem,
-                   scene_ids=[args.scene], cfg=env_cfg)
+                   scene_ids=scenes, cfg=env_cfg)
     return Monitor(env)
 
 
@@ -212,6 +215,8 @@ def main():
                     help="rung 6: sample the goal frame per episode from [LO, HI]")
     ap.add_argument("--goal_min_sep", type=float, default=1.0,
                     help="spawn-goal separation guard in meters (v6 used 1.5)")
+    ap.add_argument("--scenes", nargs="+", default=None,
+                    help="rung 7: train across these scenes (overrides --scene)")
     ap.add_argument("--output_dir", type=Path, default=Path("outputs/ppo_real"))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--use_wandb", action="store_true")

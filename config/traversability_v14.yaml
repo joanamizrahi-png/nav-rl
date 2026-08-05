@@ -1,0 +1,44 @@
+# GENERATED from NeoVerse/diffsynth/utils/class_taxonomy.py — do not hand-edit.
+# Per-class traversability for the 14-class navigation taxonomy.
+0:
+  name: void
+  score: 0.0
+1:
+  name: sky
+  score: 0.0
+2:
+  name: trail
+  score: 0.85
+3:
+  name: grass
+  score: 0.85
+4:
+  name: rough
+  score: 0.35
+5:
+  name: water
+  score: 0.0
+6:
+  name: sidewalk
+  score: 0.95
+7:
+  name: road
+  score: 0.5
+8:
+  name: pavement
+  score: 0.7
+9:
+  name: stairs
+  score: 0.5
+10:
+  name: obstacle
+  score: 0.0
+11:
+  name: vegetation
+  score: 0.2
+12:
+  name: person
+  score: 0.0
+13:
+  name: vehicle
+  score: 0.0

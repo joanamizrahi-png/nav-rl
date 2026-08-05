@@ -41,7 +41,13 @@ else
 fi
 STEPS=200000
 SEED=${SEED:-0}
-if [ "${RUNG6D:-0}" = "1" ]; then
+if [ "${RUNG7:-0}" = "1" ]; then
+    # v7 = multi-scene: the proven 6d recipe (random goals, min_sep 1.5) over
+    # four scenes at once. LRU cache eviction keeps GPU residency bounded.
+    BC_ARGS="$BC_ARGS --goal_frame_range 15 70 --goal_min_sep 1.5 --scenes rugd_trail_00 rugd_park-1_00 rugd_park-2_00 rugd_trail-4_00"
+    OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v7_multiscene4
+    STEPS=800000
+elif [ "${RUNG6D:-0}" = "1" ]; then
     # v6d = v6c with min_sep back at v6's 1.5 (the one env difference from the
     # only config that ever learned). Paired with a 6c seed-rerun, this splits
     # "min_sep poisoned it" from "PPO seed variance".

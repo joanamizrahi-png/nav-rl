@@ -142,6 +142,11 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # of the fixed goal_frame. Spawns then range over the whole trajectory, so
     # the policy also sees goals BEHIND it (learns to turn around / not overshoot).
     goal_frame_range: "tuple[int, int] | None" = None
+    # rung 7 (multi-scene): max scene caches resident on GPU at once; older
+    # ones are evicted to CPU and lazily moved back when their scene activates.
+    # Each rasterizer-only cache is well under 1 GB, so a few coexist fine —
+    # the cap is a guardrail, not a bottleneck.
+    max_gpu_scenes: int = 2
     # v6d: spawn-goal separation guard is now a config knob. 1.0 was v6b/v6c's
     # close-range-exposure value; 1.5 is v6's (the only config that has learned
     # this task). Suspect in the v6c post-mortem — knob added to test it.
@@ -176,6 +181,33 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         # stash it so the label-attachment override can find the labels npz.
         self._current_loading_scene_id = scene_id
         super().load_scene(scene_id)
+        if self.cfg.render_mode == "rasterizer_only":
+            self._activate_scene_on_gpu(scene_id)
+
+    _gpu_lru: "list | None" = None
+
+    def _activate_scene_on_gpu(self, scene_id: str) -> None:
+        """Rung 7 residency management: ensure the active scene's cache is on
+        the GPU; evict least-recently-used caches to CPU past max_gpu_scenes.
+        (Diffusion mode keeps its own stricter discipline — everything CPU.)"""
+        import torch
+        from .real_backend import _move_tree_to
+        if self._reconstructor is None:
+            return
+        device = next(self._reconstructor.parameters()).device
+        if device.type == "cpu":
+            return
+        scene = self._cache[scene_id]
+        if torch.is_tensor(scene.get("K")) and scene["K"].device.type == "cpu":
+            self._cache[scene_id] = _move_tree_to(scene, device)
+        if self._gpu_lru is None:
+            self._gpu_lru = []
+        self._gpu_lru = [s for s in self._gpu_lru if s != scene_id and s in self._cache]
+        self._gpu_lru.append(scene_id)
+        while len(self._gpu_lru) > max(1, int(self.cfg.max_gpu_scenes)):
+            victim = self._gpu_lru.pop(0)
+            self._cache[victim] = _move_tree_to(self._cache[victim], "cpu")
+            torch.cuda.empty_cache()
 
     def start_pose(self, scene_id: str) -> np.ndarray:
         return self._calib[scene_id].robot_pose_nav(0)
