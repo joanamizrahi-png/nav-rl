@@ -54,6 +54,8 @@ MAPPING = [
     # Root of the package: a plain README + the architecture/loss doc.
     ("", "nav-rl/diagrams/DRIVE_README.md"),
     ("", "nav-rl/ARCHITECTURE.md"),
+    ("", "nav-rl/diagrams/Diffusion internals.png"),
+    ("", "nav-rl/diagrams/RL gym.png"),
 ]
 
 

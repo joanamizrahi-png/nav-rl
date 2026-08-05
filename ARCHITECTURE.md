@@ -1,5 +1,7 @@
 # Architecture and loss functions
 
+Diagrams: see "Diffusion internals.png" and "RL gym.png" next to this file.
+
 ## 1. Semantic world model
 
 ### 1.1 Pipeline
