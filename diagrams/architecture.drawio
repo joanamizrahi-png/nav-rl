@@ -1,52 +1,112 @@
 <mxfile host="app.diagrams.net">
-  <diagram id="wm" name="Semantic world model">
-    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
-      <root>
-        <mxCell id="0" />
-        <mxCell id="1" parent="0" />
-        <mxCell id="v" value="monocular video&#10;81 frames, 560x336" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="40" y="80" width="160" height="60" as="geometry"/></mxCell>
-        <mxCell id="sam3" value="SAM3 labeler&#10;(once per scene)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="40" y="200" width="160" height="60" as="geometry"/></mxCell>
-        <mxCell id="rec" value="RECONSTRUCT&#10;WorldMirror / VGGT&#10;feed-forward" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="270" y="80" width="170" height="70" as="geometry"/></mxCell>
-        <mxCell id="gs" value="~15M 4D Gaussians&#10;+ per-Gaussian labels&#10;(one-hot fused)" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="500" y="80" width="180" height="70" as="geometry"/></mxCell>
-        <mxCell id="rast" value="RENDER (gsplat)&#10;any pose + time" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="740" y="80" width="160" height="70" as="geometry"/></mxCell>
-        <mxCell id="rough" value="rough RGB + depth&#10;+ HOLEY semantic&#10;+ alpha (trust mask)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1"><mxGeometry x="740" y="210" width="160" height="80" as="geometry"/></mxCell>
-        <mxCell id="vae" value="VAE encode&#10;RGB 16ch | colorized labels 16ch&#10;= 32 latent channels" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="440" y="340" width="220" height="70" as="geometry"/></mxCell>
-        <mxCell id="dit" value="Wan 2.1 DiT (32ch co-denoise)&#10;expanded: parallel _sem patch-embed/head&#10;+ rank-8 trunk LoRA&#10;conditioned on rough render (control branch)" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="410" y="450" width="280" height="90" as="geometry"/></mxCell>
-        <mxCell id="out" value="clean RGB + dense semantics&#10;(2D, co-generated)" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="770" y="470" width="190" height="60" as="geometry"/></mxCell>
-        <mxCell id="loss" value="v8 training losses (semantic half):&#10;1. x0-prediction MSE (predict the CLEAN latent)&#10;2. decoded-space CE (VAE-decode → class head → per-pixel CE)&#10;3. SAM2 segment homogeneity (pixels agree within a segment)&#10;RGB half: distill-matched velocity MSE (unchanged)" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;align=left;" vertex="1" parent="1"><mxGeometry x="60" y="450" width="320" height="110" as="geometry"/></mxCell>
-        <mxCell id="twopass" value="deployment inference: TWO-PASS&#10;RGB from vanilla weights; semantics from finetuned pass&#10;(planned: RGB-anchored — sem pass clamped to vanilla RGB latents)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;align=left;" vertex="1" parent="1"><mxGeometry x="410" y="590" width="380" height="70" as="geometry"/></mxCell>
-        <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="v" target="rec"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="sam3" target="rec"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="rec" target="gs"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="gs" target="rast"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="rast" target="rough"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e6" value="hint / conditioning" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="rough" target="dit"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e7" value="training targets (RUGD GT + clean RGB)" style="edgeStyle=orthogonalEdgeStyle;dashed=1;" edge="1" parent="1" source="vae" target="dit"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e8" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="dit" target="out"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="e9" style="edgeStyle=orthogonalEdgeStyle;dashed=1;" edge="1" parent="1" source="loss" target="dit"><mxGeometry relative="1" as="geometry"/></mxCell>
-      </root>
-    </mxGraphModel>
-  </diagram>
-  <diagram id="rl" name="RL loop">
-    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
-      <root>
-        <mxCell id="0" />
-        <mxCell id="1" parent="0" />
-        <mxCell id="wm2" value="WORLD MODEL&#10;(reconstructed scene)&#10;render(pose) → RGB&#10;rasterize(labels) → class map&#10;alpha → trust mask" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="420" y="60" width="220" height="100" as="geometry"/></mxCell>
-        <mxCell id="obs" value="OBSERVATION&#10;RGB (egocentric, 0.25 m eye height)&#10;+ goal vector (dx, dy, dyaw)" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="120" y="220" width="240" height="80" as="geometry"/></mxCell>
-        <mxCell id="pol" value="POLICY (SB3 MultiInputPolicy)&#10;CNN(image) + MLP(goal) → 64-64&#10;actor: (forward, turn) ∈ [−1,1]&#10;critic: value estimate" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="120" y="380" width="240" height="100" as="geometry"/></mxCell>
-        <mxCell id="act" value="ACTION&#10;≤0.25 m forward, ≤0.3 rad turn&#10;→ new robot pose" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="460" y="400" width="220" height="70" as="geometry"/></mxCell>
-        <mxCell id="rew" value="REWARD (per step)&#10;1.0·(terrain score − 1)  [labels from GAUSSIANS —&#10;cannot reward hallucination]&#10;+1.5·progress − 1.0·collision − 0.3·void&#10;−0.05 step − 0.05·|turn|&#10;+50 at goal (only large positive)" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;align=left;" vertex="1" parent="1"><mxGeometry x="740" y="200" width="330" height="130" as="geometry"/></mxCell>
-        <mxCell id="ppo" value="PPO (lr 1e-4, target_kl 0.02, ckpt every 2k)&#10;+ BC warm-start from real trajectories (2,480 pairs)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="420" y="540" width="330" height="60" as="geometry"/></mxCell>
-        <mxCell id="ep" value="EPISODE&#10;spawn on real trajectory (curriculum)&#10;goal sampled per episode (frames 15–70)&#10;success: within 0.75 m | timeout: 60 steps" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;" vertex="1" parent="1"><mxGeometry x="740" y="60" width="330" height="90" as="geometry"/></mxCell>
-        <mxCell id="f1" value="render at pose" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="wm2" target="obs"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="f2" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="obs" target="pol"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="f3" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="pol" target="act"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="f4" value="new pose" style="edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="act" target="wm2"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="f5" value="semantic labels" style="edgeStyle=orthogonalEdgeStyle;dashed=1;" edge="1" parent="1" source="wm2" target="rew"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="f6" value="updates the policy" style="edgeStyle=orthogonalEdgeStyle;dashed=1;" edge="1" parent="1" source="ppo" target="pol"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="f7" style="edgeStyle=orthogonalEdgeStyle;dashed=1;" edge="1" parent="1" source="rew" target="ppo"><mxGeometry relative="1" as="geometry"/></mxCell>
-      </root>
-    </mxGraphModel>
-  </diagram>
+<diagram id="p0" name="Pipeline">
+<mxGraphModel dx="1200" dy="800" grid="1" gridSize="20" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1240" pageHeight="560" math="0" shadow="0"><root>
+<mxCell id="0" /><mxCell id="1" parent="0" />
+<mxCell id="v" value="monocular video
+81 frames" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="40" y="120" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="rec" value="RECONSTRUCT
+(feed-forward)" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="280" y="120" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="gs" value="4D Gaussians
++ labels" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="520" y="120" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="ren" value="RENDER
+(rasterize)" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="760" y="120" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="rough" value="rough RGB + depth
++ holey labels + alpha" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1"><mxGeometry x="1000" y="120" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="sam3" value="SAM3 labeler
+(once per scene)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="40" y="260" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="diff" value="DIFFUSION
+(Wan 2.1, finetuned)" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="1000" y="300" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="clean" value="clean RGB
++ dense semantics" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="1000" y="440" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="gym" value="RL GYM
+(PPO policy)" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="520" y="300" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="rew" value="REWARD
+(labels from Gaussians)" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="760" y="440" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="dep" value="DEPLOYMENT
+(real robot)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="520" y="440" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="v" target="rec"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="rec" target="gs"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="gs" target="ren"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="ren" target="rough"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="sam3" target="rec"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e6" value="hint" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="rough" target="diff"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="diff" target="clean"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e8" value="observations (today)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="ren" target="gym"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e9" value="observations (planned)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;dashed=1;" edge="1" parent="1" source="clean" target="gym"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e10" value="labels" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="ren" target="rew"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="rew" target="gym"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e12" value="as verified (future)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;dashed=1;strokeColor=#cc0000;" edge="1" parent="1" source="clean" target="rew"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="e13" value="trained policy" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="gym" target="dep"><mxGeometry relative="1" as="geometry"/></mxCell>
+</root></mxGraphModel></diagram>
+<diagram id="p1" name="Diffusion internals">
+<mxGraphModel dx="1200" dy="800" grid="1" gridSize="20" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1320" pageHeight="600" math="0" shadow="0"><root>
+<mxCell id="0" /><mxCell id="1" parent="0" />
+<mxCell id="rgbf" value="RGB frames" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="40" y="100" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="lbl" value="label map
+(class ids)" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="40" y="260" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="colz" value="colorize" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1"><mxGeometry x="280" y="260" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="vae" value="VAE encoder
+16ch per stream" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="520" y="180" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="lat" value="32 latents
+[RGB 16 | sem 16]" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="760" y="180" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="ctrl" value="control branch
+(rough render)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1"><mxGeometry x="760" y="40" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="dit" value="DiT core (frozen)" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="760" y="320" width="180" height="100" as="geometry"/></mxCell>
+<mxCell id="t1" value="sem in" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="700" y="300" width="70" height="30" as="geometry"/></mxCell>
+<mxCell id="t2" value="sem out" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="930" y="300" width="70" height="30" as="geometry"/></mxCell>
+<mxCell id="t3" value="LoRA r8" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="815" y="440" width="70" height="30" as="geometry"/></mxCell>
+<mxCell id="g1" value="L1  x0 MSE" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="1080" y="260" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="g2" value="L2  decode → CE" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="1080" y="340" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="g3" value="L3  segment agree" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="1080" y="420" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="u4" value="U4: SAM3-encoder features
+replace colorize + VAE(label)" style="rounded=1;whiteSpace=wrap;fillColor=none;strokeColor=#cc0000;dashed=1;fontColor=#cc0000;" vertex="1" parent="1"><mxGeometry x="240" y="400" width="260" height="60" as="geometry"/></mxCell>
+<mxCell id="inf" value="inference: x̂0 → v = (x_t − x̂0)/σ ;  decode: palette → class head (planned)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="40" y="520" width="560" height="40" as="geometry"/></mxCell>
+<mxCell id="f1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="rgbf" target="vae"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="f2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="lbl" target="colz"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="f3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="colz" target="vae"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="f4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="vae" target="lat"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="f5" value="targets" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="lat" target="dit"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="f6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="ctrl" target="dit"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="f7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="dit" target="g1"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="f8" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="dit" target="g2"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="f9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="dit" target="g3"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="f10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;dashed=1;strokeColor=#cc0000;" edge="1" parent="1" source="u4" target="colz"><mxGeometry relative="1" as="geometry"/></mxCell>
+</root></mxGraphModel></diagram>
+<diagram id="p2" name="RL gym">
+<mxGraphModel dx="1200" dy="800" grid="1" gridSize="20" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="800" pageHeight="480" math="0" shadow="0"><root>
+<mxCell id="0" /><mxCell id="1" parent="0" />
+<mxCell id="wm" value="WORLD MODEL
+render(pose)" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="280" y="60" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="obs" value="OBSERVATION
+RGB + goal vector" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="40" y="200" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="pol" value="POLICY
+CNN+MLP → actor/critic" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="40" y="360" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="act" value="ACTION
+≤0.25 m, ≤0.3 rad" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="280" y="360" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="rew2" value="REWARD
+7 terms (see Losses)" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="560" y="200" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="ppo" value="PPO + BC warm-start
+KL leash, ckpt / 2k" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="560" y="360" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="ep" value="EPISODE
+spawn + random goal" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1"><mxGeometry x="560" y="60" width="180" height="60" as="geometry"/></mxCell>
+<mxCell id="r1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="wm" target="obs"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="r2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="obs" target="pol"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="r3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="pol" target="act"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="r4" value="new pose" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="act" target="wm"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="r5" value="labels" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="wm" target="rew2"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="r6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="rew2" target="ppo"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="r7" value="updates" style="edgeStyle=orthogonalEdgeStyle;rounded=0;dashed=1;" edge="1" parent="1" source="ppo" target="pol"><mxGeometry relative="1" as="geometry"/></mxCell>
+<mxCell id="r8" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;" edge="1" parent="1" source="ep" target="wm"><mxGeometry relative="1" as="geometry"/></mxCell>
+</root></mxGraphModel></diagram>
+<diagram id="p3" name="Losses">
+<mxGraphModel dx="1200" dy="800" grid="1" gridSize="20" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="760" pageHeight="500" math="0" shadow="0"><root>
+<mxCell id="0" /><mxCell id="1" parent="0" />
+<mxCell id="ld" value="DIFFUSION (v8):   L = L_rgb + 2.0·L_x0 + 0.1·L_CE + 0.05·L_seg" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="40" y="40" width="680" height="40" as="geometry"/></mxCell>
+<mxCell id="l1" value="L_rgb = ‖v_pred − (ε − x0)‖²   velocity MSE, RGB half (unchanged)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="40" y="100" width="680" height="40" as="geometry"/></mxCell>
+<mxCell id="l2" value="L_x0 = ‖x̂0 − x0‖²   semantic half predicts the CLEAN latent" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="40" y="160" width="680" height="40" as="geometry"/></mxCell>
+<mxCell id="l3" value="L_CE = CrossEntropy( head(decode(x̂0)), GT classes )   at σ ≤ 0.7" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="40" y="220" width="680" height="40" as="geometry"/></mxCell>
+<mxCell id="l4" value="L_seg = CE of each pixel vs its SAM2-segment mean (detached)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="40" y="280" width="680" height="40" as="geometry"/></mxCell>
+<mxCell id="lr" value="RL REWARD:  r = 1.0·(s_terrain−1) + 1.5·Δd − 1.0·collision − 0.3·void − 0.05 − 0.05·|turn| + 50·[goal]" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="40" y="360" width="680" height="40" as="geometry"/></mxCell>
+<mxCell id="lp" value="PPO:  L = E[ min(ρA, clip(ρ, 0.8, 1.2)·A) ]   lr 1e-4, target_kl 0.02" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="40" y="420" width="680" height="40" as="geometry"/></mxCell>
+</root></mxGraphModel></diagram>
 </mxfile>

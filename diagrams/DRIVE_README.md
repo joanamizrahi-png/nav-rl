@@ -40,6 +40,11 @@ first-person view with a minimap: white = path walked, green = goal).
   (100%) and the remaining weakness is close goals (mapped by a 9-distance
   sweep: 0% at 1.5 m rising to 100% at 4 m).
 - reward_audit/ — each reward term's actual per-step contribution.
+- v6d_evals/ — the current best policy (random goals, min_sep 1.5): 100%
+  success at all nine goal distances (1.5–7 m), and zero-shot evaluations on
+  two scenes it never trained on (park-1, park-2): 100% success, zero
+  collisions. Remaining weakness: path efficiency (wanders; extended
+  training in progress).
 
 ## 05_semantics
 The diffusion model learning to output semantic maps.
@@ -51,3 +56,6 @@ The diffusion model learning to output semantic maps.
   colors), addressed by the two loss additions now in testing.
 - sam2_segment_examples/ — class-agnostic segments used by the new
   segment-consistency loss.
+- compare_v8_stages_1_2_3.mp4 — the three v8 loss stages side by side at
+  5 epochs (attribution check before the full training run).
+- class_palette_legend.png — color → class key for all semantic videos.
