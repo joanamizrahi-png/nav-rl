@@ -39,9 +39,18 @@ MAPPING = [
     ("04_rl_policy/eval_v6_peak_goal30", "nav-rl/outputs/eval_ppo_v6_randomgoal_trail00_ppo_306000_steps_goal30/*"),
     ("04_rl_policy/eval_v6_peak_goal60", "nav-rl/outputs/eval_ppo_v6_randomgoal_trail00_ppo_306000_steps_goal60/*"),
     ("04_rl_policy/reward_audit", "nav-rl/outputs/audit_*/*"),
+    # 2026-08-03: v6d = 100% at all nine goal distances; zero-shot transfer
+    ("04_rl_policy/v6d_evals", "nav-rl/outputs/eval_ppo_v6d_*"),
     ("05_semantics", "inference_runs/compare_v6_v7_semantic.mp4"),
     ("05_semantics", "inference_runs/inference_v8_val5_rugdtrail/compare_v8val5_2x2.mp4"),
     ("05_semantics/sam2_segment_examples", "NeoVerse/outputs/sam2_segments/*/seg_overlay_000.png"),
+    # 2026-08-03: v8 staged ladder at 5 epochs + palette legend
+    ("05_semantics", "inference_runs/compare_v8_stages_1_2_3.mp4"),
+    ("05_semantics", "inference_runs/inference_train_semantic_v8_stage2_rugdtrail/compare_stage2_2x2.mp4"),
+    ("05_semantics", "inference_runs/inference_train_semantic_v8_stage3_rugdtrail/compare_stage3_2x2.mp4"),
+    ("05_semantics", "inference_runs/class_palette_legend.png"),
+    # 2026-08-05: first HONEST evaluation — v9 (14 classes) on held-out scenes
+    ("05_semantics/heldout_v9", "inference_runs/HELDOUT_v9/*"),
     # Root of the package: a plain README + the architecture/loss doc.
     ("", "nav-rl/diagrams/DRIVE_README.md"),
     ("", "nav-rl/ARCHITECTURE.md"),
@@ -60,13 +69,18 @@ def main():
         for m in matches:
             src = Path(m)
             if src.is_dir():
-                shutil.copytree(src, out / src.name, dirs_exist_ok=True)
+                # delete-then-copy: macOS compressed-flagged files refuse
+                # in-place overwrite (EPERM on rebuild)
+                if (out / src.name).exists():
+                    shutil.rmtree(out / src.name)
+                shutil.copytree(src, out / src.name)
             else:
                 # sam2 overlays are all named seg_overlay_000 -> prefix by clip
                 name = (f"{src.parent.name}_{src.name}"
                         if src.name == "seg_overlay_000.png" else src.name)
                 if name == "DRIVE_README.md":
                     name = "README.md"
+                (out / name).unlink(missing_ok=True)
                 shutil.copy2(src, out / name)
             copied += 1
     print(f"copied {copied} artifacts -> {DEST}")
