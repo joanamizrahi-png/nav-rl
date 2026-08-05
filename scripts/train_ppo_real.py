@@ -215,6 +215,8 @@ def main():
                     help="rung 6: sample the goal frame per episode from [LO, HI]")
     ap.add_argument("--goal_min_sep", type=float, default=1.0,
                     help="spawn-goal separation guard in meters (v6 used 1.5)")
+    ap.add_argument("--target_kl", type=float, default=0.02,
+                    help="PPO KL trust region; 0 disables (rung 7b)")
     ap.add_argument("--scenes", nargs="+", default=None,
                     help="rung 7: train across these scenes (overrides --scene)")
     ap.add_argument("--output_dir", type=Path, default=Path("outputs/ppo_real"))
@@ -244,7 +246,11 @@ def main():
         # 4x in v6b (harmless) yet caps the exact mechanism behind 3/3 observed
         # peak-then-collapse runs.
         learning_rate=1e-4,
-        target_kl=0.02, gamma=0.99, gae_lambda=0.95,
+        # target_kl: 0 disables. Single-scene: 0.02 harmless (4-110 triggers).
+        # Multi-scene v7: 0.02 fired on 77% of update rounds (4837x) and
+        # strangled learning -> rung 7b runs unleashed.
+        target_kl=(args.target_kl if args.target_kl > 0 else None),
+        gamma=0.99, gae_lambda=0.95,
         clip_range=0.2, ent_coef=0.01,
         policy_kwargs=dict(net_arch=[dict(pi=[64, 64], vf=[64, 64])]),
     )
