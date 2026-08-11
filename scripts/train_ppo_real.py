@@ -129,12 +129,30 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
         draw.ellipse([gx - 3, gy - 3, gx + 3, gy + 3], fill=(0, 255, 0, 255))
         ax, ay = to_px(path_xy[-1])
         draw.ellipse([ax - 2, ay - 2, ax + 2, ay + 2], fill=(255, 80, 80, 255))
+        # heading arrow: where the robot LOOKS (local +x in world), 0.8 m long.
+        # If this arrow ever disagrees with where the white path advances next
+        # frame, the pose/obs frames are inconsistent — the bug Jing suspects.
+        hd = pose[:2, 0] / (np.linalg.norm(pose[:2, 0]) + 1e-9)
+        hx, hy = to_px(path_xy[-1] + hd * 0.8)
+        draw.line([(ax, ay), (hx, hy)], fill=(255, 160, 0, 255), width=2)
+
+        # goal-bearing compass on the FPV: obs dyaw, 0 = dead ahead (up),
+        # positive = goal to the LEFT. The needle should swing to center as
+        # the policy turns toward the goal.
+        gr = base_env._goal_in_robot_frame()
+        cx, cy = W // 2, H - 22
+        tipx = cx - 16 * np.sin(gr[2])
+        tipy = cy - 16 * np.cos(gr[2])
+        draw.ellipse([cx - 18, cy - 18, cx + 18, cy + 18], fill=(0, 0, 0, 130))
+        draw.line([(cx, cy), (tipx, tipy)], fill=(0, 255, 0, 255), width=2)
+        draw.ellipse([tipx - 2, tipy - 2, tipx + 2, tipy + 2], fill=(0, 255, 0, 255))
 
         # --- HUD banner ---
         draw.rectangle([0, 0, W, 14], fill=(0, 0, 0, 180))
         draw.text((4, 2), f"t={len(frames):3d} v={float(action[0]):+.2f} "
                           f"w={float(action[1]):+.2f} r={float(r):+.2f} "
-                          f"dist={info.get('dist_to_goal', float('nan')):.1f}m",
+                          f"dist={info.get('dist_to_goal', float('nan')):.1f}m "
+                          f"goal={np.degrees(gr[2]):+.0f}deg",
                   fill=(255, 255, 255, 255))
         frames.append(np.array(img.convert("RGB")))
 

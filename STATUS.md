@@ -9,7 +9,7 @@ Replaces PLAN.md as the working reference (PLAN.md kept as history).
 |---|---|---|
 | World model (reconstruct + render) | validated | replay ≈ original video; ground ~2.7 cm; trust region ±1 m / ±45° |
 | RL policy, single scene | **closed** | 100% success at all 9 goal distances, near-shortest paths (5–21 steps), zero-shot transfer to 2 unseen scenes |
-| RL policy, multi-scene | in progress | v7 strangled by KL leash (4,837 truncated updates), peak rescued at 60%; **7b (unleashed) training now** |
+| RL policy, multi-scene | **closed by transfer** | joint training unstable in both KL regimes (documented negative result); unnecessary: 6d-800k scores **100% zero-shot on 7 unseen scenes** |
 | Semantic model v9 (14 classes) | trained | **held-out 78.8% / 69.9% pixel accuracy** — first honest evaluation; trail/grass/obstacle 57–81 IoU |
 | Class taxonomy | proposed | 14 classes, single source of truth module, id-order bug retired; **awaiting advisor** |
 | Reward | audited | terminal bonus ≈70% of incentive; per-step economy terrain-dominated 2:1 |
@@ -41,7 +41,6 @@ Replaces PLAN.md as the working reference (PLAN.md kept as history).
 
 ## This week's remaining items
 
-- Read 7b (multi-scene) + checkpoint sweep — tonight.
 - Vanilla-vs-finetune off-trajectory comparison — renders in queue.
 - Drive upload + share (package ready: 188 artifacts + READMEs).
 - Message to advisor: proposal + Drive link + held-out numbers + meeting ask.
