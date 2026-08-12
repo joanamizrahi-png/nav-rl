@@ -80,15 +80,49 @@ v8 changes the semantic-channel losses (three additions):
    A uniform segment costs ~0. Speckle is disagreement inside a segment, so
    this loss removes it directly, without needing to know the correct class.
 
-Total: L = L_rgb + 2.0·L_sem + 0.1·L_ce + λ_seg·L_seg.
+v10/v11 add two more (each validated alone in a 5-epoch test, then a
+30-epoch ablation), and open the CE gate:
 
-### 1.4 Inference
+4. RGB preservation. A second gradient-free forward with the LoRA and _sem
+   branches disabled IS the pretrained model (those additions are the only
+   doors RGB drift can come through), and the loss pins the finetune's RGB
+   prediction to it:
 
-Two passes. RGB comes from the original (vanilla) weights, semantics from the
-finetuned model. This keeps RGB clean: semantic training slightly degrades
-the shared trunk. Planned improvement: anchor the semantic pass by fixing its
-RGB channels to the vanilla pass's latent trajectory at every denoising step,
-which forces the semantic map to describe exactly the RGB image shown.
+       L_pres = || v̂_rgb − v̂_rgb_vanilla ||²      (weight 0.3)
+
+   This closed the RGB gap: the finetune's own RGB now matches the vanilla
+   model's fidelity to real footage (13.7 vs 13.2 dB / 18.7 vs 19.2 dB on
+   the held-out clips). Weight 1.0 preserved slightly more but cost
+   semantic accuracy (79.9% vs 82.3% at 0.3); v11 uses 0.3.
+
+5. min-SNR timestep weighting. Noise-target vs clean-target training differ
+   only by per-noise-level weights (VDM, arXiv 2107.00630), so the weights
+   are set explicitly: w_snr = min(SNR, 5)/(SNR + 1) multiplies the
+   denoising loss, damping the uninformative extremes.
+
+The CE loss (2.) runs at ALL timesteps since v10 (σ ≤ 0.7 gate removed:
++4.4 accuracy points, and it is what trains the reader below).
+
+Total: L = (L_rgb + 2.0·L_sem)·w·w_snr + 0.1·L_ce + 0.05·L_seg + 0.3·L_pres·w.
+
+### 1.4 Inference: one pass, reader decode
+
+One pass of the finetuned model produces both outputs, co-generated and
+therefore aligned by construction:
+- RGB: at parity with the vanilla model against real camera frames (the
+  preservation loss removed the degradation that once motivated two passes).
+- Semantics: decoded by the READER — the small dilated conv head that L_ce
+  trains (v11: 128 channels, 5 layers, ~60 px receptive field). It replaces
+  nearest-palette decoding, which fails on soft color maps (a grass-ish
+  blend snaps to brown); the reader saw exactly such maps at every noise
+  level during training. Model and reader are a matched pair; every retrain
+  refreshes both. Held-out: 79.9% / 80.6% (v10), vegetation-vs-grass
+  confusion largely resolved.
+
+The earlier two-pass design (vanilla RGB pass + semantic pass with its RGB
+latents overwritten each denoising step by the recorded vanilla trajectory,
+--save_traj / --anchor_traj) is retired from deployment but kept in the
+codebase: it proved one-pass is safe, and it is a paper ablation.
 
 ## 2. RL policy
 
