@@ -58,23 +58,45 @@ def stepped(pose: np.ndarray, dist: float) -> np.ndarray:
     return out
 
 
-def h_shift(a: np.ndarray, b: np.ndarray, max_px: int = 200) -> int:
-    """Horizontal shift of b relative to a via row-mean cross-correlation."""
-    pa = a.astype(np.float64).mean(axis=(0, 2))   # column profile
-    pb = b.astype(np.float64).mean(axis=(0, 2))
-    pa = pa - pa.mean()
-    pb = pb - pb.mean()
+def h_shift(a: np.ndarray, b: np.ndarray, max_px: int = 350) -> tuple[int, float]:
+    """Horizontal shift of b vs a: masked column-profile correlation.
+
+    Holes (black, no geometry) dominate off-path renders and fool a naive
+    profile correlation (v1 of this probe returned +0 px on a panel that had
+    visibly shifted). So: use the central row band only, treat near-black as
+    missing, and correlate mean-brightness profiles computed over CONTENT
+    pixels; the correlation for a candidate shift only counts columns where
+    both profiles have content. Returns (shift_px, content_fraction_of_b).
+    """
+    H = a.shape[0]
+    band = slice(H // 4, 3 * H // 4)
+    def profile(img):
+        band_img = img[band].astype(np.float64)
+        content = band_img.sum(axis=2) > 30.0          # non-hole pixels
+        counts = content.sum(axis=0).astype(np.float64)  # per column
+        sums = (band_img.mean(axis=2) * content).sum(axis=0)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            p = np.where(counts > 0, sums / np.maximum(counts, 1), np.nan)
+        return p
+    pa, pb = profile(a), profile(b)
+    frac_b = float(np.mean(~np.isnan(pb)))
     best, best_v = 0, -np.inf
     for s in range(-max_px, max_px + 1):
         if s >= 0:
-            v = float(np.dot(pa[s:], pb[:len(pb) - s]))
+            xa, xb = pa[s:], pb[:len(pb) - s]
         else:
-            v = float(np.dot(pa[:s], pb[-s:]))
-        n = len(pa) - abs(s)
-        v /= n
+            xa, xb = pa[:s], pb[-s:]
+        ok = ~(np.isnan(xa) | np.isnan(xb))
+        if ok.sum() < 40:                              # too little overlap
+            continue
+        va, vb = xa[ok] - xa[ok].mean(), xb[ok] - xb[ok].mean()
+        denom = np.sqrt((va * va).sum() * (vb * vb).sum())
+        if denom <= 0:
+            continue
+        v = float((va * vb).sum() / denom)             # normalized correlation
         if v > best_v:
             best_v, best = v, s
-    return best
+    return best, frac_b
 
 
 def main():
@@ -137,11 +159,11 @@ def main():
     print(f"=== pose->image direction probe, {args.scene}, frame {args.spawn_frame} ===")
     expected = fx * np.tan(np.deg2rad(30)) if fx else None
     for name in ["yaw+30 (turn left)", "yaw-30 (turn right)"]:
-        s = h_shift(renders["base"], renders[name])
+        s, frac = h_shift(renders["base"], renders[name])
         want = "+" if "+30" in name else "-"
-        print(f"{name}: measured horizontal shift {s:+d} px "
-              f"(expected sign {want}, |expected| ~{expected:.0f} px)" if expected
-              else f"{name}: measured horizontal shift {s:+d} px (expected sign {want})")
+        note = " [LOW CONTENT — treat with care]" if frac < 0.35 else ""
+        exp = f", |expected| ~{expected:.0f} px" if expected else ""
+        print(f"{name}: shift {s:+d} px (content {frac:.0%}{exp}, expected sign {want}){note}")
     print(f"strip: {out / f'pose_direction_{args.scene}.png'}")
     print("PASS if: yaw+30 shift is positive, yaw-30 negative, magnitudes near "
           "expected, and the forward panel looks like walking 1 m up the trail.")
