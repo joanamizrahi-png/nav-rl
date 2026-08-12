@@ -1,13 +1,19 @@
-"""Pairwise RGB metrics between two renders of the same camera path.
+"""Pairwise RGB metrics between two videos of the same camera path.
 
-Used for the vanilla-vs-finetune comparison: how far does the finetune's RGB
-drift from the vanilla pass, per frame, along an off-trajectory motion?
-Reports PSNR and SSIM per frame (start / middle / end thirds) — the ramp
-trajectories reach max offset at the last frame, so the end-third number is
-the off-path story and the start-third is the on-path sanity check.
+Two uses:
+1. DRIFT (default): finetune render vs vanilla render, same trajectory —
+   how far apart are the two models' images? Reports per-thirds (the ramp
+   trajectories reach max offset at the last frame, so the end third is the
+   off-path story, the start third the on-path sanity check).
+2. FIDELITY (--match): render vs the ORIGINAL camera clip — how faithful is
+   a model to reality on-path? --match center-crops+resizes video A to
+   video B's size (the pipeline's own preprocessing), so pass the original
+   clip as A and the render as B. Absolute numbers are only meaningful in
+   comparison (e.g. vanilla-vs-real against v10-vs-real; parity measured
+   2026-08-12: trail 13.2/13.7 dB, park 19.2/18.7 dB -> one-pass viable).
 
 Usage:
-  python rgb_divergence_metric.py <a.mp4> <b.mp4> [--label name]
+  python rgb_divergence_metric.py <a.mp4> <b.mp4> [--label name] [--match]
 """
 import argparse
 
@@ -15,13 +21,26 @@ import cv2
 import numpy as np
 
 
-def read(path):
+def read(path, match=None):
     cap = cv2.VideoCapture(path)
     frames = []
     while True:
         ok, f = cap.read()
         if not ok:
             break
+        if match is not None:
+            th, tw = match
+            h, w = f.shape[:2]
+            ar = tw / th
+            ch = int(w / ar)
+            if ch <= h:                      # crop height, keep width
+                y0 = (h - ch) // 2
+                f = f[y0:y0 + ch]
+            else:                            # crop width, keep height
+                cw = int(h * ar)
+                x0 = (w - cw) // 2
+                f = f[:, x0:x0 + cw]
+            f = cv2.resize(f, (tw, th), interpolation=cv2.INTER_AREA)
         frames.append(f.astype(np.float64))
     cap.release()
     if not frames:
@@ -53,9 +72,13 @@ def main():
     ap.add_argument("video_a")
     ap.add_argument("video_b")
     ap.add_argument("--label", default="")
+    ap.add_argument("--match", action="store_true",
+                    help="center-crop+resize A to B's size (pass the original "
+                         "clip as A, the render as B) — the FIDELITY mode")
     args = ap.parse_args()
 
-    fa, fb = read(args.video_a), read(args.video_b)
+    fb = read(args.video_b)
+    fa = read(args.video_a, match=fb[0].shape[:2] if args.match else None)
     n = min(len(fa), len(fb))
     ps = [psnr(fa[i], fb[i]) for i in range(n)]
     ss = [ssim(fa[i], fb[i]) for i in range(n)]
