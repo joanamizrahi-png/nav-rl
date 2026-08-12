@@ -31,6 +31,9 @@ import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
+NEOVERSE_ROOT = REPO_ROOT.parent / "NeoVerse"
+if NEOVERSE_ROOT.exists():
+    sys.path.insert(0, str(NEOVERSE_ROOT))
 
 import numpy as np
 
