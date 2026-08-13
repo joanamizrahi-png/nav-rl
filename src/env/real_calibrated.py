@@ -69,12 +69,27 @@ class NavCalibration:
         d = np.load(path)
         R_rs = R_SCENE_TO_RECON.T.astype(np.float64)
         R_up = _rotation_aligning_to_z(d["plane_normal_scene"].astype(np.float64))
+        # YAW-MIRROR FIX (2026-08-13): the scene convention behind the npz is
+        # left-handed ("x fwd, y RIGHT, z up"), which made the nav frame
+        # left-handed too — commanded turn-left rendered as a visual
+        # turn-right (confirmed by pose_direction_check sweep videos on two
+        # scenes; the 07-20 deployment note predicted it). Fix: flip nav y
+        # ONCE here, at the calibration boundary (nav' = F·nav,
+        # F = diag(1,-1,1)). The flip cancels in every nav→recon composition
+        # (A'ᵀ·F·F = Aᵀ on points, and the composed camera rotation is
+        # column-for-column identical — verified by hand), so rendering is
+        # bit-identical for the same physical pose. But the nav frame is now
+        # right-handed: +yaw about +z MEANS turn-left in the image, and
+        # real-robot action transfer needs no sign mirroring.
+        # POLICY CHECKPOINTS trained before this fix learned the mirrored
+        # convention — retrain (v14) before evaluating them.
+        F = np.diag([1.0, -1.0, 1.0])
         return cls(
-            A=R_up @ R_rs,
+            A=F @ (R_up @ R_rs),
             ground_z=float(-d["plane_offset_scene"]),
             scale=float(d["scale_m_per_unit"]),
-            positions=d["positions"].astype(np.float64),
-            headings=d["headings"].astype(np.float64),
+            positions=d["positions"].astype(np.float64) @ F,
+            headings=d["headings"].astype(np.float64) @ F,
             camera_height_m=float(d["camera_height_m"]) if "camera_height_m" in d else 0.25,
         )
 
@@ -110,18 +125,13 @@ class NavCalibration:
         fwd /= max(np.linalg.norm(fwd), 1e-8)
         up = np.array([0.0, 0.0, 1.0])
         pose = np.eye(4)
-        # SUBTLE (debugged 2026-07-20 via black replay frames): the nav frame is
-        # MIRRORED — real_backend's R_SCENE_TO_RECON has det=-1 (its "x fwd,
-        # y right, z up" scene convention is left-handed), so every stored c2w
-        # in the poses npz is an improper rotation. Robot poses must match that
-        # handedness or the composed recon-frame camera comes out det=-1 and
-        # gsplat renders garbage/black. Hence +y = fwd x up (det -1, matching
-        # the frame), NOT the right-handed up x fwd. Verified against the npz's
-        # own c2w: <=9 deg per-axis error (residual = real camera pitch).
-        # Deployment note: left/right yaw sign must be mirrored when
-        # transferring actions to a real robot.
+        # Right-handed since the 2026-08-13 yaw-mirror fix (see from_npz):
+        # +y = up × fwd, det = +1. The old left-handed +y = fwd × up (needed
+        # while the nav frame itself was mirrored — see the 07-20 note in git
+        # history) composed with the flipped A to the SAME recon camera, so
+        # rendering is unchanged; only the meaning of +yaw is now physical.
         pose[:3, 0] = fwd
-        pose[:3, 1] = np.cross(fwd, up)
+        pose[:3, 1] = np.cross(up, fwd)
         pose[:3, 2] = up
         pose[:3, 3] = self.positions[frame] * np.array([1.0, 1.0, 0.0])
         return pose.astype(np.float32)
