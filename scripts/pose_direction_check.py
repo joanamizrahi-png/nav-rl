@@ -96,7 +96,11 @@ def h_shift(a: np.ndarray, b: np.ndarray, max_px: int = 350) -> tuple[int, float
         v = float((va * vb).sum() / denom)             # normalized correlation
         if v > best_v:
             best_v, best = v, s
-    return best, frac_b
+    # Sign convention: the loop's positive s means b matches a shifted LEFT;
+    # negate so the returned value reads naturally (positive = content moved
+    # RIGHT, which is what a LEFT turn produces) and matches the printed
+    # expected signs.
+    return -best, frac_b
 
 
 def main():
