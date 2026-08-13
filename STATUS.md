@@ -1,4 +1,4 @@
-# Project status — 2026-08-05
+# Project status — 2026-08-13
 
 One page. What works, what the numbers are, what is decided, what is next.
 Replaces PLAN.md as the working reference (PLAN.md kept as history).
@@ -8,60 +8,55 @@ Replaces PLAN.md as the working reference (PLAN.md kept as history).
 | System | State | Key number |
 |---|---|---|
 | World model (reconstruct + render) | validated | replay ≈ original video; ground ~2.7 cm; trust region ±1 m / ±45° |
-| RL policy, single scene | **closed** | 100% success at all 9 goal distances, near-shortest paths (5–21 steps), zero-shot transfer to 2 unseen scenes |
-| RL policy, multi-scene | **closed by transfer** | joint training unstable in both KL regimes (documented negative result); unnecessary: 6d-800k scores **100% zero-shot on 7 unseen scenes** |
-| Semantic model v9 (14 classes) | trained | **held-out 78.8% / 69.9% pixel accuracy** — first honest evaluation; trail/grass/obstacle 57–81 IoU |
-| Class taxonomy | proposed | 14 classes, single source of truth module, id-order bug retired; **awaiting advisor** |
+| RL policy, single scene | **closed** | 100% success at all 9 goal distances, zero-shot **100% on 7 unseen scenes** |
+| RL policy, multi-scene | closed by transfer | joint training unstable in both KL regimes (documented negative result); unnecessary |
+| Semantic model v10 | **superseded v9** | held-out **79.9% / 80.6%** with the reader decode; own RGB at parity with vanilla vs real footage |
+| Semantic model v11 (final) | trained, grading today | ablation winners composed (leash 0.3 + big reader); targets ≥82 / ≥80 |
+| Class taxonomy | **approved** | 14 classes, single source of truth module |
 | Reward | audited | terminal bonus ≈70% of incentive; per-step economy terrain-dominated 2:1 |
+| Pose→image direction | **under investigation** | probe + rollout analysis suggest a possible yaw mirror on trail_00; sweep videos deciding today. Sim results self-consistent either way; must be resolved before robot deployment |
 
-## Decisions made (and why)
+## Decisions made this week (and why)
 
-- **Reward reads rasterized labels; diffused labels enter only as verified**
-  (held-out eval defines the trust frontier; alpha marks invented pixels).
-- **Palette-snap stays the decode**: the learned reader was tested head-to-head
-  on held-out scenes and lost (73.2 vs 78.8). Polish path is capped; if the
-  bar demands more, the SAM3-encoder (U4) is the remaining lever.
-- **Two-pass inference** (vanilla RGB / finetuned semantics) for deployment;
-  the doubled diffusion cost never touches the RL loop (ribbon cache is the
-  leading candidate for diffused observations — mechanism decision open).
-- **PPO protections**: lr decay and KL leash both tested and rejected with
-  evidence; checkpoint-every-2k + eval-the-peak is the collapse defense.
+- **One-pass inference**: the RGB-preservation loss closed the finetune's RGB
+  gap (fidelity to real frames now equals the vanilla model: 13.7 vs 13.2 dB /
+  18.7 vs 19.2 dB), so RGB + semantics come from a single pass, aligned by
+  construction. The two-pass + anchoring design is retired to
+  methodology/ablation status — it proved one-pass safe.
+- **Reader decode replaces palette-snap** (reverses the v9-era decision):
+  with CE at all timesteps the co-trained reader wins decisively
+  (79.9/80.6 vs 70.0/54.8 on v10). Model + reader are a matched pair.
+- **Every training ingredient attributed** (5-epoch smokes, then 30-epoch
+  ablations): all-timestep CE +4.4, preservation leash 0.3 > 1.0 for accuracy
+  (82.3 vs 79.9) with the RGB win kept, min-SNR +6.1 alone, bigger reader
+  head +1.1. v11 composes the winners.
 - **Held-out clips are permanent**: rugd_trail-6_01, rugd_park-1_02 never
-  enter training again.
+  enter training.
+- **PPO protections**: unchanged (checkpoint-every-2k + eval-the-peak).
 
-## Open decisions
+## Open items
 
-1. **Class set** — advisor sign-off on the 14-class proposal (two flagged
-   judgment calls: pavement-unknown default, sand=rough). Gates the final
-   semantic training.
-2. **U4 (SAM3-encoder label pathway)** — build (4–6 d) or accept ~75–79%
-   held-out. Decide with advisor, baseline in hand.
-3. **Diffused-observations mechanism** — precomputed ribbon cache vs
-   live-every-Nth. Decide before the diffused-obs training run.
-
-## This week's remaining items
-
-- Vanilla-vs-finetune off-trajectory comparison — renders in queue.
-- Drive upload + share (package ready: 188 artifacts + READMEs).
-- Message to advisor: proposal + Drive link + held-out numbers + meeting ask.
-
-## Next week's queue (effort)
-
-| Item | Effort |
-|---|---|
-| Conservative/aggressive reward knob + demo pair | ~0.5 d |
-| v14 switch for RL (labels_v14 + yaml_v14 + retrain) | ~0.5 d + 1 run |
-| Dynamic-objects scene (clip selection + env stage) | ~1–2 d |
-| Constant-offset trajectory variant (policy-like camera) | ~0.5 d |
-| 360°/wider-coverage data plan | scoping |
-| U4 if approved | 4–6 d |
+1. **Yaw direction** — sweep-video verdict today; if confirmed, one-sign fix
+   in the per-scene calibration, then re-probe both scenes.
+2. **v11 grades** — accuracy both clips (reader), drift, fidelity. If passed,
+   v11 is the paper's semantic model.
+3. **Encoder experiment (analog bits) & VGGT accuracy report card** — scoped,
+   queued behind the yaw fix (see NeoVerse/docs/ENCODER_VS_ROBOT.md for the
+   robot-first recommendation).
+4. **v14 reward switch + policy retrain**, then **Go2W deployment** — the
+   remaining chapter. Training freeze ~Aug 24.
 
 ## Where everything lives
 
 - Results for humans: `World Model/Drive_package/` (drag to Google Drive).
-- Held-out evidence: `inference_runs/HELDOUT_v9/` (videos + README + legend).
-- Docs: `nav-rl/ARCHITECTURE.md` (systems + losses), `WORLD_MODEL_LIMITS.md`
-  (trust boundaries), `NeoVerse/docs/CLASS_SET_PROPOSAL.md` (taxonomy),
-  `NeoVerse/docs/SEMANTIC_V8_RESEARCH.md` (literature).
+- All fetched results: `inference_runs/` — model renders by version
+  (`v9_*, v10_*, v10b..e_*, v11_*`), judgment videos in `V10_verdict/`,
+  policy videos in `rl_rollouts/`, probes in `diagnostics/`,
+  held-out evidence in `HELDOUT_v9/`.
+- Docs: `nav-rl/ARCHITECTURE.md` (systems + all losses, current),
+  `WORLD_MODEL_LIMITS.md`, `NeoVerse/docs/CLASS_SET_PROPOSAL.md`,
+  `NeoVerse/docs/ENCODER_VS_ROBOT.md` (the pending decision),
+  `NeoVerse/docs/SEMANTIC_V8_RESEARCH.md`.
+- One-page web summary with diagrams: artifact link in chat
+  (pipeline + losses + version table).
 - Single source of truth for classes: `NeoVerse/diffsynth/utils/class_taxonomy.py`.
-- Diagrams: `nav-rl/diagrams/` + the web version (artifact link in chat).

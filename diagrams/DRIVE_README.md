@@ -40,7 +40,11 @@ first-person view + a minimap: white = path walked, green = goal).
   (100%), close goals weak (0% at 1.5 m → 100% at 4 m, from a 9-distance
   sweep)
 - v6d_evals → current best single-scene policy: 100% at all nine goal
-  distances + zero-shot on two unseen scenes (100%, no collisions)
+  distances + zero-shot on 7 unseen scenes (100%, no collisions)
+- rollouts_with_heading_overlay → long traverses (training scene + a
+  zero-shot scene) with the heading arrow (orange = where the robot looks),
+  the goal compass (green needle = where the goal is relative to the
+  camera) and the goal bearing in the top banner
 - reward_audit/ → each reward term's actual per-step contribution
 
 ## 05_semantics
@@ -51,7 +55,19 @@ The diffusion model learning to output semantic maps.
   stages at 5 epochs (attribution check before the full run)
 - heldout_v9/ → v9 (14 classes) evaluated on two scenes excluded from
   training: 78.8% / 69.9% pixel accuracy. See its README
+- v10_v11_verdicts/ → the v10/v11 week, one video per question:
+  ONEPASS_* (real footage | vanilla | v10 — the RGB parity that lets one
+  pass replace two), READER_* (palette-snap vs learned-reader decode:
+  70.0/54.8 → 79.9/80.6), ABLATIONS_* (each training ingredient alone),
+  SEMANTICS_/RGBDRIFT_/ANCHORED_* (v9 vs v10 on each axis)
 - sam2_segment_examples/ → class-agnostic segments used by the
   segment-consistency loss
 - class_palette_legend.png → color → class key (old 30-class palette;
   heldout_v9 has the 14-class one)
+
+## 06_diagnostics
+- pose_direction_* → given a constructed robot pose, does the rendered
+  image face where the pose says? Four renders (base, ±30° yaw, forward)
+  + yaw/forward sweep videos. Under investigation: trail_00 shows signs of
+  a mirrored yaw between pose math and render (self-consistent in sim, so
+  policy results stand; must be fixed before the real robot).
