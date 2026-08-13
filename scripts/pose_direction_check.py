@@ -156,6 +156,26 @@ def main():
     strip = np.hstack([put(renders[k], k) for k in poses])
     iio.imwrite(out / f"pose_direction_{args.scene}.png", strip)
 
+    # Sweep VIDEOS — the eyeball-proof version. Static frames are ambiguous
+    # (repeating forest texture fools shift measurement; holes fool eyes);
+    # continuous motion is not: as the label counts the yaw LEFT (+), scene
+    # content must flow RIGHT, smoothly. Any flip is instantly visible.
+    yaw_frames = []
+    for deg in np.linspace(-30, 30, 61):
+        rgb, _, _ = world.render(yawed(base, float(deg)))
+        arrow = "turning LEFT" if deg > 1 else ("turning RIGHT" if deg < -1 else "center")
+        yaw_frames.append(put(np.asarray(rgb), f"yaw {deg:+.0f} deg  ({arrow})  -> content should flow RIGHT as yaw increases"))
+    iio.imwrite(out / f"yaw_sweep_{args.scene}.mp4", np.stack(yaw_frames), fps=10,
+                codec="libx264", macro_block_size=1, ffmpeg_params=["-pix_fmt", "yuv420p"])
+
+    fwd_frames = []
+    for dist in np.linspace(0.0, 1.5, 46):
+        rgb, _, _ = world.render(stepped(base, float(dist)))
+        fwd_frames.append(put(np.asarray(rgb), f"forward {dist:+.2f} m  -> scene should approach, centered"))
+    iio.imwrite(out / f"forward_sweep_{args.scene}.mp4", np.stack(fwd_frames), fps=10,
+                codec="libx264", macro_block_size=1, ffmpeg_params=["-pix_fmt", "yuv420p"])
+    print(f"sweep videos: {out}/yaw_sweep_{args.scene}.mp4, {out}/forward_sweep_{args.scene}.mp4")
+
     print(f"=== pose->image direction probe, {args.scene}, frame {args.spawn_frame} ===")
     expected = fx * np.tan(np.deg2rad(30)) if fx else None
     for name in ["yaw+30 (turn left)", "yaw-30 (turn right)"]:
