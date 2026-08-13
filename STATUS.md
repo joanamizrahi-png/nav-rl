@@ -14,7 +14,7 @@ Replaces PLAN.md as the working reference (PLAN.md kept as history).
 | Semantic model v11 (final) | trained, grading today | ablation winners composed (leash 0.3 + big reader); targets ≥82 / ≥80 |
 | Class taxonomy | **approved** | 14 classes, single source of truth module |
 | Reward | audited | terminal bonus ≈70% of incentive; per-step economy terrain-dominated 2:1 |
-| Pose→image direction | **under investigation** | probe + rollout analysis suggest a possible yaw mirror on trail_00; sweep videos deciding today. Sim results self-consistent either way; must be resolved before robot deployment |
+| Pose→image direction | **bug confirmed, fix planned** | yaw is mirrored between pose math and render (left-handed nav frame), both scenes tested. Sim self-consistent → all results stand; fix at calibration level rides with the v14 policy retrain, before any robot work |
 
 ## Decisions made this week (and why)
 
@@ -36,8 +36,9 @@ Replaces PLAN.md as the working reference (PLAN.md kept as history).
 
 ## Open items
 
-1. **Yaw direction** — sweep-video verdict today; if confirmed, one-sign fix
-   in the per-scene calibration, then re-probe both scenes.
+1. **Yaw mirror fix** — make the nav frame right-handed at the calibration
+   level (one place: env motion, obs, overlays all inherit), re-probe both
+   scenes, replay must still pass; absorbed by the v14 policy retrain.
 2. **v11 grades** — accuracy both clips (reader), drift, fidelity. If passed,
    v11 is the paper's semantic model.
 3. **Encoder experiment (analog bits) & VGGT accuracy report card** — scoped,
