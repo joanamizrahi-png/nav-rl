@@ -17,7 +17,11 @@ from glob import glob
 from pathlib import Path
 
 NAV = Path(__file__).resolve().parents[1]          # nav-rl/
-WM = NAV.parent                                     # World Model/
+# Since the 2026-08 repo move, nav-rl lives in ~/code, not inside World Model/
+# — so WM can't be derived from the script location anymore. Fixed path (the
+# results tree stayed in iCloud on purpose; only the git repos moved).
+WM = Path.home() / ("Documents/Education/Stanford/Quarter 3/"
+                    "CS399 Research/World Model")
 DEST = WM / "Drive_package"
 
 # (destination subdir, source glob relative to World Model/)
@@ -64,6 +68,24 @@ MAPPING = [
 ]
 
 
+
+def _copy_with_retry(src, dst, tries=4):
+    """iCloud times out mid-read on evicted files; each attempt forces more of
+    the file warm, so retrying converges. Falls back to chunked read/write
+    (survives where the fcopyfile fast path dies)."""
+    import time
+    for i in range(tries):
+        try:
+            with open(src, "rb") as f, open(dst, "wb") as g:
+                shutil.copyfileobj(f, g, 1024 * 1024)
+            shutil.copystat(src, dst)
+            return
+        except (TimeoutError, OSError) as e:
+            if i == tries - 1:
+                raise
+            print(f"    retry {i+1} after {type(e).__name__}: {Path(src).name}")
+            time.sleep(3)
+
 def main():
     copied, missing = 0, []
     for sub, pattern in MAPPING:
@@ -80,7 +102,7 @@ def main():
                 # in-place overwrite (EPERM on rebuild)
                 if (out / src.name).exists():
                     shutil.rmtree(out / src.name)
-                shutil.copytree(src, out / src.name)
+                shutil.copytree(src, out / src.name, copy_function=_copy_with_retry)
             else:
                 # sam2 overlays are all named seg_overlay_000 -> prefix by clip
                 name = (f"{src.parent.name}_{src.name}"
@@ -88,7 +110,7 @@ def main():
                 if name == "DRIVE_README.md":
                     name = "README.md"
                 (out / name).unlink(missing_ok=True)
-                shutil.copy2(src, out / name)
+                _copy_with_retry(src, out / name)
             copied += 1
     print(f"copied {copied} artifacts -> {DEST}")
     if missing:

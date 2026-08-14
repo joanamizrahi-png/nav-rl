@@ -11,7 +11,7 @@ Replaces PLAN.md as the working reference (PLAN.md kept as history).
 | RL policy, single scene | **closed** | 100% success at all 9 goal distances, zero-shot **100% on 7 unseen scenes** |
 | RL policy, multi-scene | closed by transfer | joint training unstable in both KL regimes (documented negative result); unnecessary |
 | Semantic model v10 | **superseded v9** | held-out **79.9% / 80.6%** with the reader decode; own RGB at parity with vanilla vs real footage |
-| Semantic model v11 (final) | trained, grading today | ablation winners composed (leash 0.3 + big reader); targets ≥82 / ≥80 |
+| Semantic model v11 | **rejected** | composed ablation winners didn't transfer (park 71.5, vegetation collapsed — ablations were trail-only); v10 stands; v12 (v10 + big head only) trains tonight |
 | Class taxonomy | **approved** | 14 classes, single source of truth module |
 | Reward | audited | terminal bonus ≈70% of incentive; per-step economy terrain-dominated 2:1 |
 | Pose→image direction | **bug confirmed, fix planned** | yaw is mirrored between pose math and render (left-handed nav frame), both scenes tested. Sim self-consistent → all results stand; fix at calibration level rides with the v14 policy retrain, before any robot work |
