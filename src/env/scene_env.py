@@ -96,6 +96,7 @@ class SceneEnvConfig:
     spin_cost: float = 0.0              # shaping v2: penalty * |yaw action| (taxes circling)
     goal_bonus: float = 0.0             # v4: one-time reward on reaching the goal — must
                                         # exceed what an episode could farm (~+35 in v3)
+    trav_path: "str | None" = None      # traversability yaml override (v14 table for cached runs)
     random_spawn: bool = False          # shaping v2: spawn along the real trajectory if the
                                         # backend offers sample_start_pose(scene_id, rng)
 
@@ -124,7 +125,9 @@ class SceneEnv(gym.Env if gym is not None else object):
         self.cfg = cfg
 
         # Pre-load traversability table + collision mask (rewards use these each step).
-        self._trav_scores = load_traversability()                    # (NUM_CLASSES,) float32
+        from pathlib import Path as _Path
+        self._trav_scores = load_traversability(
+            _Path(cfg.trav_path) if cfg.trav_path else None)         # (NUM_CLASSES,) float32
         self._non_trav = self._trav_scores <= cfg.collision_threshold
 
         H, W = world_backend.H, world_backend.W

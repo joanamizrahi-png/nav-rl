@@ -41,7 +41,20 @@ else
 fi
 STEPS=200000
 SEED=${SEED:-0}
-if [ "${RUNG7B:-0}" = "1" ]; then
+if [ "${CACHE:-0}" = "1" ]; then
+    # v14-DIFFUSED (2026-08-15, advisor's headline ask): the 6d recipe on the
+    # corrected right-handed frame, observations from the ribbon cache (v10 +
+    # reader diffused views), reward from the cache's alpha-masked diffused
+    # labels scored by the v14 table. Requires cache_gen.sh to have populated
+    # outputs/ribbon_cache/<scene>. SMOKE=1 -> 10k-step gate run.
+    BC_ARGS="$BC_ARGS --goal_frame_range 15 70 --goal_min_sep 1.5 --obs_cache /scratch/m000204-pm06b/joana/outputs/ribbon_cache --trav_path config/traversability_v14.yaml --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14"
+    OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v14diff_trail00
+    STEPS=800000
+    if [ "${SMOKE:-0}" = "1" ]; then
+        OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v14diff_trail00_SMOKE
+        STEPS=10000
+    fi
+elif [ "${RUNG7B:-0}" = "1" ]; then
     # 7b = 7 with the KL leash OFF (it truncated 77% of update rounds).
     BC_ARGS="$BC_ARGS --goal_frame_range 15 70 --goal_min_sep 1.5 --target_kl 0 --scenes rugd_trail_00 rugd_park-1_00 rugd_park-2_00 rugd_trail-4_00"
     OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v7b_multiscene4_unleashed

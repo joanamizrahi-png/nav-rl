@@ -56,7 +56,14 @@ def make_env(args):
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
     )
-    world = CalibratedRealWorldBackend(cfg)
+    if getattr(args, "obs_cache", None):
+        # Ribbon-cache mode: observations = precomputed diffused views (v10 +
+        # reader), reward labels = the cache's alpha-masked diffused labels.
+        # No GPU rendering during training at all.
+        from src.env.cached_backend import CachedDiffusedBackend
+        world = CachedDiffusedBackend(cfg, cache_root=args.obs_cache)
+    else:
+        world = CalibratedRealWorldBackend(cfg)
     sem = GaussianLabelBackend(world)
     # Shaping v2 (approved 2026-07-23): void split from obstacles (mild penalty),
     # collision 5->1, goal pull 0.5->1.5, anti-spin tax, spawn curriculum,
@@ -75,6 +82,7 @@ def make_env(args):
         spin_cost=0.05,
         goal_bonus=50.0,                                     # v4
         random_spawn=True,
+        trav_path=getattr(args, "trav_path", None),
     )
     env = SceneEnv(world_backend=world, semantic_backend=sem,
                    scene_ids=scenes, cfg=env_cfg)
@@ -231,6 +239,10 @@ def main():
     ap.add_argument("--goal_frame_range", type=int, nargs=2, default=None,
                     metavar=("LO", "HI"),
                     help="rung 6: sample the goal frame per episode from [LO, HI]")
+    ap.add_argument("--obs_cache", default=None,
+                    help="ribbon-cache root (outputs/ribbon_cache); enables cached diffused observations")
+    ap.add_argument("--trav_path", default=None,
+                    help="traversability yaml override (config/traversability_v14.yaml for cached runs)")
     ap.add_argument("--goal_min_sep", type=float, default=1.0,
                     help="spawn-goal separation guard in meters (v6 used 1.5)")
     ap.add_argument("--target_kl", type=float, default=0.02,
