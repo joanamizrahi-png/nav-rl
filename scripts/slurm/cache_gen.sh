@@ -41,27 +41,22 @@ cd /scratch/m000204-pm06b/joana/NeoVerse
 echo "commit: $(git log --oneline -1)"
 [ -f "$TRAJ_DIR/manifest.json" ] || { echo "FATAL: no manifest at $TRAJ_DIR — run make_ribbon_trajectories.py first"; exit 1; }
 [ -f "$CKPT" ] || { echo "FATAL: no checkpoint under $RUNS"; exit 1; }
-grep -q "trajectory_file" inference_semantic.py || { echo "FATAL: stale checkout (no --trajectory_file)"; exit 1; }
+grep -q "sweep_manifest" inference_semantic.py || { echo "FATAL: stale checkout (no batch sweep mode — pull NeoVerse)"; exit 1; }
 
-LO=${SWEEPS%-*}; HI=${SWEEPS#*-}
-for IDX in $(seq "$LO" "$HI"); do
-    NAME=$(python -c "import json;m=json.load(open('$TRAJ_DIR/manifest.json'));print(m['sweeps'][$IDX]['file'][:-5])")
-    OUT="$CACHE_DIR/$NAME"
-    if [ -f "$OUT/semantic_labels.npz" ] && [ -f "$OUT/alpha.npz" ]; then
-        echo "==> [$IDX] $NAME already cached, skipping"; continue
-    fi
-    echo "==> [$IDX] rendering $NAME"
-    mkdir -p "$OUT"
-    python inference_semantic.py \
-        --input_path /scratch/m000204-pm06b/joana/data/rugd_clips/${SCENE}.mp4 \
-        --checkpoint "$CKPT" \
-        --output_dir "$OUT" \
-        --trajectory_file "$TRAJ_DIR/$NAME.json" \
-        --model_path /scratch/m000204-pm06b/joana/NeoVerse/models \
-        --reconstructor_path /scratch/m000204-pm06b/joana/NeoVerse/models/NeoVerse/reconstructor.ckpt \
-        --semantic_expansion_version 2 --lora_rank 8 \
-        --lora_target_modules "q,k,v,o,ffn.0,ffn.2" \
-        --semantic_labels outputs/sam3_labels_v14/${SCENE}.npz \
-        --num_semantic_classes 14 --semantic_x0_prediction --decode_with_head
-done
+# ONE python process for the whole range: the 30GB pipeline loads once and
+# every sweep in the range reuses it (was: one load PER sweep — half the cost
+# of the whole cache was model loading).
+python inference_semantic.py \
+    --input_path /scratch/m000204-pm06b/joana/data/rugd_clips/${SCENE}.mp4 \
+    --checkpoint "$CKPT" \
+    --output_dir /tmp/unused \
+    --sweep_manifest "$TRAJ_DIR/manifest.json" \
+    --sweeps "$SWEEPS" \
+    --cache_out "$CACHE_DIR" \
+    --model_path /scratch/m000204-pm06b/joana/NeoVerse/models \
+    --reconstructor_path /scratch/m000204-pm06b/joana/NeoVerse/models/NeoVerse/reconstructor.ckpt \
+    --semantic_expansion_version 2 --lora_rank 8 \
+    --lora_target_modules "q,k,v,o,ffn.0,ffn.2" \
+    --semantic_labels outputs/sam3_labels_v14/${SCENE}.npz \
+    --num_semantic_classes 14 --semantic_x0_prediction --decode_with_head
 echo "==> cache_gen done for sweeps $SWEEPS of $SCENE"
