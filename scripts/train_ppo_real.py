@@ -160,7 +160,10 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
         draw.text((4, 2), f"t={len(frames):3d} v={float(action[0]):+.2f} "
                           f"w={float(action[1]):+.2f} r={float(r):+.2f} "
                           f"dist={info.get('dist_to_goal', float('nan')):.1f}m "
-                          f"goal={np.degrees(gr[2]):+.0f}deg",
+                          f"goal={np.degrees(gr[2]):+.0f}deg"
+                          + (f" cache={world._last_lookup[0]*100:.0f}cm/"
+                             f"{world._last_lookup[1]:.0f}deg"
+                             if getattr(world, "_last_lookup", None) else ""),
                   fill=(255, 255, 255, 255))
         frames.append(np.array(img.convert("RGB")))
 

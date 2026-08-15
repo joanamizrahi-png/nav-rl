@@ -139,5 +139,13 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
               + ((e["hdg"][:, 0] - fwd[0] * _M_PER_RAD) ** 2
                  + (e["hdg"][:, 1] - fwd[1] * _M_PER_RAD) ** 2))
         i = int(np.argmin(d2))
+        # Lookup-error telemetry for the smoke gate: how far was the nearest
+        # photo, really? Rollout HUD prints this; sustained values near the
+        # grid's half-spacing (12.5 cm / 7.5 deg) are expected, spikes mean a
+        # cache hole (missing sweep) at that pose.
+        pos_err = float(np.hypot(e["xy"][i, 0] - x, e["xy"][i, 1] - y))
+        cosang = float(np.clip((e["hdg"][i] @ np.array([fwd[0], fwd[1]]) * _M_PER_RAD)
+                               / (_M_PER_RAD ** 2), -1.0, 1.0))
+        self._last_lookup = (pos_err, float(np.degrees(np.arccos(cosang))))
         self._last_semantic_image = e["labels"][i]
         return e["rgb"][i], e["K"], e["w2c"][i]
