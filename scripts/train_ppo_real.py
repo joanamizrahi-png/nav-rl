@@ -61,7 +61,8 @@ def make_env(args):
         # reader), reward labels = the cache's alpha-masked diffused labels.
         # No GPU rendering during training at all.
         from src.env.cached_backend import CachedDiffusedBackend
-        world = CachedDiffusedBackend(cfg, cache_root=args.obs_cache)
+        world = CachedDiffusedBackend(cfg, cache_root=args.obs_cache,
+                                      alpha_gate=not getattr(args, "no_alpha_gate", False))
     else:
         world = CalibratedRealWorldBackend(cfg)
     sem = GaussianLabelBackend(world)
@@ -244,6 +245,9 @@ def main():
                     help="rung 6: sample the goal frame per episode from [LO, HI]")
     ap.add_argument("--obs_cache", default=None,
                     help="ribbon-cache root (outputs/ribbon_cache); enables cached diffused observations")
+    ap.add_argument("--no_alpha_gate", action="store_true",
+                    help="UNGATED reward: trust diffused labels in invented regions too "
+                         "(coherence-justified; the gated run is the safety-anchored twin)")
     ap.add_argument("--trav_path", default=None,
                     help="traversability yaml override (config/traversability_v14.yaml for cached runs)")
     ap.add_argument("--goal_min_sep", type=float, default=1.0,

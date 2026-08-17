@@ -50,8 +50,12 @@ if [ "${CACHE:-0}" = "1" ]; then
     BC_ARGS="$BC_ARGS --goal_frame_range 15 70 --goal_min_sep 1.5 --obs_cache /scratch/m000204-pm06b/joana/outputs/ribbon_cache --trav_path config/traversability_v14.yaml --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14"
     OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v14diff_trail00
     STEPS=800000
+    if [ "${NOGATE:-0}" = "1" ]; then
+        BC_ARGS="$BC_ARGS --no_alpha_gate"
+        OUT=${OUT}_UNGATED
+    fi
     if [ "${SMOKE:-0}" = "1" ]; then
-        OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v14diff_trail00_SMOKE
+        OUT=${OUT}_SMOKE
         STEPS=10000
     fi
 elif [ "${RUNG7B:-0}" = "1" ]; then

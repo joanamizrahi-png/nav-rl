@@ -65,9 +65,13 @@ def _read_video(path: Path) -> np.ndarray:
 class CachedDiffusedBackend(CalibratedRealWorldBackend):
     """Serves ribbon-cache views; interface-compatible with the live backend."""
 
-    def __init__(self, cfg, cache_root: str):
+    def __init__(self, cfg, cache_root: str, alpha_gate: bool = True):
         super().__init__(cfg)
         self._cache_root = Path(cache_root)
+        self._alpha_gate = bool(alpha_gate)   # False = UNGATED: reward trusts
+        # diffused labels everywhere (justified 2026-08-17 by the measured
+        # cross-sweep coherence of invented content: label agreement 81.8%
+        # in both-invented regions vs 89.2% in real — ratio 0.92)
         self._entries = {}          # scene_id -> dict of arrays
 
     # -- scene loading: calibration + cache arrays; NO reconstruction --------
@@ -94,7 +98,8 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
             alpha = np.load(d / "alpha.npz")["alpha"]
             n = min(len(rgb), len(lab), len(alpha), len(sw["nav_xyyaw"]))
             lab = lab[:n].copy()
-            lab[~alpha[:n]] = 0                      # invented -> void (reward pays void cost)
+            if self._alpha_gate:
+                lab[~alpha[:n]] = 0                  # invented -> void (reward pays void cost)
             rgbs.append(rgb[:n])
             labels.append(lab)
             xyyaw.append(np.asarray(sw["nav_xyyaw"], dtype=np.float64)[:n])
