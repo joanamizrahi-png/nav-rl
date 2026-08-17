@@ -42,3 +42,23 @@ CLASS_COLORS_255 = np.array([
     (100, 230, 200),   # 28 bicycle
     (205,  70, 145),   # 29 person
 ], dtype=np.uint8)
+
+# v14 navigation taxonomy — LOCKSTEP mirror of NeoVerse
+# diffsynth/utils/class_taxonomy.V14 (colors only; scores live in
+# config/traversability_v14.yaml). Cache labels and SAM3 v14 npz use THESE ids.
+CLASS_COLORS_V14_255 = np.array([
+    (  0,   0,   0),   # 0  void
+    (200, 225, 245),   # 1  sky
+    (150, 100,  55),   # 2  trail (dirt/gravel/mulch)
+    ( 75, 190,  80),   # 3  grass
+    ( 95,  65,  35),   # 4  rough (sand/mud/rock/log)
+    ( 50, 120, 200),   # 5  water
+    (210, 210, 210),   # 6  sidewalk
+    ( 70,  70,  85),   # 7  road
+    (235, 205, 150),   # 8  pavement-unknown
+    (220, 140,  80),   # 9  stairs
+    (185,  55,  50),   # 10 obstacle
+    (170, 200,  55),   # 11 vegetation
+    (205,  70, 145),   # 12 person
+    (110, 130, 220),   # 13 vehicle
+], dtype=np.uint8)

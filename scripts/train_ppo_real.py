@@ -97,6 +97,20 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
     volume, and the map shows exactly where the agent is relative to the trail."""
     import imageio.v3 as iio
     from PIL import Image, ImageDraw
+    from src.eval.palette import CLASS_COLORS_V14_255
+
+    def semantic_panel(world, H, W):
+        """Colorized _last_semantic_image = EXACTLY what the reward reads
+        (gated runs: invented already void->black). None if backend has none."""
+        lab = getattr(world, "_last_semantic_image", None)
+        if lab is None:
+            return None
+        pal = CLASS_COLORS_V14_255
+        col = pal[np.clip(lab, 0, len(pal) - 1)]
+        if col.shape[:2] != (H, W):
+            import cv2
+            col = cv2.resize(col, (W, H), interpolation=cv2.INTER_NEAREST)
+        return col
 
     base_env = env.unwrapped if hasattr(env, "unwrapped") else env
     frames, path_xy, rows = [], [], []
@@ -166,7 +180,11 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
                              f"{world._last_lookup[1]:.0f}deg"
                              if getattr(world, "_last_lookup", None) else ""),
                   fill=(255, 255, 255, 255))
-        frames.append(np.array(img.convert("RGB")))
+        frame = np.array(img.convert("RGB"))
+        sem = semantic_panel(world, H, W)
+        if sem is not None:
+            frame = np.concatenate([frame, sem], axis=1)
+        frames.append(frame)
 
         obs, r, terminated, truncated, info = env.step(action)
         done = terminated or truncated
@@ -178,7 +196,11 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
     fd.rectangle([0, 0, final.width, 14], fill=(0, 0, 0, 180))
     fd.text((4, 2), f"t={len(frames):3d} DONE reached_goal={info.get('reached_goal')} "
                     f"r={float(r):+.2f}", fill=(0, 255, 0, 255))
-    frames.append(np.array(final.convert("RGB")))
+    last = np.array(final.convert("RGB"))
+    sem = semantic_panel(world, last.shape[0], last.shape[1])
+    if sem is not None:
+        last = np.concatenate([last, sem], axis=1)
+    frames.append(last)
 
     iio.imwrite(str(out_path), np.stack(frames), fps=8,
                 codec="libx264", macro_block_size=1,
