@@ -73,6 +73,38 @@ def sweep_poses(cal: NavCalibration, lateral_m: float, heading_deg: float):
     return np.stack(mats), np.array(nav)
 
 
+def spin_poses(cal: NavCalibration, anchor_i: int, lateral_m: float):
+    """(recon c2w [T,4,4], nav (x, y, yaw_deg) [T,3]) for one SPIN sweep:
+    camera parked at path frame `anchor_i` (+ lateral), heading rotating a
+    full 360 deg across the sweep's frames (~4.4 deg/frame — the pan rate the
+    TRUE360 keyframe spin validated). Scene-time is FROZEN at the anchor
+    frame (all frame_indices = anchor_i): fine for static scenes; revisit
+    for dynamic ones (SCAND pedestrians).
+
+    Why spins (2026-08-17): path-threaded sweeps made TURNING cross
+    diffusion calls exactly where alpha=0 — 24 unrelated dreams per ring
+    (the camera-dream slideshow). Spin sweeps put rotation WITHIN one call
+    (one coherent dream per spot); walking crosses calls only at forward
+    headings where ~95% real geometry pins consecutive calls together."""
+    n = len(cal.positions)
+    base = np.asarray(cal.robot_pose_nav(anchor_i), dtype=np.float64)
+    base[:3, 3] += lateral_m * base[:3, 1]
+    mats, nav = [], []
+    for f in range(n):
+        r = np.deg2rad(f * 360.0 / n)
+        c, s = np.cos(r), np.sin(r)
+        R_yaw = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+        robot = base.copy()
+        robot[:3, :3] = R_yaw @ robot[:3, :3]
+        yaw = float(np.degrees(np.arctan2(robot[1, 0], robot[0, 0])))
+        nav.append([float(robot[0, 3]), float(robot[1, 3]), yaw])
+        c2w_nav = robot.copy()
+        c2w_nav[:3, 3] += np.array([0.0, 0.0, cal.camera_height_m])
+        c2w_nav[:3, :3] = c2w_nav[:3, :3] @ R_CAM_LOCAL
+        mats.append(cal.nav_cam_to_recon_cam(c2w_nav))
+    return np.stack(mats), np.array(nav)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scene", default="rugd_trail_00")
@@ -83,6 +115,11 @@ def main():
     ap.add_argument("--headings", default="0,45,90,135,180,225,270,315",
                     help="degrees offset from path heading (comma list; full "
                          "ring because the robot can spin in place)")
+    ap.add_argument("--spin", action="store_true",
+                    help="SPIN sweeps (one 360 per anchor x lane) instead of "
+                         "path-threaded sweeps; --headings is ignored")
+    ap.add_argument("--anchor_stride", type=int, default=2,
+                    help="spin mode: place an anchor every Nth path frame")
     args = ap.parse_args()
 
     cal = NavCalibration.from_npz(Path(args.poses_dir) / f"{args.scene}_poses.npz")
@@ -93,26 +130,54 @@ def main():
     headings = [float(x) for x in args.headings.split(",")]
     manifest = {"scene": args.scene, "num_frames": len(cal.positions), "sweeps": []}
 
-    for lat in laterals:
-        for yaw in headings:
-            mats, nav = sweep_poses(cal, lat, yaw)
-            name = f"sweep_lat{lat:+.2f}_yaw{yaw:03.0f}"
-            with open(out / f"{name}.json", "w") as f:
-                json.dump({
-                    "mode": "global",
-                    "num_frames": int(mats.shape[0]),
-                    "name": name,
-                    "trajectory": {
-                        "frame_indices": list(range(mats.shape[0])),
-                        "frame_matrices": mats.tolist(),
-                    },
-                }, f)
-            manifest["sweeps"].append({
-                "file": f"{name}.json",
-                "lateral_m": lat,
-                "heading_deg": yaw,
-                "nav_xyyaw": nav.tolist(),
-            })
+    if args.spin:
+        anchors = list(range(0, len(cal.positions), args.anchor_stride))
+        for lat in laterals:
+            for ai in anchors:
+                mats, nav = spin_poses(cal, ai, lat)
+                name = f"spin_f{ai:02d}_lat{lat:+.2f}"
+                with open(out / f"{name}.json", "w") as f:
+                    json.dump({
+                        "mode": "global",
+                        "num_frames": int(mats.shape[0]),
+                        "name": name,
+                        "trajectory": {
+                            # time frozen at the anchor: every rendered frame
+                            # uses the anchor's source timestamp
+                            "frame_indices": [int(ai)] * int(mats.shape[0]),
+                            "frame_matrices": mats.tolist(),
+                        },
+                    }, f)
+                manifest["sweeps"].append({
+                    "file": f"{name}.json",
+                    "anchor_frame": ai,
+                    "lateral_m": lat,
+                    "spin": True,
+                    "nav_xyyaw": nav.tolist(),
+                })
+        print(f"SPIN grid: {len(anchors)} anchors x {len(laterals)} lanes "
+              f"= {len(manifest['sweeps'])} sweeps")
+    else:
+        for lat in laterals:
+            for yaw in headings:
+                mats, nav = sweep_poses(cal, lat, yaw)
+                name = f"sweep_lat{lat:+.2f}_yaw{yaw:03.0f}"
+                with open(out / f"{name}.json", "w") as f:
+                    json.dump({
+                        "mode": "global",
+                        "num_frames": int(mats.shape[0]),
+                        "name": name,
+                        "trajectory": {
+                            "frame_indices": list(range(mats.shape[0])),
+                            "frame_matrices": mats.tolist(),
+                        },
+                    }, f)
+                manifest["sweeps"].append({
+                    "file": f"{name}.json",
+                    "lateral_m": lat,
+                    "heading_deg": yaw,
+                    "nav_xyyaw": nav.tolist(),
+                })
     with open(out / "manifest.json", "w") as f:
         json.dump(manifest, f)
     print(f"{len(manifest['sweeps'])} sweeps x {manifest['num_frames']} poses -> {out}")

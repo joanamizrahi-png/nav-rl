@@ -32,7 +32,8 @@ hash -r
 SCENE=${SCENE:-rugd_trail_00}
 SWEEPS=${SWEEPS:?set SWEEPS=<a>-<b> or <a> via --export}
 RUN_NAME=${RUN_NAME:-train_semantic_v10}
-TRAJ_DIR=/scratch/m000204-pm06b/joana/outputs/ribbon_traj/${SCENE}
+# TRAJ_TAG: read sweeps from ribbon_traj_<tag>/ (e.g. the spin grid).
+TRAJ_DIR=/scratch/m000204-pm06b/joana/outputs/ribbon_traj${TRAJ_TAG:+_$TRAJ_TAG}/${SCENE}
 # CACHE_TAG: write to ribbon_cache_<tag>/ instead of the real cache — for
 # prompt/settings experiments that must not touch what training reads.
 CACHE_DIR=/scratch/m000204-pm06b/joana/outputs/ribbon_cache${CACHE_TAG:+_$CACHE_TAG}/${SCENE}
