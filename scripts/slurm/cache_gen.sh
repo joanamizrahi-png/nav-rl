@@ -59,4 +59,7 @@ python inference_semantic.py \
     --lora_target_modules "q,k,v,o,ffn.0,ffn.2" \
     --semantic_labels outputs/sam3_labels_v14/${SCENE}.npz \
     --num_semantic_classes 14 --semantic_x0_prediction --decode_with_head
+# CachedDiffusedBackend reads manifest.json from the CACHE dir (bit us
+# 2026-08-17: both smokes died on FileNotFoundError) — keep a copy there.
+cp "$TRAJ_DIR/manifest.json" "$CACHE_DIR/manifest.json"
 echo "==> cache_gen done for sweeps $SWEEPS of $SCENE"
