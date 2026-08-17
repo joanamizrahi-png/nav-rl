@@ -86,7 +86,7 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
 
         scene_dir = self._cache_root / scene_id
         manifest = json.loads((scene_dir / "manifest.json").read_text())
-        rgbs, labels, xyyaw = [], [], []
+        rgbs, labels, alphas, xyyaw = [], [], [], []
         skipped = 0
         for sw in manifest["sweeps"]:
             d = scene_dir / sw["file"][:-5]
@@ -97,11 +97,9 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
             lab = np.load(d / "semantic_labels.npz")["labels"].astype(np.int8)
             alpha = np.load(d / "alpha.npz")["alpha"]
             n = min(len(rgb), len(lab), len(alpha), len(sw["nav_xyyaw"]))
-            lab = lab[:n].copy()
-            if self._alpha_gate:
-                lab[~alpha[:n]] = 0                  # invented -> void (reward pays void cost)
             rgbs.append(rgb[:n])
-            labels.append(lab)
+            labels.append(lab[:n])                   # RAW labels; gating applied per-lookup
+            alphas.append(alpha[:n])
             xyyaw.append(np.asarray(sw["nav_xyyaw"], dtype=np.float64)[:n])
         if not rgbs:
             raise RuntimeError(f"no complete sweeps under {scene_dir}")
@@ -109,7 +107,8 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
             print(f"[CachedDiffusedBackend] {scene_id}: {skipped} sweeps missing/incomplete (cache still generating?)")
 
         rgb_all = np.concatenate(rgbs)               # [N, H, W, 3] uint8
-        lab_all = np.concatenate(labels)             # [N, H, W]    int8 (void-masked)
+        lab_all = np.concatenate(labels)             # [N, H, W]    int8 RAW labels
+        alpha_all = np.concatenate(alphas)           # [N, H, W]    bool (True = real)
         nav = np.concatenate(xyyaw)                  # [N, 3] x, y, yaw_deg
 
         # Precompute each entry's camera w2c in the nav frame (reward projection).
@@ -124,7 +123,8 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
 
         yaw_rad = np.deg2rad(nav[:, 2])
         self._entries[scene_id] = {
-            "rgb": rgb_all, "labels": lab_all, "w2c": w2cs, "K": K,
+            "rgb": rgb_all, "labels": lab_all, "alpha": alpha_all,
+            "w2c": w2cs, "K": K,
             "xy": nav[:, :2].astype(np.float64),
             "hdg": np.stack([np.cos(yaw_rad), np.sin(yaw_rad)], axis=1) * _M_PER_RAD,
         }
@@ -152,5 +152,14 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
         cosang = float(np.clip((e["hdg"][i] @ np.array([fwd[0], fwd[1]]) * _M_PER_RAD)
                                / (_M_PER_RAD ** 2), -1.0, 1.0))
         self._last_lookup = (pos_err, float(np.degrees(np.arccos(cosang))))
-        self._last_semantic_image = e["labels"][i]
+        # Reward reads _last_semantic_image; raw belief kept separately so
+        # rollout videos can show model-believed vs reward-used side by side.
+        raw = e["labels"][i]
+        self._last_semantic_raw = raw
+        if self._alpha_gate:
+            gated = raw.copy()
+            gated[~e["alpha"][i]] = 0        # invented -> void (reward pays void cost)
+            self._last_semantic_image = gated
+        else:
+            self._last_semantic_image = raw
         return e["rgb"][i], e["K"], e["w2c"][i]

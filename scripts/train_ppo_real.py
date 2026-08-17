@@ -99,18 +99,29 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
     from PIL import Image, ImageDraw
     from src.eval.palette import CLASS_COLORS_V14_255
 
-    def semantic_panel(world, H, W):
-        """Colorized _last_semantic_image = EXACTLY what the reward reads
-        (gated runs: invented already void->black). None if backend has none."""
-        lab = getattr(world, "_last_semantic_image", None)
-        if lab is None:
-            return None
+    def _colorize(lab, H, W, tag):
+        import cv2
         pal = CLASS_COLORS_V14_255
         col = pal[np.clip(lab, 0, len(pal) - 1)]
         if col.shape[:2] != (H, W):
-            import cv2
             col = cv2.resize(col, (W, H), interpolation=cv2.INTER_NEAREST)
+        col = col.copy()
+        cv2.putText(col, tag, (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                    (255, 255, 255), 1, cv2.LINE_AA)
         return col
+
+    def semantic_panel(world, H, W):
+        """Colorized semantics: what the reward reads, and (gated runs) also
+        the model's RAW belief before voiding — the semantics-model test view."""
+        used = getattr(world, "_last_semantic_image", None)
+        if used is None:
+            return None
+        raw = getattr(world, "_last_semantic_raw", None)
+        panels = []
+        if raw is not None and raw is not used:
+            panels.append(_colorize(raw, H, W, "sem RAW (model belief)"))
+        panels.append(_colorize(used, H, W, "sem REWARD (gated)" if len(panels) else "sem REWARD"))
+        return np.concatenate(panels, axis=1)
 
     base_env = env.unwrapped if hasattr(env, "unwrapped") else env
     frames, path_xy, rows = [], [], []
