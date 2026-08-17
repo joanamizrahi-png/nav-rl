@@ -33,7 +33,13 @@ SCENE=${SCENE:-rugd_trail_00}
 SWEEPS=${SWEEPS:?set SWEEPS=<a>-<b> or <a> via --export}
 RUN_NAME=${RUN_NAME:-train_semantic_v10}
 TRAJ_DIR=/scratch/m000204-pm06b/joana/outputs/ribbon_traj/${SCENE}
-CACHE_DIR=/scratch/m000204-pm06b/joana/outputs/ribbon_cache/${SCENE}
+# CACHE_TAG: write to ribbon_cache_<tag>/ instead of the real cache — for
+# prompt/settings experiments that must not touch what training reads.
+CACHE_DIR=/scratch/m000204-pm06b/joana/outputs/ribbon_cache${CACHE_TAG:+_$CACHE_TAG}/${SCENE}
+# PROMPT: override the inpainting text prompt (2026-08-17: off-path sweeps
+# dream persistent objects — testing whether a scene-descriptive prompt tames
+# the hallucinations in low-alpha headings).
+PROMPT=${PROMPT:-}
 RUNS=/scratch/m000204-pm06b/joana/runs/${RUN_NAME}
 CKPT=$(ls -t "$RUNS"/checkpoint-epoch-*.safetensors 2>/dev/null | head -1 || true)
 
@@ -43,10 +49,13 @@ echo "commit: $(git log --oneline -1)"
 [ -f "$CKPT" ] || { echo "FATAL: no checkpoint under $RUNS"; exit 1; }
 grep -q "sweep_manifest" inference_semantic.py || { echo "FATAL: stale checkout (no batch sweep mode — pull NeoVerse)"; exit 1; }
 
+EXTRA_ARGS=()
+[ -n "$PROMPT" ] && EXTRA_ARGS+=(--prompt "$PROMPT")
+
 # ONE python process for the whole range: the 30GB pipeline loads once and
 # every sweep in the range reuses it (was: one load PER sweep — half the cost
 # of the whole cache was model loading).
-python inference_semantic.py \
+python inference_semantic.py "${EXTRA_ARGS[@]}" \
     --input_path /scratch/m000204-pm06b/joana/data/rugd_clips/${SCENE}.mp4 \
     --checkpoint "$CKPT" \
     --output_dir /tmp/unused \
