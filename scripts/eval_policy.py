@@ -50,7 +50,12 @@ def build_env(args):
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
     )
-    world = CalibratedRealWorldBackend(cfg)
+    if args.obs_cache:
+        from src.env.cached_backend import CachedDiffusedBackend
+        world = CachedDiffusedBackend(cfg, args.obs_cache,
+                                      alpha_gate=not args.no_alpha_gate)
+    else:
+        world = CalibratedRealWorldBackend(cfg)
     sem = GaussianLabelBackend(world)
     env_cfg = SceneEnvConfig(
         max_steps=60, step_size_m=0.25, yaw_step_rad=0.3,
@@ -59,6 +64,7 @@ def build_env(args):
                              terrain_as_cost=True),
         look_ahead_dist=1.5, goal_radius=0.75, collision_threshold=0.1,
         spin_cost=0.05, goal_bonus=50.0, random_spawn=True,
+        trav_path=args.trav_path,
     )
     return SceneEnv(world_backend=world, semantic_backend=sem,
                     scene_ids=[args.scene], cfg=env_cfg)
@@ -80,6 +86,12 @@ def main():
                     default="/scratch/m000204-pm06b/joana/NeoVerse/models/NeoVerse/reconstructor.ckpt")
     ap.add_argument("--out_dir", type=Path, required=True)
     ap.add_argument("--videos", type=int, default=3)
+    ap.add_argument("--obs_cache", default=None,
+                    help="ribbon-cache root; evaluate on cached diffused obs "
+                         "(must match what the checkpoint trained on)")
+    ap.add_argument("--no_alpha_gate", action="store_true")
+    ap.add_argument("--trav_path", default=None,
+                    help="traversability yaml (v14 table for cached runs)")
     args = ap.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 

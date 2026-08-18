@@ -8,6 +8,7 @@
 #SBATCH --time=01:00:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-eval-policy-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-eval-policy-%j.err
+#SBATCH --exclude=n04,n17
 set -euo pipefail
 module load conda/24.3.0-0
 module load cuda12.9/toolkit/12.9.1
@@ -31,13 +32,23 @@ SCENE=${SCENE:-rugd_trail_00}
 if [ "$SCENE" != "rugd_trail_00" ]; then
     OUT_SUFFIX="${OUT_SUFFIX}_${SCENE}"    # zero-shot evals get their own dir
 fi
+# Cached-obs policies must be evaluated on the SAME cache they trained on.
+#   OBS_CACHE=ribbon_cache | ribbon_cache_spin ...   NOGATE=1 for ungated runs
+LABELS_DIR=/scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels
+if [[ "${OBS_CACHE:-}" != "" ]]; then
+    EXTRA_ARGS+=(--obs_cache /scratch/m000204-pm06b/joana/outputs/${OBS_CACHE}
+                 --trav_path config/traversability_v14.yaml)
+    LABELS_DIR=/scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14
+    OUT_SUFFIX="${OUT_SUFFIX}_${OBS_CACHE#ribbon_cache}"
+fi
+[[ "${NOGATE:-0}" == "1" ]] && EXTRA_ARGS+=(--no_alpha_gate)
 echo "==> eval: $RUN_NAME / $(basename "$CKPT") scene=$SCENE spawn_max=${SPAWN_MAX:-default} goal=${GOAL_FRAME:-train(30)}"
 python scripts/eval_policy.py \
     --checkpoint "$CKPT" \
     --scene "$SCENE" --episodes 20 \
     --clips_dir /scratch/m000204-pm06b/joana/data/rugd_clips \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
-    --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels \
+    --labels_dir $LABELS_DIR \
     --out_dir /scratch/m000204-pm06b/joana/outputs/eval_${RUN_NAME}_$(basename "$CKPT" .zip)${OUT_SUFFIX} \
     "${EXTRA_ARGS[@]}"
 echo "==> eval done"
