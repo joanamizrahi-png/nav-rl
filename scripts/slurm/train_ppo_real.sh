@@ -31,9 +31,10 @@ cd "$NAVRL_ROOT"
 
 # Ladder-aware: if the demos file exists we run the BC rung (v3); otherwise the
 # pure shaped rung (v2). Output dirs are versioned accordingly — no overwrites.
-DEMOS=/scratch/m000204-pm06b/joana/outputs/demos_v1.npz
-# NOBC=1: skip BC pretraining. demos_v1.npz is from 2026-07-27 — PRE-yaw-fix
-# convention (mirrored turns) and rasterized obs; cloning it poisons cached runs.
+# DEMOS_FILE overrides which demo set BC uses (e.g. demos_v2.npz = post-fix
+# convention + cached diffused obs). Default demos_v1.npz is from 2026-07-27 —
+# PRE-yaw-fix (mirrored turns, raster obs): poisons cached runs. NOBC=1 skips BC.
+DEMOS=${DEMOS_FILE:-/scratch/m000204-pm06b/joana/outputs/demos_v1.npz}
 if [ "${NOBC:-0}" = "1" ]; then
     DEMOS=/nonexistent
 fi
@@ -68,6 +69,8 @@ if [ "${CACHE:-0}" = "1" ]; then
     fi
     if [ "${NOBC:-0}" = "1" ]; then
         OUT=${OUT}_noBC
+    elif [ -n "${DEMOS_FILE:-}" ]; then
+        OUT=${OUT}_bc2
     fi
     if [ "${SMOKE:-0}" = "1" ]; then
         OUT=${OUT}_SMOKE

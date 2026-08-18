@@ -59,6 +59,9 @@ def main():
                     default="/scratch/m000204-pm06b/joana/NeoVerse/models/NeoVerse/reconstructor.ckpt")
     ap.add_argument("--goal_frame", type=int, default=30)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--obs_cache", default=None,
+                    help="ribbon-cache root: demo observations come from the "
+                         "cached diffused views (match cached-obs training)")
     args = ap.parse_args()
 
     cfg = CalibratedBackendConfig(
@@ -70,7 +73,11 @@ def main():
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
     )
-    world = CalibratedRealWorldBackend(cfg)
+    if args.obs_cache:
+        from src.env.cached_backend import CachedDiffusedBackend
+        world = CachedDiffusedBackend(cfg, args.obs_cache)
+    else:
+        world = CalibratedRealWorldBackend(cfg)
 
     all_obs, all_goal, all_act, all_scene = [], [], [], []
     for scene in args.scenes:
@@ -97,7 +104,7 @@ def main():
             all_scene.append(scene)
             n += 1
         print(f"  {n} transitions", flush=True)
-        world._cache.pop(scene, None)
+        getattr(world, "_cache", {}).pop(scene, None)
         import torch; torch.cuda.empty_cache()
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
