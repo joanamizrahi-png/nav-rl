@@ -81,6 +81,7 @@ def make_env(args):
         goal_radius=0.75,
         collision_threshold=0.1,
         spin_cost=0.05,
+        backward_cost=getattr(args, "backward_cost", 0.0),
         goal_bonus=50.0,                                     # v4
         random_spawn=True,
         trav_path=getattr(args, "trav_path", None),
@@ -282,6 +283,8 @@ def main():
     ap.add_argument("--no_alpha_gate", action="store_true",
                     help="UNGATED reward: trust diffused labels in invented regions too "
                          "(coherence-justified; the gated run is the safety-anchored twin)")
+    ap.add_argument("--backward_cost", type=float, default=0.0,
+                    help="penalty * max(0,-v); tax the camera-blind backing gait")
     ap.add_argument("--trav_path", default=None,
                     help="traversability yaml override (config/traversability_v14.yaml for cached runs)")
     ap.add_argument("--goal_min_sep", type=float, default=1.0,

@@ -94,6 +94,9 @@ class SceneEnvConfig:
     goal_radius: float = 0.5            # meters; within this counts as "reached goal"
     collision_threshold: float = 0.1    # class score at/below which counts as collision
     spin_cost: float = 0.0              # shaping v2: penalty * |yaw action| (taxes circling)
+    backward_cost: float = 0.0          # penalty * max(0, -v): backing to the goal is
+                                        # reward-rational (goals spawn behind, footprint
+                                        # projects ahead) but camera-blind on the robot
     goal_bonus: float = 0.0             # v4: one-time reward on reaching the goal — must
                                         # exceed what an episode could farm (~+35 in v3)
     trav_path: "str | None" = None      # traversability yaml override (v14 table for cached runs)
@@ -265,11 +268,13 @@ class SceneEnv(gym.Env if gym is not None else object):
         truncated = self._steps >= self.cfg.max_steps
 
         spin_term = -self.cfg.spin_cost * abs(float(action[1]))
+        back_term = -self.cfg.backward_cost * max(0.0, -float(action[0]))
         bonus = self.cfg.goal_bonus if terminated else 0.0
-        reward = breakdown.total + spin_term + bonus
+        reward = breakdown.total + spin_term + back_term + bonus
 
         info = breakdown.to_dict()
         info["spin"] = spin_term
+        info["backward"] = back_term
         info["goal_bonus"] = bonus
         info["total"] = reward
         info["dist_to_goal"] = dist_to_goal

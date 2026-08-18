@@ -67,6 +67,10 @@ if [ "${CACHE:-0}" = "1" ]; then
         BC_ARGS="$BC_ARGS --no_alpha_gate"
         OUT=${OUT}_UNGATED
     fi
+    if [ -n "${BACKCOST:-}" ]; then
+        BC_ARGS="$BC_ARGS --backward_cost $BACKCOST"
+        OUT=${OUT}_bk${BACKCOST}
+    fi
     if [ "${NOBC:-0}" = "1" ]; then
         OUT=${OUT}_noBC
     elif [ -n "${DEMOS_FILE:-}" ]; then
