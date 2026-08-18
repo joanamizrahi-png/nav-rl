@@ -84,6 +84,7 @@ def make_env(args):
         goal_bonus=50.0,                                     # v4
         random_spawn=True,
         trav_path=getattr(args, "trav_path", None),
+        failure_snap_dir=str(args.output_dir / "failures"),
     )
     env = SceneEnv(world_backend=world, semantic_backend=sem,
                    scene_ids=scenes, cfg=env_cfg)

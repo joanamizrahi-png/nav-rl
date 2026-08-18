@@ -47,8 +47,15 @@ if [ "${CACHE:-0}" = "1" ]; then
     # reader diffused views), reward from the cache's alpha-masked diffused
     # labels scored by the v14 table. Requires cache_gen.sh to have populated
     # outputs/ribbon_cache/<scene>. SMOKE=1 -> 10k-step gate run.
-    BC_ARGS="$BC_ARGS --goal_frame_range 15 70 --goal_min_sep 1.5 --obs_cache /scratch/m000204-pm06b/joana/outputs/ribbon_cache --trav_path config/traversability_v14.yaml --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14"
+    # OBS_CACHE selects which cache to train on: default = v1 path-threaded
+    # cache (ribbon_cache); OBS_CACHE=ribbon_cache_spin -> spin cache v2.
+    # Non-default caches get their tag appended to the output dir.
+    OBS_CACHE=${OBS_CACHE:-ribbon_cache}
+    BC_ARGS="$BC_ARGS --goal_frame_range 15 70 --goal_min_sep 1.5 --obs_cache /scratch/m000204-pm06b/joana/outputs/${OBS_CACHE} --trav_path config/traversability_v14.yaml --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14"
     OUT=/scratch/m000204-pm06b/joana/outputs/ppo_v14diff_trail00
+    if [ "$OBS_CACHE" != "ribbon_cache" ]; then
+        OUT=${OUT}_${OBS_CACHE#ribbon_cache_}
+    fi
     STEPS=800000
     if [ "${NOGATE:-0}" = "1" ]; then
         BC_ARGS="$BC_ARGS --no_alpha_gate"

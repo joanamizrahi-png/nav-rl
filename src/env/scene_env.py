@@ -99,6 +99,9 @@ class SceneEnvConfig:
     trav_path: "str | None" = None      # traversability yaml override (v14 table for cached runs)
     random_spawn: bool = False          # shaping v2: spawn along the real trajectory if the
                                         # backend offers sample_start_pose(scene_id, rng)
+    failure_snap_dir: "str | None" = None  # save a figure at each collision
+                                        # (obs + semantics + reward numbers)
+    failure_snap_max: int = 200         # cap so long runs don't fill the disk
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +153,39 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._last_rgb: Optional[np.ndarray] = None
         self._last_K: Optional[np.ndarray] = None
         self._last_w2c: Optional[np.ndarray] = None
+        self._failure_snaps = 0
+
+    def _save_failure_snapshot(self, breakdown, semantic_image) -> None:
+        """One PNG per collision: [obs RGB | v14-colorized semantics], with the
+        reward numbers burned in. Files: <dir>/collision_<n>_<scene>_step<k>.png"""
+        import cv2
+        from pathlib import Path as _Path
+        from ..eval.palette import CLASS_COLORS_V14_255
+        out = _Path(self.cfg.failure_snap_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        rgb = self._last_rgb
+        pal = CLASS_COLORS_V14_255
+        col = pal[np.clip(semantic_image, 0, len(pal) - 1)]
+        if col.shape[:2] != rgb.shape[:2]:
+            col = cv2.resize(col, (rgb.shape[1], rgb.shape[0]),
+                             interpolation=cv2.INTER_NEAREST)
+        panel = np.concatenate([rgb, col], axis=1)
+        bar = np.zeros((44, panel.shape[1], 3), dtype=np.uint8)
+        x, y = self._robot_pose_world[0, 3], self._robot_pose_world[1, 3]
+        cv2.putText(bar, f"COLLISION  {self._scene_id}  step {self._steps}  "
+                         f"pose=({x:+.2f},{y:+.2f})", (6, 17),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (80, 80, 255), 1, cv2.LINE_AA)
+        cv2.putText(bar, f"collision={breakdown.collision:+.2f}  "
+                         f"dominant_class={breakdown.dominant_class_id}  "
+                         f"mean_score={breakdown.mean_class_score:.2f}  "
+                         f"footprint_px={breakdown.n_footprint_pixels}  "
+                         f"trav_px={breakdown.n_traversable_pixels}", (6, 37),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+        img = np.concatenate([bar, panel], axis=0)
+        cv2.imwrite(str(out / f"collision_{self._failure_snaps:04d}_"
+                              f"{self._scene_id}_step{self._steps:03d}.png"),
+                    img[:, :, ::-1])
+        self._failure_snaps += 1
 
     # ---------------- gym API ----------------
 
@@ -207,6 +243,13 @@ class SceneEnv(gym.Env if gym is not None else object):
             body_width=GO2_BODY_WIDTH,
             weights=self.cfg.reward,
         )
+
+        # Collision snapshot: the view + semantics + numbers behind every
+        # non-traversable footprint, saved BEFORE the pose advances so the
+        # figure shows exactly what the reward punished.
+        if (self.cfg.failure_snap_dir is not None and breakdown.collision < 0
+                and self._failure_snaps < self.cfg.failure_snap_max):
+            self._save_failure_snapshot(breakdown, semantic_image)
 
         # ---- apply the action to advance the robot pose ----
         self._prev_position = robot_position
