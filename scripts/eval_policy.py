@@ -112,10 +112,13 @@ def main():
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     from train_ppo_real import save_rollout_video
 
-    results = []
+    results, video_records = [], []
     for ep in range(args.episodes):
         if ep < args.videos:
-            save_rollout_video(model, env, args.out_dir / f"episode_{ep}.mp4")
+            rec = save_rollout_video(model, env, args.out_dir / f"episode_{ep}.mp4")
+            if rec:
+                rec["video"] = f"episode_{ep}.mp4"
+                video_records.append(rec)
             # save_rollout_video runs its own episode; count it via a fresh one below
         obs, _ = env.reset()
         goal = env.unwrapped._goal_world
@@ -148,7 +151,8 @@ def main():
         "mean_collision_steps": round(float(np.mean([r["collision_steps"] for r in results])), 2),
     }
     with open(args.out_dir / "metrics.json", "w") as f:
-        json.dump({"summary": summary, "episodes": results}, f, indent=2)
+        json.dump({"summary": summary, "episodes": results,
+                   "video_episodes": video_records}, f, indent=2)
     print("\n=== SUMMARY ===")
     for k, v in summary.items():
         print(f"  {k}: {v}")

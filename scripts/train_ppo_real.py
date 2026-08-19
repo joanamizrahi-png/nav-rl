@@ -156,6 +156,12 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
     base_env = env.unwrapped if hasattr(env, "unwrapped") else env
     frames, path_xy, rows = [], [], []
     obs, _ = env.reset()          # MUST precede calib access: reset loads the scene
+
+    def _xyyaw():
+        P = base_env._robot_pose_world
+        return [round(float(P[0, 3]), 3), round(float(P[1, 3]), 3),
+                round(float(np.arctan2(P[1, 0], P[0, 0])), 3)]
+    traj = [_xyyaw() + [0]]       # [x, y, yaw, collision] — same format as eval
     world = base_env.world_backend
     cal = world._calib[base_env.scene_ids[0]] if hasattr(world, "_calib") else None
     ref_traj = cal.positions[:, :2] if cal is not None else None
@@ -232,6 +238,7 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
         frames.append(frame)
 
         obs, r, terminated, truncated, info = env.step(action)
+        traj.append(_xyyaw() + [int(info.get("collision", 0) < -0.01)])
         done = terminated or truncated
 
     # Arrival frame: the loop above draws BEFORE stepping, so the terminal pose
@@ -252,6 +259,9 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
                 ffmpeg_params=["-pix_fmt", "yuv420p"])
     print(f"[train_ppo_real] rollout video: {out_path} "
           f"({len(frames)} frames, reached_goal={info.get('reached_goal')})")
+    return {"traj": traj,
+            "goal_xy": [round(float(goal[0]), 3), round(float(goal[1]), 3)],
+            "success": bool(info.get("reached_goal", False))}
 
 
 def bc_pretrain(model, demos_path: Path, epochs: int = 25, batch_size: int = 64):

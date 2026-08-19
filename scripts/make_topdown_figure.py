@@ -36,7 +36,12 @@ sys.path.insert(0, str(REPO_ROOT))
 from src.env.real_calibrated import NavCalibration
 
 
-RIBBON_HALF_WIDTH_M = 0.75   # matches goal_radius; the corridor the robot drove
+# The recorded path is a LINE (robot center); the ribbon width is an assumption
+# for display, not a measurement. Default = goal_radius (0.75 m). The honest
+# avoidance evidence is the trajectories-vs-chords contrast and the collision
+# dots, not the ribbon edge — shrink via --ribbon_halfwidth for a stricter look
+# (Go2 half-width ~0.16 m).
+DEFAULT_RIBBON_HALF_WIDTH_M = 0.75
 
 
 def ribbon_polygon(p: np.ndarray, half_w: float) -> np.ndarray:
@@ -71,11 +76,24 @@ def main():
     ap.add_argument("--poses_npz", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--title", default=None)
+    ap.add_argument("--ribbon_halfwidth", type=float,
+                    default=DEFAULT_RIBBON_HALF_WIDTH_M)
+    ap.add_argument("--video_episode", type=int, default=None,
+                    help="draw ONE episode from metrics.json's video_episodes "
+                         "(the episode episode_<N>.mp4 shows) so the figure "
+                         "pairs 1:1 with its rollout video")
     args = ap.parse_args()
 
     blob = json.loads(Path(args.metrics).read_text())
-    episodes = blob["episodes"]
     summary = blob["summary"]
+    if args.video_episode is not None:
+        vids = blob.get("video_episodes", [])
+        if args.video_episode >= len(vids):
+            sys.exit(f"metrics.json has {len(vids)} video_episodes — re-run "
+                     "eval with the updated scripts for video trajectories")
+        episodes = [vids[args.video_episode]]
+    else:
+        episodes = blob["episodes"]
     if "traj" not in episodes[0]:
         sys.exit("metrics.json has no 'traj' — re-run eval with the updated "
                  "eval_policy.py (per-step trajectory logging)")
@@ -84,7 +102,7 @@ def main():
     path = cal.positions[:, :2]
 
     fig, ax = plt.subplots(figsize=(9, 9))
-    poly = ribbon_polygon(path, RIBBON_HALF_WIDTH_M)
+    poly = ribbon_polygon(path, args.ribbon_halfwidth)
     ax.fill(poly[:, 0], poly[:, 1], color="#c8b48c", alpha=0.7, zorder=1,
             label="recorded traversable corridor")
     ax.plot(path[:, 0], path[:, 1], color="#8a744a", lw=1, zorder=2)
@@ -113,10 +131,16 @@ def main():
                        label="collision step" if "hit" not in seen_labels else None)
             seen_labels.add("hit")
 
-    title = args.title or (
-        f"{Path(summary['checkpoint']).stem} — success {summary['success_rate']}, "
-        f"{summary['mean_collision_steps']} collision steps/ep "
-        f"({summary['episodes']} eps)")
+    if args.video_episode is not None:
+        ep0 = episodes[0]
+        title = args.title or (
+            f"{Path(summary['checkpoint']).stem} — {ep0.get('video', '')} "
+            f"(success={ep0['success']})")
+    else:
+        title = args.title or (
+            f"{Path(summary['checkpoint']).stem} — success {summary['success_rate']}, "
+            f"{summary['mean_collision_steps']} collision steps/ep "
+            f"({summary['episodes']} eps)")
     ax.set_title(title, fontsize=10)
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
