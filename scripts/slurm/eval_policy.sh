@@ -36,10 +36,15 @@ fi
 #   OBS_CACHE=ribbon_cache | ribbon_cache_spin ...   NOGATE=1 for ungated runs
 LABELS_DIR=/scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels
 if [[ "${OBS_CACHE:-}" != "" ]]; then
-    EXTRA_ARGS+=(--obs_cache /scratch/m000204-pm06b/joana/outputs/${OBS_CACHE}
+    CACHE_PATHS=$(echo "$OBS_CACHE" | sed 's#[^,]*#/scratch/m000204-pm06b/joana/outputs/&#g')
+    EXTRA_ARGS+=(--obs_cache "${CACHE_PATHS}"
                  --trav_path config/traversability_v14.yaml)
     LABELS_DIR=/scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14
-    OUT_SUFFIX="${OUT_SUFFIX}_${OBS_CACHE#ribbon_cache}"
+    if [[ "$OBS_CACHE" == *,* ]]; then
+        OUT_SUFFIX="${OUT_SUFFIX}_hybrid"
+    else
+        OUT_SUFFIX="${OUT_SUFFIX}_${OBS_CACHE#ribbon_cache}"
+    fi
 fi
 [[ "${NOGATE:-0}" == "1" ]] && EXTRA_ARGS+=(--no_alpha_gate)
 echo "==> eval: $RUN_NAME / $(basename "$CKPT") scene=$SCENE spawn_max=${SPAWN_MAX:-default} goal=${GOAL_FRAME:-train(30)}"
