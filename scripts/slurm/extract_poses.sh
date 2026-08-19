@@ -20,8 +20,11 @@ set -euo pipefail
 
 # Adjust if nav-rl is cloned elsewhere on Marlowe.
 NAVRL_ROOT=/scratch/m000204-pm06b/joana/nav-rl
-CLIPS_DIR=/scratch/m000204-pm06b/joana/data/rugd_clips
+# CLIPS_DIR env: point at any clip folder (gnd_clips, scand_clips, ...)
+CLIPS_DIR=${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}
 OUT_DIR=/scratch/m000204-pm06b/joana/outputs/poses
+# CAM_H env: camera mount height in meters (RUGD 0.6; Jackal ZED ~0.5)
+CAM_H=${CAM_H:-0.6}
 
 module load conda/24.3.0-0
 module load cuda12.9/toolkit/12.9.1
@@ -37,6 +40,6 @@ python scripts/extract_poses.py \
     --output_dir "$OUT_DIR" \
     --reconstructor_path /scratch/m000204-pm06b/joana/NeoVerse/models/NeoVerse/reconstructor.ckpt \
     --num_frames 81 --width 560 --height 336 \
-    --camera_height_m 0.6
+    --camera_height_m "$CAM_H"
 
 echo "==> done. poses in $OUT_DIR — check the printed step-size / camera-height sanity lines in this log."
