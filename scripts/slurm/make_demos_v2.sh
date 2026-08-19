@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
 #SBATCH --time=00:30:00
-#SBATCH --exclude=n04,n17
+#SBATCH --exclude=n04,n13,n17,n24
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-demos-v2-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-demos-v2-%j.err
 

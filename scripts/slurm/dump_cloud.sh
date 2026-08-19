@@ -8,7 +8,7 @@
 #SBATCH --time=00:30:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-scene-cloud-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-scene-cloud-%j.err
-#SBATCH --exclude=n04,n17,n24
+#SBATCH --exclude=n04,n13,n17,n24
 
 # Dump a scene's labeled Gaussian cloud (scripts/dump_scene_cloud.py) for the
 # measured-semantic-map topdown figure (make_topdown_figure.py --cloud_npz).

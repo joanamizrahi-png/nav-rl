@@ -8,6 +8,7 @@
 #SBATCH --time=02:00:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-make-demos-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-make-demos-%j.err
+#SBATCH --exclude=n04,n13,n17,n24
 set -euo pipefail
 module load conda/24.3.0-0
 module load cuda12.9/toolkit/12.9.1

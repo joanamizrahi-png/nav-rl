@@ -8,6 +8,7 @@
 #SBATCH --time=04:00:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-cache-gen-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-cache-gen-%j.err
+#SBATCH --exclude=n04,n13,n17,n24
 
 # Ribbon-cache generation: renders sweeps (81-pose trajectory files from
 # make_ribbon_trajectories.py) through v10 + reader, one inference_semantic

@@ -8,6 +8,7 @@
 #SBATCH --time=01:30:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-report-card-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-report-card-%j.err
+#SBATCH --exclude=n04,n13,n17,n24
 
 # Reconstruction report card: replay fidelity + coverage-vs-offset per scene.
 #   sbatch --export=SCENE=rugd_trail_00 scripts/slurm/report_card.sh
