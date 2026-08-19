@@ -105,6 +105,8 @@ class SceneEnvConfig:
     failure_snap_dir: "str | None" = None  # save a figure at each collision
                                         # (obs + semantics + reward numbers)
     failure_snap_max: int = 200         # cap so long runs don't fill the disk
+    failure_snap_min_frac: float = 0.2  # only snapshot substantial overlaps —
+                                        # tiny footprint grazes are risk, not collision
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +270,8 @@ class SceneEnv(gym.Env if gym is not None else object):
         # Collision snapshot: the view + semantics + numbers behind every
         # non-traversable footprint, saved BEFORE the pose advances so the
         # figure shows exactly what the reward punished.
-        if (self.cfg.failure_snap_dir is not None and breakdown.collision < 0
+        if (self.cfg.failure_snap_dir is not None
+                and breakdown.collision < -self.cfg.failure_snap_min_frac
                 and self._failure_snaps < self.cfg.failure_snap_max):
             self._save_failure_snapshot(breakdown, semantic_image)
 
