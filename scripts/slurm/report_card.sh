@@ -11,6 +11,8 @@
 
 # Reconstruction report card: replay fidelity + coverage-vs-offset per scene.
 #   sbatch --export=SCENE=rugd_trail_00 scripts/slurm/report_card.sh
+#   sbatch --export=SCENE=gnd_AU_60,CLIPS_DIR=/scratch/.../data/gnd_clips scripts/slurm/report_card.sh
+# CLIPS_DIR/POSES_DIR/LABELS_DIR default to the RUGD locations.
 # Results: outputs/report_card/<scene>.json (+ printed verdict in this log).
 
 set -euo pipefail
@@ -22,10 +24,13 @@ hash -r
 cd /scratch/m000204-pm06b/joana/nav-rl
 echo "commit: $(git log --oneline -1)"
 SCENE=${SCENE:?set SCENE=... via --export}
+CLIPS_DIR=${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}
+POSES_DIR=${POSES_DIR:-/scratch/m000204-pm06b/joana/outputs/poses}
+LABELS_DIR=${LABELS_DIR:-/scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels}
 python scripts/scene_report_card.py --scene "$SCENE" \
-    --clips_dir /scratch/m000204-pm06b/joana/data/rugd_clips \
-    --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
-    --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels \
+    --clips_dir "$CLIPS_DIR" \
+    --poses_dir "$POSES_DIR" \
+    --labels_dir "$LABELS_DIR" \
     --model_path /scratch/m000204-pm06b/joana/NeoVerse/models \
     --reconstructor_path /scratch/m000204-pm06b/joana/NeoVerse/models/NeoVerse/reconstructor.ckpt \
     --out_dir /scratch/m000204-pm06b/joana/outputs/report_card
