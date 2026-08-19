@@ -267,11 +267,14 @@ def main():
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots(figsize=(9, 9))
         ax.plot(cal.positions[:, 0], cal.positions[:, 1], "k-", lw=2, label="recorded path")
+        # subsample for legibility on full grids; small pilots plot EVERY pose
+        # (a fan cell stacks 9 headings on each position — subsampling hides them)
+        step = 8 if len(manifest["sweeps"]) > 10 else 1
         for sw in manifest["sweeps"]:
             nav = np.array(sw["nav_xyyaw"])
-            pts = nav[::8]
+            pts = nav[::step]
             ax.scatter(pts[:, 0], pts[:, 1], s=3, alpha=0.5)
-            for x, y, yaw in pts[::2]:
+            for x, y, yaw in pts[::2 if step > 1 else 1]:
                 r = np.deg2rad(yaw)
                 ax.plot([x, x + 0.3 * np.cos(r)], [y, y + 0.3 * np.sin(r)],
                         "-", lw=0.5, alpha=0.4, color="gray")
