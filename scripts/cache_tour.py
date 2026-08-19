@@ -77,6 +77,14 @@ def main():
                          "dream until a sweep is genuinely closer; try 0.3")
     ap.add_argument("--black_invented", action="store_true",
                     help="honest-obs mode: invented pixels served as black")
+    ap.add_argument("--frame_range", default=None,
+                    help='"a,b": restrict the tour to path frames a..b '
+                         '(pilot caches that only cover a segment)')
+    ap.add_argument("--wiggle_deg", type=float, default=0.0,
+                    help="sinusoidal heading offset amplitude (deg) on top "
+                         "of the motion tangent — simulates the policy's "
+                         "turn actions (try 30)")
+    ap.add_argument("--wiggle_cycles", type=float, default=8.0)
     args = ap.parse_args()
 
     cfg = CalibratedBackendConfig(
@@ -98,7 +106,11 @@ def main():
     # follows the ZIGZAG's own motion, so the camera also sweeps off-path
     # yaws — the tour covers translation AND rotation lookups.
     p = cal.positions[:, :2]
-    ts = np.linspace(0.0, len(p) - 1.0, args.frames)
+    if args.frame_range:
+        f0, f1 = (float(v) for v in args.frame_range.split(","))
+    else:
+        f0, f1 = 0.0, len(p) - 1.0
+    ts = np.linspace(f0, f1, args.frames)
     center = np.stack([np.interp(ts, np.arange(len(p)), p[:, i])
                        for i in range(2)], axis=1)
     d = np.gradient(center, axis=0)
@@ -108,6 +120,10 @@ def main():
     tour = center + lat[:, None] * n
     tv = np.gradient(tour, axis=0)
     yaw = np.arctan2(tv[:, 1], tv[:, 0])
+    if args.wiggle_deg:
+        u = np.linspace(0.0, 1.0, args.frames)
+        yaw = yaw + np.deg2rad(args.wiggle_deg) * np.sin(
+            2 * np.pi * args.wiggle_cycles * u)
 
     import cv2
     lo, hi = p.min(0) - 2.0, p.max(0) + 2.0

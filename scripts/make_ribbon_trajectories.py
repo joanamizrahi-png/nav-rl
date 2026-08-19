@@ -105,6 +105,40 @@ def spin_poses(cal: NavCalibration, anchor_i: int, lateral_m: float):
     return np.stack(mats), np.array(nav)
 
 
+def fan_poses(cal: NavCalibration, seg_start: int, seg_len: int,
+              lateral_m: float, fan_deg: float, fan_steps: int):
+    """(recon c2w [T,4,4], nav [T,3], frame_indices [T]) for one FAN cell:
+    seg_len consecutive path positions x fan_steps headings (+-fan_deg around
+    the path tangent), serpentining through heading at each position so the
+    in-call camera motion stays smooth.
+
+    Why fans (2026-08-19): the policy's action = forward + turn(+-17 deg),
+    but lane sweeps put every heading in its own diffusion call (15-deg
+    families) -> EVERY turn action swaps dreams (the tour flicker). A fan
+    cell keeps a whole turn-and-advance neighborhood inside ONE call; seams
+    move to segment/lane boundaries, which forward motion crosses rarely and
+    sticky lookup smooths."""
+    offs = np.linspace(-fan_deg, fan_deg, fan_steps)
+    mats, nav, fidx = [], [], []
+    for k, fi in enumerate(range(seg_start, seg_start + seg_len)):
+        base = np.asarray(cal.robot_pose_nav(fi), dtype=np.float64)
+        base[:3, 3] += lateral_m * base[:3, 1]
+        for hd in (offs if k % 2 == 0 else offs[::-1]):
+            r = np.deg2rad(hd)
+            c, s = np.cos(r), np.sin(r)
+            R_yaw = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+            robot = base.copy()
+            robot[:3, :3] = R_yaw @ robot[:3, :3]
+            yaw = float(np.degrees(np.arctan2(robot[1, 0], robot[0, 0])))
+            nav.append([float(robot[0, 3]), float(robot[1, 3]), yaw])
+            c2w_nav = robot.copy()
+            c2w_nav[:3, 3] += np.array([0.0, 0.0, cal.camera_height_m])
+            c2w_nav[:3, :3] = c2w_nav[:3, :3] @ R_CAM_LOCAL
+            mats.append(cal.nav_cam_to_recon_cam(c2w_nav))
+            fidx.append(int(fi))     # scene-time follows the position
+    return np.stack(mats), np.array(nav), fidx
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scene", default="rugd_trail_00")
@@ -120,6 +154,15 @@ def main():
                          "path-threaded sweeps; --headings is ignored")
     ap.add_argument("--anchor_stride", type=int, default=2,
                     help="spin mode: place an anchor every Nth path frame")
+    ap.add_argument("--fan", action="store_true",
+                    help="FAN cells (segment x heading-fan per call) instead "
+                         "of path-threaded sweeps; --headings is ignored")
+    ap.add_argument("--fan_deg", type=float, default=40.0)
+    ap.add_argument("--fan_steps", type=int, default=9)
+    ap.add_argument("--seg_len", type=int, default=9)
+    ap.add_argument("--seg_starts", default=None,
+                    help="fan mode: comma list of segment start frames "
+                         "(pilot: one cell). Default: tile the whole path")
     args = ap.parse_args()
 
     cal = NavCalibration.from_npz(Path(args.poses_dir) / f"{args.scene}_poses.npz")
@@ -130,7 +173,42 @@ def main():
     headings = [float(x) for x in args.headings.split(",")]
     manifest = {"scene": args.scene, "num_frames": len(cal.positions), "sweeps": []}
 
-    if args.spin:
+    if args.fan:
+        n_call = args.seg_len * args.fan_steps
+        assert n_call == 81, (
+            f"fan cell = seg_len*fan_steps poses; must be 81 (one diffusion "
+            f"window), got {n_call}")
+        if args.seg_starts:
+            starts = [int(x) for x in args.seg_starts.split(",")]
+        else:
+            starts = list(range(0, len(cal.positions) - args.seg_len + 1,
+                                args.seg_len))
+        for lat in laterals:
+            for s0 in starts:
+                mats, nav, fidx = fan_poses(cal, s0, args.seg_len, lat,
+                                            args.fan_deg, args.fan_steps)
+                name = f"fan_f{s0:02d}-{s0 + args.seg_len - 1:02d}_lat{lat:+.2f}"
+                with open(out / f"{name}.json", "w") as f:
+                    json.dump({
+                        "mode": "global",
+                        "num_frames": int(mats.shape[0]),
+                        "name": name,
+                        "trajectory": {
+                            "frame_indices": fidx,
+                            "frame_matrices": mats.tolist(),
+                        },
+                    }, f)
+                manifest["sweeps"].append({
+                    "file": f"{name}.json",
+                    "seg_start": s0,
+                    "lateral_m": lat,
+                    "fan": True,
+                    "nav_xyyaw": nav.tolist(),
+                })
+        print(f"FAN grid: {len(starts)} segments x {len(laterals)} lanes "
+              f"= {len(manifest['sweeps'])} cells "
+              f"(+-{args.fan_deg} deg in {args.fan_steps} steps)")
+    elif args.spin:
         anchors = list(range(0, len(cal.positions), args.anchor_stride))
         for lat in laterals:
             for ai in anchors:

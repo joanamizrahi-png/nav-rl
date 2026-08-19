@@ -38,6 +38,14 @@ if [[ "${BLACK:-0}" == "1" ]]; then
     EXTRA_ARGS+=(--black_invented)
     TAG="${TAG}_black"
 fi
+if [[ "${FRANGE:-}" != "" ]]; then
+    EXTRA_ARGS+=(--frame_range "$FRANGE")
+    TAG="${TAG}_f${FRANGE/,/-}"
+fi
+if [[ "${WIGGLE:-}" != "" ]]; then
+    EXTRA_ARGS+=(--wiggle_deg "$WIGGLE")
+    TAG="${TAG}_wig${WIGGLE}"
+fi
 
 python scripts/cache_tour.py \
     --scene "$SCENE" \

@@ -110,13 +110,26 @@ def main():
     if args.cloud_npz:
         from src.eval.palette import CLASS_COLORS_V14_255, CLASS_COLORS_255
         c = np.load(args.cloud_npz)
-        pts, labs = c["points"], c["labels"]
-        keep = (pts[:, 2] > -0.5) & (pts[:, 2] < 2.5) & (labs >= 0)
-        pts, labs = pts[keep], labs[keep].astype(int)
-        pal = CLASS_COLORS_V14_255 if labs.max() < 14 else CLASS_COLORS_255
+        pts, labs = c["points"], c["labels"].astype(int)
+        # Crop to the navigation arena (trajectory bbox + margin) and keep
+        # only near-ground geometry — the raw cloud spans 30m+ of far-field
+        # splats that squash the arena into a sliver.
+        lo_xy = path.min(0) - 3.0
+        hi_xy = path.max(0) + 3.0
+        keep = ((pts[:, 0] > lo_xy[0]) & (pts[:, 0] < hi_xy[0])
+                & (pts[:, 1] > lo_xy[1]) & (pts[:, 1] < hi_xy[1])
+                & (pts[:, 2] > -0.3) & (pts[:, 2] < 2.2) & (labs > 0))
+        pts, labs = pts[keep], labs[keep]
+        if labs.max() < 14:
+            pal = CLASS_COLORS_V14_255
+        else:
+            pal = CLASS_COLORS_255
+            labs = labs.copy()
         ax.scatter(pts[:, 0], pts[:, 1],
                    c=pal[np.clip(labs, 0, len(pal) - 1)] / 255.0,
-                   s=0.4, alpha=0.35, zorder=0, rasterized=True)
+                   s=1.2, alpha=0.5, zorder=0, rasterized=True)
+        ax.set_xlim(lo_xy[0], hi_xy[0])
+        ax.set_ylim(lo_xy[1], hi_xy[1])
     else:
         poly = ribbon_polygon(path, args.ribbon_halfwidth)
         ax.fill(poly[:, 0], poly[:, 1], color="#c8b48c", alpha=0.7, zorder=1,
