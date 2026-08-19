@@ -100,19 +100,44 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
     import imageio.v3 as iio
     from PIL import Image, ImageDraw
     from src.eval.palette import CLASS_COLORS_V14_255
+    from src.eval.reward_2d import (
+        _footprint_corners_world, _project_points, GO2_BODY_LENGTH, GO2_BODY_WIDTH,
+    )
 
-    def _colorize(lab, H, W, tag):
+    def _colorize(lab, H, W, tag, footprint_uv=None):
         import cv2
         pal = CLASS_COLORS_V14_255
         col = pal[np.clip(lab, 0, len(pal) - 1)]
         if col.shape[:2] != (H, W):
             col = cv2.resize(col, (W, H), interpolation=cv2.INTER_NEAREST)
         col = col.copy()
+        if footprint_uv is not None:
+            # the exact quad the reward scores this step (look-ahead footprint)
+            cv2.polylines(col, [footprint_uv.astype(np.int32)], True,
+                          (255, 255, 255), 2, cv2.LINE_AA)
         cv2.putText(col, tag, (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
                     (255, 255, 255), 1, cv2.LINE_AA)
         return col
 
-    def semantic_panel(world, H, W):
+    def _footprint_uv(base_env, world):
+        """Project the reward's footprint quad into the CURRENT view. Same math
+        as compute_reward: corners from pose+heading, camera from the cached
+        view actually served (so the box lands where the reward truly read)."""
+        try:
+            pose = base_env._robot_pose_world
+            pos = pose[:3, 3]
+            hd = pose[:3, :3] @ np.array([1.0, 0.0, 0.0], dtype=np.float64)
+            corners = _footprint_corners_world(
+                pos, hd, look_ahead_dist=base_env.cfg.look_ahead_dist,
+                length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
+            uv, in_front = _project_points(corners, base_env._last_K, base_env._last_w2c)
+            if not in_front.all():
+                return None
+            return uv
+        except Exception:
+            return None
+
+    def semantic_panel(world, H, W, footprint_uv=None):
         """Colorized semantics: what the reward reads, and (gated runs) also
         the model's RAW belief before voiding — the semantics-model test view."""
         used = getattr(world, "_last_semantic_image", None)
@@ -121,8 +146,8 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
         raw = getattr(world, "_last_semantic_raw", None)
         panels = []
         if raw is not None and raw is not used:
-            panels.append(_colorize(raw, H, W, "sem RAW (model belief)"))
-        panels.append(_colorize(used, H, W, "sem REWARD (gated)" if len(panels) else "sem REWARD"))
+            panels.append(_colorize(raw, H, W, "sem RAW (model belief)", footprint_uv))
+        panels.append(_colorize(used, H, W, "sem REWARD (gated)" if len(panels) else "sem REWARD", footprint_uv))
         return np.concatenate(panels, axis=1)
 
     base_env = env.unwrapped if hasattr(env, "unwrapped") else env
@@ -194,7 +219,11 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
                              if getattr(world, "_last_lookup", None) else ""),
                   fill=(255, 255, 255, 255))
         frame = np.array(img.convert("RGB"))
-        sem = semantic_panel(world, H, W)
+        fp_uv = _footprint_uv(base_env, world)
+        if fp_uv is not None:
+            import cv2 as _cv
+            _cv.polylines(frame, [fp_uv.astype(np.int32)], True, (255, 255, 0), 2, _cv.LINE_AA)
+        sem = semantic_panel(world, H, W, fp_uv)
         if sem is not None:
             frame = np.concatenate([frame, sem], axis=1)
         frames.append(frame)
