@@ -47,6 +47,8 @@ def build_env(args):
         scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
         goal_frame=args.goal_frame,
+        goal_xy_override=(tuple(float(v) for v in args.goal_xy.split(","))
+                          if args.goal_xy else None),
         spawn_max_frame=args.spawn_max_frame,
         render_mode="rasterizer_only",
         model_path=args.model_path,
@@ -85,6 +87,10 @@ def main():
     ap.add_argument("--scene", default="rugd_trail_00")
     ap.add_argument("--episodes", type=int, default=20)
     ap.add_argument("--goal_frame", type=int, default=30)
+    ap.add_argument("--goal_xy", default=None,
+                    help='designed obstacle test: pin the goal to "x,y" (nav-'
+                         'frame meters, read off the top-down figure axes) — '
+                         'e.g. just past a tree so the straight line crosses it')
     ap.add_argument("--spawn_max_frame", type=int, default=None,
                     help="match the training rung: 3 = full traverses (rung 5)")
     ap.add_argument("--clips_dir", required=True)
@@ -129,9 +135,12 @@ def main():
             obs, r, term, trunc, info = env.step(action)
             total_r += float(r)
             steps += 1
-            hit = int(info.get("collision", 0) < -0.01)
+            # collision magnitude = footprint fraction on non-traversable
+            # classes (eval reward weight is 1.0, so |term| = the fraction).
+            frac = round(float(max(0.0, -info.get("collision", 0.0))), 3)
+            hit = int(frac > 0.01)
             collided += hit
-            traj.append(_pose_xyyaw(env) + [hit])
+            traj.append(_pose_xyyaw(env) + [frac])
             done = term or trunc
         results.append({"episode": ep, "success": bool(term),
                         "steps": steps, "return": round(total_r, 2),

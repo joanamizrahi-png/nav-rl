@@ -28,6 +28,12 @@ if [[ "${GOAL_FRAME:-}" != "" ]]; then
     EXTRA_ARGS+=(--goal_frame "$GOAL_FRAME")       # generalization: goal the policy never trained on
     OUT_SUFFIX="_goal${GOAL_FRAME}"
 fi
+if [[ "${GOAL_XY:-}" != "" ]]; then
+    # designed obstacle test: GOAL_XY="x,y" pins the goal off-trajectory
+    # (e.g. behind a tree). GOAL_FRAME still caps the spawn range.
+    EXTRA_ARGS+=(--goal_xy "$GOAL_XY")
+    OUT_SUFFIX="${OUT_SUFFIX}_gxy${GOAL_XY/,/_}"
+fi
 SCENE=${SCENE:-rugd_trail_00}
 if [ "$SCENE" != "rugd_trail_00" ]; then
     OUT_SUFFIX="${OUT_SUFFIX}_${SCENE}"    # zero-shot evals get their own dir

@@ -125,10 +125,20 @@ def main():
         ax.scatter([t[0, 0]], [t[0, 1]], s=25, facecolor="white",
                    edgecolor="black", zorder=5)
         ax.scatter([gx], [gy], marker="*", s=110, color="#b03060", zorder=5)
-        hits = t[t[:, 3] > 0]
+        # traj[:, 3] = footprint fraction on non-traversable classes (older
+        # metrics carry 0/1 flags, which land in the "collision" bucket).
+        grazes = t[(t[:, 3] > 0.01) & (t[:, 3] <= 0.2)]
+        hits = t[t[:, 3] > 0.2]
+        if len(grazes):
+            ax.scatter(grazes[:, 0], grazes[:, 1], s=14, color="#f0a000",
+                       zorder=6,
+                       label="graze (1-20% footprint)"
+                       if "graze" not in seen_labels else None)
+            seen_labels.add("graze")
         if len(hits):
-            ax.scatter(hits[:, 0], hits[:, 1], s=32, color="red", zorder=6,
-                       label="collision step" if "hit" not in seen_labels else None)
+            ax.scatter(hits[:, 0], hits[:, 1], s=36, color="red", zorder=6,
+                       label="collision (>20% footprint)"
+                       if "hit" not in seen_labels else None)
             seen_labels.add("hit")
 
     if args.video_episode is not None:

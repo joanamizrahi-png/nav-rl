@@ -238,7 +238,8 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
         frames.append(frame)
 
         obs, r, terminated, truncated, info = env.step(action)
-        traj.append(_xyyaw() + [int(info.get("collision", 0) < -0.01)])
+        traj.append(_xyyaw() +
+                    [round(float(max(0.0, -info.get("collision", 0.0))), 3)])
         done = terminated or truncated
 
     # Arrival frame: the loop above draws BEFORE stepping, so the terminal pose

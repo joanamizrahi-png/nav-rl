@@ -161,6 +161,10 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # close-range-exposure value; 1.5 is v6's (the only config that has learned
     # this task). Suspect in the v6c post-mortem — knob added to test it.
     goal_min_sep_m: float = 1.0
+    # Designed obstacle/detour tests: pin the goal to an arbitrary nav-frame
+    # (x, y) instead of a trajectory frame — e.g. just past a tree, so the
+    # straight line crosses it. Overrides goal_frame/goal_frame_range.
+    goal_xy_override: "tuple[float, float] | None" = None
 
 
 class CalibratedRealWorldBackend(RealWorldBackend):
@@ -236,6 +240,9 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         return cal.robot_pose_nav(int(rng.integers(0, hi)))
 
     def goal_position(self, scene_id: str) -> np.ndarray:
+        if self.cfg.goal_xy_override is not None:
+            gx, gy = self.cfg.goal_xy_override
+            return np.array([gx, gy, 0.0], dtype=np.float32)
         cal = self._calib[scene_id]
         frame = min(self.cfg.goal_frame, len(cal.positions) - 1)
         goal = cal.positions[frame].copy()
@@ -249,7 +256,7 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         """Per-episode goal (rung 6). With goal_frame_range set, draw a frame
         uniformly, rejecting draws closer than min_sep_m to the spawn (those
         episodes are pre-won and teach nothing). Range unset -> fixed goal."""
-        if self.cfg.goal_frame_range is None:
+        if self.cfg.goal_xy_override is not None or self.cfg.goal_frame_range is None:
             return self.goal_position(scene_id)
         cal = self._calib[scene_id]
         lo, hi = self.cfg.goal_frame_range
