@@ -65,6 +65,7 @@ def build_env(args):
         look_ahead_dist=1.5, goal_radius=0.75, collision_threshold=0.1,
         spin_cost=0.05, goal_bonus=50.0, random_spawn=True,
         trav_path=args.trav_path,
+        failure_snap_dir=str(args.out_dir / "failures"),
     )
     return SceneEnv(world_backend=world, semantic_backend=sem,
                     scene_ids=[args.scene], cfg=env_cfg)
