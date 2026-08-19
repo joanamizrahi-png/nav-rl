@@ -172,6 +172,24 @@ class SceneEnv(gym.Env if gym is not None else object):
         if col.shape[:2] != rgb.shape[:2]:
             col = cv2.resize(col, (rgb.shape[1], rgb.shape[0]),
                              interpolation=cv2.INTER_NEAREST)
+        # draw the exact footprint quad the reward scored (her ask 2026-08-19)
+        try:
+            from ..eval.reward_2d import (
+                _footprint_corners_world, _project_points,
+                GO2_BODY_LENGTH, GO2_BODY_WIDTH,
+            )
+            pose = self._robot_pose_world
+            hd = pose[:3, :3] @ np.array([1.0, 0.0, 0.0])
+            corners = _footprint_corners_world(
+                pose[:3, 3], hd, look_ahead_dist=self.cfg.look_ahead_dist,
+                length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
+            uv, in_front = _project_points(corners, self._last_K, self._last_w2c)
+            if in_front.all():
+                rgb = rgb.copy()
+                cv2.polylines(rgb, [uv.astype(np.int32)], True, (255, 255, 0), 2, cv2.LINE_AA)
+                cv2.polylines(col, [uv.astype(np.int32)], True, (255, 255, 255), 2, cv2.LINE_AA)
+        except Exception:
+            pass
         panel = np.concatenate([rgb, col], axis=1)
         bar = np.zeros((44, panel.shape[1], 3), dtype=np.uint8)
         x, y = self._robot_pose_world[0, 3], self._robot_pose_world[1, 3]
