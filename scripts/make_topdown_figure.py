@@ -78,6 +78,11 @@ def main():
     ap.add_argument("--title", default=None)
     ap.add_argument("--ribbon_halfwidth", type=float,
                     default=DEFAULT_RIBBON_HALF_WIDTH_M)
+    ap.add_argument("--cloud_npz", default=None,
+                    help="scene cloud from dump_scene_cloud.py: draws the "
+                         "MEASURED semantic map (class-colored Gaussians) "
+                         "under the paths instead of the assumed ribbon — "
+                         "trees/obstacles become findable by coordinate")
     ap.add_argument("--video_episode", type=int, default=None,
                     help="draw ONE episode from metrics.json's video_episodes "
                          "(the episode episode_<N>.mp4 shows) so the figure "
@@ -102,9 +107,20 @@ def main():
     path = cal.positions[:, :2]
 
     fig, ax = plt.subplots(figsize=(9, 9))
-    poly = ribbon_polygon(path, args.ribbon_halfwidth)
-    ax.fill(poly[:, 0], poly[:, 1], color="#c8b48c", alpha=0.7, zorder=1,
-            label="recorded traversable corridor")
+    if args.cloud_npz:
+        from src.eval.palette import CLASS_COLORS_V14_255, CLASS_COLORS_255
+        c = np.load(args.cloud_npz)
+        pts, labs = c["points"], c["labels"]
+        keep = (pts[:, 2] > -0.5) & (pts[:, 2] < 2.5) & (labs >= 0)
+        pts, labs = pts[keep], labs[keep].astype(int)
+        pal = CLASS_COLORS_V14_255 if labs.max() < 14 else CLASS_COLORS_255
+        ax.scatter(pts[:, 0], pts[:, 1],
+                   c=pal[np.clip(labs, 0, len(pal) - 1)] / 255.0,
+                   s=0.4, alpha=0.35, zorder=0, rasterized=True)
+    else:
+        poly = ribbon_polygon(path, args.ribbon_halfwidth)
+        ax.fill(poly[:, 0], poly[:, 1], color="#c8b48c", alpha=0.7, zorder=1,
+                label="recorded traversable corridor")
     ax.plot(path[:, 0], path[:, 1], color="#8a744a", lw=1, zorder=2)
     for f in range(0, len(path), 10):
         ax.annotate(str(f), path[f], fontsize=7, color="#6b5a35",

@@ -66,8 +66,22 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
     """Serves ribbon-cache views; interface-compatible with the live backend."""
 
     def __init__(self, cfg, cache_root: str, alpha_gate: bool = True,
-                 family_switch_penalty_m: float = 0.15):
+                 family_switch_penalty_m: float = 0.15,
+                 sweep_switch_penalty_m: float = 0.0):
         super().__init__(cfg)
+        # STICKY-SWEEP (0 = off, preserves all trained-policy behavior):
+        # every sweep is one diffusion call = one coherent dream, so hopping
+        # sweeps between consecutive lookups flickers the dream content.
+        # Charge this distance penalty for leaving the current sweep — the
+        # served view stays inside one dream until a competitor is genuinely
+        # closer. Serving-side only; the cache itself is untouched.
+        self._sweep_switch_penalty = float(sweep_switch_penalty_m)
+        self._last_sweep = None
+        # HONEST-OBS mode (her 8/19 idea): black out invented pixels in the
+        # SERVED RGB, so the policy only ever sees real reconstructed content
+        # — dreams (and their people/cars/inconsistency) never reach the
+        # observations. Uses the stored alpha; serving-side only.
+        self.obs_black_invented = False
         # HYBRID mode: comma-separated roots (e.g. "ribbon_cache,ribbon_cache_spin")
         # load together — path-threaded sweeps serve translation, spins serve
         # rotation, nearest-neighbor arbitrates. The switch penalty makes the
@@ -94,7 +108,7 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
         K = np.load(self.cfg.scene_poses_paths[scene_id])["K"].astype(np.float32)
 
         rgbs, labels, alphas, xyyaw = [], [], [], []
-        families, sweep_families = [], []
+        families, sweep_ids = [], []
         skipped = 0
         all_sweeps = []
         for fam_id, root in enumerate(self._cache_roots):
@@ -116,6 +130,7 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
             alphas.append(alpha[:n])
             xyyaw.append(np.asarray(sw["nav_xyyaw"], dtype=np.float64)[:n])
             families.append(np.full(n, fam_id, dtype=np.int16))
+            sweep_ids.append(np.full(n, len(sweep_ids), dtype=np.int32))
         if not rgbs:
             raise RuntimeError(f"no complete sweeps under {scene_dir}")
         if skipped:
@@ -143,6 +158,7 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
             "xy": nav[:, :2].astype(np.float64),
             "hdg": np.stack([np.cos(yaw_rad), np.sin(yaw_rad)], axis=1) * _M_PER_RAD,
             "family": np.concatenate(families) if families else np.zeros(0, np.int16),
+            "sweep": np.concatenate(sweep_ids),
         }
         self._current_scene_id = scene_id
         mb = (rgb_all.nbytes + lab_all.nbytes) / 1e6
@@ -163,8 +179,11 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
             # sticky-family: hopping families mid-motion swaps dream worlds;
             # charge a distance penalty for leaving the current one.
             d2 = d2 + (e["family"] != self._last_family) * (self._family_switch_penalty ** 2)
+        if self._sweep_switch_penalty > 0 and self._last_sweep is not None:
+            d2 = d2 + (e["sweep"] != self._last_sweep) * (self._sweep_switch_penalty ** 2)
         i = int(np.argmin(d2))
         self._last_family = int(e["family"][i]) if len(e.get("family", [])) else None
+        self._last_sweep = int(e["sweep"][i])
         # Lookup-error telemetry for the smoke gate: how far was the nearest
         # photo, really? Rollout HUD prints this; sustained values near the
         # grid's half-spacing (12.5 cm / 7.5 deg) are expected, spikes mean a
@@ -183,4 +202,8 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
             self._last_semantic_image = gated
         else:
             self._last_semantic_image = raw
-        return e["rgb"][i], e["K"], e["w2c"][i]
+        rgb = e["rgb"][i]
+        if self.obs_black_invented:
+            rgb = rgb.copy()
+            rgb[~e["alpha"][i]] = 0
+        return rgb, e["K"], e["w2c"][i]

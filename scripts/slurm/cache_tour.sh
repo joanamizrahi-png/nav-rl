@@ -30,6 +30,14 @@ CACHE_PATHS=$(echo "$OBS_CACHE" | sed 's#[^,]*#/scratch/m000204-pm06b/joana/outp
 EXTRA_ARGS=()
 [[ "${NOGATE:-0}" == "1" ]] && EXTRA_ARGS+=(--no_alpha_gate)
 TAG=${OBS_CACHE//,/+}
+if [[ "${STICKY:-}" != "" ]]; then
+    EXTRA_ARGS+=(--sweep_sticky "$STICKY")
+    TAG="${TAG}_sticky${STICKY}"
+fi
+if [[ "${BLACK:-0}" == "1" ]]; then
+    EXTRA_ARGS+=(--black_invented)
+    TAG="${TAG}_black"
+fi
 
 python scripts/cache_tour.py \
     --scene "$SCENE" \

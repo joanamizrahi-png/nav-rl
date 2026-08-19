@@ -57,7 +57,8 @@ def build_env(args):
     if args.obs_cache:
         from src.env.cached_backend import CachedDiffusedBackend
         world = CachedDiffusedBackend(cfg, args.obs_cache,
-                                      alpha_gate=not args.no_alpha_gate)
+                                      alpha_gate=not args.no_alpha_gate,
+                                      sweep_switch_penalty_m=args.sweep_sticky)
     else:
         world = CalibratedRealWorldBackend(cfg)
     sem = GaussianLabelBackend(world)
@@ -105,6 +106,9 @@ def main():
                     help="ribbon-cache root; evaluate on cached diffused obs "
                          "(must match what the checkpoint trained on)")
     ap.add_argument("--no_alpha_gate", action="store_true")
+    ap.add_argument("--sweep_sticky", type=float, default=0.0,
+                    help="sticky-sweep lookup penalty in meters (0 = off, "
+                         "matches training; see CachedDiffusedBackend)")
     ap.add_argument("--trav_path", default=None,
                     help="traversability yaml (v14 table for cached runs)")
     args = ap.parse_args()

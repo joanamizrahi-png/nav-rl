@@ -72,6 +72,11 @@ def main():
     ap.add_argument("--cycles", type=float, default=3.0,
                     help="full left-right weaves over the whole trail")
     ap.add_argument("--no_alpha_gate", action="store_true")
+    ap.add_argument("--sweep_sticky", type=float, default=0.0,
+                    help="sticky-sweep penalty (m): served view stays in one "
+                         "dream until a sweep is genuinely closer; try 0.3")
+    ap.add_argument("--black_invented", action="store_true",
+                    help="honest-obs mode: invented pixels served as black")
     args = ap.parse_args()
 
     cfg = CalibratedBackendConfig(
@@ -83,7 +88,9 @@ def main():
         reconstructor_path=args.reconstructor_path,
     )
     world = CachedDiffusedBackend(cfg, args.obs_cache,
-                                  alpha_gate=not args.no_alpha_gate)
+                                  alpha_gate=not args.no_alpha_gate,
+                                  sweep_switch_penalty_m=args.sweep_sticky)
+    world.obs_black_invented = args.black_invented
     world.load_scene(args.scene)
     cal = world._calib[args.scene]
 
@@ -136,6 +143,9 @@ def main():
             cv2.polylines(fpv, [np.array([to_px(q) for q in tour[:i]])],
                           False, (255, 255, 255), 1)
         cv2.circle(fpv, to_px(tour[i]), 3, (0, 0, 255), -1)
+        hd = np.array([np.cos(yaw[i]), np.sin(yaw[i])])
+        cv2.arrowedLine(fpv, to_px(tour[i]), to_px(tour[i] + hd * 1.2),
+                        (0, 165, 255), 2, tipLength=0.35)
 
         panels = [fpv]
         raw = getattr(world, "_last_semantic_raw", None)
