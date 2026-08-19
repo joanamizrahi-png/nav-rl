@@ -175,9 +175,15 @@ def main():
 
     if args.fan:
         n_call = args.seg_len * args.fan_steps
-        assert n_call == 81, (
-            f"fan cell = seg_len*fan_steps poses; must be 81 (one diffusion "
-            f"window), got {n_call}")
+        # The video VAE compresses time 4x -> pose counts must be 4k+1
+        # (81, 121, 153, ...). 81 = the training window; anything larger is
+        # EXPERIMENTAL (model never trained there — judge outputs by eye).
+        if n_call % 4 != 1:
+            sys.exit(f"fan cell = seg_len*fan_steps = {n_call} poses; video "
+                     f"VAE needs 4k+1 frames (81, 121, 153, ...)")
+        if n_call != 81:
+            print(f"WARNING: {n_call}-pose cells exceed the 81-frame training "
+                  f"window — experimental, eyeball before trusting")
         if args.seg_starts:
             starts = [int(x) for x in args.seg_starts.split(",")]
         else:
