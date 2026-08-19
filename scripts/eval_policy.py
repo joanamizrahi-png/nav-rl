@@ -12,7 +12,9 @@ Usage (Marlowe GPU):
         --scene rugd_trail_00 --episodes 20 \
         --clips_dir ... --poses_dir ... --labels_dir ... \
         --out_dir /scratch/.../outputs/eval_v3_peak
-Outputs: metrics.json, eval_summary printed, rollout videos for the first 3 episodes.
+Outputs: metrics.json (incl. per-step [x, y, yaw, collision] trajectories for
+top-down plotting via scripts/make_topdown_figure.py), eval_summary printed,
+rollout videos for the first 3 episodes.
 """
 from __future__ import annotations
 
@@ -71,6 +73,12 @@ def build_env(args):
                     scene_ids=[args.scene], cfg=env_cfg)
 
 
+def _pose_xyyaw(env) -> list:
+    P = env.unwrapped._robot_pose_world
+    return [round(float(P[0, 3]), 3), round(float(P[1, 3]), 3),
+            round(float(np.arctan2(P[1, 0], P[0, 0])), 3)]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--checkpoint", required=True)
@@ -110,19 +118,24 @@ def main():
             save_rollout_video(model, env, args.out_dir / f"episode_{ep}.mp4")
             # save_rollout_video runs its own episode; count it via a fresh one below
         obs, _ = env.reset()
+        goal = env.unwrapped._goal_world
+        traj = [_pose_xyyaw(env) + [0]]   # [x, y, yaw, collision_this_step]
         done, steps, collided, total_r = False, 0, 0, 0.0
         while not done:
             action, _ = model.predict(obs, deterministic=True)
             obs, r, term, trunc, info = env.step(action)
             total_r += float(r)
             steps += 1
-            if info.get("collision", 0) < -0.01:
-                collided += 1
+            hit = int(info.get("collision", 0) < -0.01)
+            collided += hit
+            traj.append(_pose_xyyaw(env) + [hit])
             done = term or trunc
         results.append({"episode": ep, "success": bool(term),
                         "steps": steps, "return": round(total_r, 2),
                         "collision_steps": collided,
-                        "final_dist": round(float(info.get("dist_to_goal", -1)), 2)})
+                        "final_dist": round(float(info.get("dist_to_goal", -1)), 2),
+                        "goal_xy": [round(float(goal[0]), 3), round(float(goal[1]), 3)],
+                        "traj": traj})
         print(f"ep {ep:2d}: success={term} steps={steps} return={total_r:+.1f}", flush=True)
 
     succ = [r for r in results if r["success"]]
