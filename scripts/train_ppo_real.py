@@ -106,7 +106,10 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
 
     def _colorize(lab, H, W, tag, footprint_uv=None):
         import cv2
-        pal = CLASS_COLORS_V14_255
+        # v14 runs carry ids 0-13; legacy raster runs carry the 30-class ids —
+        # pick the palette that actually matches the ids or colors lie.
+        from src.eval.palette import CLASS_COLORS_255
+        pal = CLASS_COLORS_V14_255 if int(np.max(lab)) < 14 else CLASS_COLORS_255
         col = pal[np.clip(lab, 0, len(pal) - 1)]
         if col.shape[:2] != (H, W):
             col = cv2.resize(col, (W, H), interpolation=cv2.INTER_NEAREST)
