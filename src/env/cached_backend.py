@@ -65,9 +65,18 @@ def _read_video(path: Path) -> np.ndarray:
 class CachedDiffusedBackend(CalibratedRealWorldBackend):
     """Serves ribbon-cache views; interface-compatible with the live backend."""
 
-    def __init__(self, cfg, cache_root: str, alpha_gate: bool = True):
+    def __init__(self, cfg, cache_root: str, alpha_gate: bool = True,
+                 family_switch_penalty_m: float = 0.15):
         super().__init__(cfg)
-        self._cache_root = Path(cache_root)
+        # HYBRID mode: comma-separated roots (e.g. "ribbon_cache,ribbon_cache_spin")
+        # load together — path-threaded sweeps serve translation, spins serve
+        # rotation, nearest-neighbor arbitrates. The switch penalty makes the
+        # lookup STICKY: staying in the current family (one diffusion call's
+        # coherent dream) beats hopping families for marginal pose gains.
+        self._cache_roots = [Path(r.strip()) for r in str(cache_root).split(",") if r.strip()]
+        self._cache_root = self._cache_roots[0]
+        self._family_switch_penalty = float(family_switch_penalty_m)
+        self._last_family = None
         self._alpha_gate = bool(alpha_gate)   # False = UNGATED: reward trusts
         # diffused labels everywhere (justified 2026-08-17 by the measured
         # cross-sweep coherence of invented content: label agreement 81.8%
@@ -84,11 +93,16 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
         self._calib[scene_id] = cal
         K = np.load(self.cfg.scene_poses_paths[scene_id])["K"].astype(np.float32)
 
-        scene_dir = self._cache_root / scene_id
-        manifest = json.loads((scene_dir / "manifest.json").read_text())
         rgbs, labels, alphas, xyyaw = [], [], [], []
+        families, sweep_families = [], []
         skipped = 0
-        for sw in manifest["sweeps"]:
+        all_sweeps = []
+        for fam_id, root in enumerate(self._cache_roots):
+            scene_dir = root / scene_id
+            manifest = json.loads((scene_dir / "manifest.json").read_text())
+            for sw in manifest["sweeps"]:
+                all_sweeps.append((fam_id, scene_dir, sw))
+        for fam_id, scene_dir, sw in all_sweeps:
             d = scene_dir / sw["file"][:-5]
             if not (d / "semantic_labels.npz").exists() or not (d / "alpha.npz").exists():
                 skipped += 1
@@ -101,6 +115,7 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
             labels.append(lab[:n])                   # RAW labels; gating applied per-lookup
             alphas.append(alpha[:n])
             xyyaw.append(np.asarray(sw["nav_xyyaw"], dtype=np.float64)[:n])
+            families.append(np.full(n, fam_id, dtype=np.int16))
         if not rgbs:
             raise RuntimeError(f"no complete sweeps under {scene_dir}")
         if skipped:
@@ -127,6 +142,7 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
             "w2c": w2cs, "K": K,
             "xy": nav[:, :2].astype(np.float64),
             "hdg": np.stack([np.cos(yaw_rad), np.sin(yaw_rad)], axis=1) * _M_PER_RAD,
+            "family": np.concatenate(families) if families else np.zeros(0, np.int16),
         }
         self._current_scene_id = scene_id
         mb = (rgb_all.nbytes + lab_all.nbytes) / 1e6
@@ -143,7 +159,12 @@ class CachedDiffusedBackend(CalibratedRealWorldBackend):
         d2 = ((e["xy"][:, 0] - x) ** 2 + (e["xy"][:, 1] - y) ** 2
               + ((e["hdg"][:, 0] - fwd[0] * _M_PER_RAD) ** 2
                  + (e["hdg"][:, 1] - fwd[1] * _M_PER_RAD) ** 2))
+        if len(self._cache_roots) > 1 and self._last_family is not None:
+            # sticky-family: hopping families mid-motion swaps dream worlds;
+            # charge a distance penalty for leaving the current one.
+            d2 = d2 + (e["family"] != self._last_family) * (self._family_switch_penalty ** 2)
         i = int(np.argmin(d2))
+        self._last_family = int(e["family"][i]) if len(e.get("family", [])) else None
         # Lookup-error telemetry for the smoke gate: how far was the nearest
         # photo, really? Rollout HUD prints this; sustained values near the
         # grid's half-spacing (12.5 cm / 7.5 deg) are expected, spikes mean a
