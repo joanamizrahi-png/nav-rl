@@ -62,6 +62,7 @@ if [[ "${OBS_CACHE:-}" != "" ]]; then
     fi
 fi
 [[ "${NOGATE:-0}" == "1" ]] && EXTRA_ARGS+=(--no_alpha_gate)
+if [[ "${VIDEOS:-}" != "" ]]; then EXTRA_ARGS+=(--videos "$VIDEOS"); fi
 echo "==> eval: $RUN_NAME / $(basename "$CKPT") scene=$SCENE spawn_max=${SPAWN_MAX:-default} goal=${GOAL_FRAME:-train(30)}"
 python scripts/eval_policy.py \
     --checkpoint "$CKPT" \
