@@ -53,6 +53,15 @@ grep -q "sweep_manifest" inference_semantic.py || { echo "FATAL: stale checkout 
 
 EXTRA_ARGS=()
 [ -n "$PROMPT" ] && EXTRA_ARGS+=(--prompt "$PROMPT")
+# NUM_FRAMES: render cells longer than the 81-frame default (must be 4k+1).
+# The input clip and its label hint are resampled to that length; labels come
+# from <scene>_n<N>.npz (scripts/resample_labels.py).
+LABELS_NPZ=outputs/sam3_labels_v14/${SCENE}.npz
+if [ -n "${NUM_FRAMES:-}" ] && [ "${NUM_FRAMES}" != "81" ]; then
+    EXTRA_ARGS+=(--num_frames "$NUM_FRAMES")
+    LABELS_NPZ=outputs/sam3_labels_v14/${SCENE}_n${NUM_FRAMES}.npz
+    [ -f "$LABELS_NPZ" ] || { echo "FATAL: no $LABELS_NPZ — run scripts/resample_labels.py"; exit 1; }
+fi
 
 # CLIPS_DIR: source clip location (default RUGD; gnd_clips etc. for the new
 # datasets — their SAM3 v14 labels are keyed by the same scene name).
@@ -71,7 +80,7 @@ python inference_semantic.py "${EXTRA_ARGS[@]}" \
     --reconstructor_path /scratch/m000204-pm06b/joana/NeoVerse/models/NeoVerse/reconstructor.ckpt \
     --semantic_expansion_version 2 --lora_rank 8 \
     --lora_target_modules "q,k,v,o,ffn.0,ffn.2" \
-    --semantic_labels outputs/sam3_labels_v14/${SCENE}.npz \
+    --semantic_labels "$LABELS_NPZ" \
     --num_semantic_classes 14 --semantic_x0_prediction --decode_with_head
 # CachedDiffusedBackend reads manifest.json from the CACHE dir (bit us
 # 2026-08-17: both smokes died on FileNotFoundError) — keep a copy there.
