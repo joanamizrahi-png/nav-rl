@@ -25,6 +25,7 @@ cd /scratch/m000204-pm06b/joana/nav-rl
 echo "commit: $(git log --oneline -1)"
 
 SCENE=${SCENE:-rugd_trail_00}
+CLIPS_DIR=${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}
 OBS_CACHE=${OBS_CACHE:-ribbon_cache}
 CACHE_PATHS=$(echo "$OBS_CACHE" | sed 's#[^,]*#/scratch/m000204-pm06b/joana/outputs/&#g')
 EXTRA_ARGS=()
@@ -49,7 +50,7 @@ fi
 
 python scripts/cache_tour.py \
     --scene "$SCENE" \
-    --clips_dir /scratch/m000204-pm06b/joana/data/rugd_clips \
+    --clips_dir "$CLIPS_DIR" \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
     --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14 \
     --obs_cache "$CACHE_PATHS" \
