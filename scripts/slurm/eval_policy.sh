@@ -28,6 +28,10 @@ if [[ "${GOAL_FRAME:-}" != "" ]]; then
     EXTRA_ARGS+=(--goal_frame "$GOAL_FRAME")       # generalization: goal the policy never trained on
     OUT_SUFFIX="_goal${GOAL_FRAME}"
 fi
+if [[ "${MAX_STEPS:-}" != "" ]]; then
+    EXTRA_ARGS+=(--max_steps "$MAX_STEPS")   # GND/SCAND need a longer budget
+    OUT_SUFFIX="${OUT_SUFFIX}_s${MAX_STEPS}"
+fi
 if [[ "${GOAL_XY:-}" != "" ]]; then
     # designed obstacle test: GOAL_XY="x,y" pins the goal off-trajectory
     # (e.g. behind a tree). GOAL_FRAME still caps the spawn range.

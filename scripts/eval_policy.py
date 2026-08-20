@@ -63,7 +63,10 @@ def build_env(args):
         world = CalibratedRealWorldBackend(cfg)
     sem = GaussianLabelBackend(world)
     env_cfg = SceneEnvConfig(
-        max_steps=60, step_size_m=0.25, yaw_step_rad=0.3,
+        # GND/SCAND clips advance ~1 m per recorded frame vs RUGD's ~0.1 m, so
+        # the same goal_frame is a far longer walk there — raise the budget
+        # instead of moving the goal (moving it collapses the spawn range).
+        max_steps=args.max_steps, step_size_m=0.25, yaw_step_rad=0.3,
         reward=RewardWeights(semantic=1.0, goal=1.5, collision=1.0,
                              step_cost=0.05, void_cost=0.3,
                              terrain_as_cost=True),
@@ -88,6 +91,9 @@ def main():
     ap.add_argument("--scene", default="rugd_trail_00")
     ap.add_argument("--episodes", type=int, default=20)
     ap.add_argument("--goal_frame", type=int, default=30)
+    ap.add_argument("--max_steps", type=int, default=60,
+                    help="episode step budget (60 = training default; raise "
+                         "for scenes recorded with large per-frame motion)")
     ap.add_argument("--goal_xy", default=None,
                     help='designed obstacle test: pin the goal to "x,y" (nav-'
                          'frame meters, read off the top-down figure axes) — '
