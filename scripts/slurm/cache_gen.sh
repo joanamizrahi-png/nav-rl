@@ -54,11 +54,14 @@ grep -q "sweep_manifest" inference_semantic.py || { echo "FATAL: stale checkout 
 EXTRA_ARGS=()
 [ -n "$PROMPT" ] && EXTRA_ARGS+=(--prompt "$PROMPT")
 
+# CLIPS_DIR: source clip location (default RUGD; gnd_clips etc. for the new
+# datasets — their SAM3 v14 labels are keyed by the same scene name).
+CLIPS_DIR=${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}
 # ONE python process for the whole range: the 30GB pipeline loads once and
 # every sweep in the range reuses it (was: one load PER sweep — half the cost
 # of the whole cache was model loading).
 python inference_semantic.py "${EXTRA_ARGS[@]}" \
-    --input_path /scratch/m000204-pm06b/joana/data/rugd_clips/${SCENE}.mp4 \
+    --input_path ${CLIPS_DIR}/${SCENE}.mp4 \
     --checkpoint "$CKPT" \
     --output_dir /tmp/unused \
     --sweep_manifest "$TRAJ_DIR/manifest.json" \
