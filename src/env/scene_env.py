@@ -107,6 +107,9 @@ class SceneEnvConfig:
     failure_snap_max: int = 200         # cap so long runs don't fill the disk
     failure_snap_min_frac: float = 0.2  # only snapshot substantial overlaps —
                                         # tiny footprint grazes are risk, not collision
+    collision_terminate_frac: float = 0.0    # >0: footprint overlap at/above this
+                                        # ENDS the episode (no goal bonus) — see step().
+    collision_terminate_penalty: float = 20.0  # subtracted on crash
 
 
 # ---------------------------------------------------------------------------
@@ -291,11 +294,26 @@ class SceneEnv(gym.Env if gym is not None else object):
         spin_term = -self.cfg.spin_cost * abs(float(action[1]))
         back_term = -self.cfg.backward_cost * max(0.0, -float(action[0]))
         bonus = self.cfg.goal_bonus if terminated else 0.0
-        reward = breakdown.total + spin_term + back_term + bonus
+
+        # Crash termination (2026-08-20). Measured on the tree test: a whole
+        # episode of walking through a trunk cost -0.60 against a +50 arrival
+        # bonus (1.2%), so driving through obstacles was reward-optimal — the
+        # policy passed within 0.03-0.21 m of trunk centres while scoring
+        # "success 1.0". A real collision must END the episode, like a real
+        # robot's would. 0 = off (every result before this date).
+        crash = 0.0
+        if self.cfg.collision_terminate_frac > 0.0:
+            frac = -float(breakdown.collision) / max(self.cfg.reward.collision, 1e-6)
+            if frac >= self.cfg.collision_terminate_frac:
+                crash = -self.cfg.collision_terminate_penalty
+                truncated = True          # ends the episode, and NOT a success
+                bonus = 0.0
+        reward = breakdown.total + spin_term + back_term + bonus + crash
 
         info = breakdown.to_dict()
         info["spin"] = spin_term
         info["backward"] = back_term
+        info["crash"] = crash
         info["goal_bonus"] = bonus
         info["total"] = reward
         info["dist_to_goal"] = dist_to_goal

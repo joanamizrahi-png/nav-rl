@@ -82,6 +82,8 @@ def make_env(args):
         collision_threshold=0.1,
         spin_cost=0.05,
         backward_cost=getattr(args, "backward_cost", 0.0),
+        collision_terminate_frac=getattr(args, "collision_terminate_frac", 0.0),
+        collision_terminate_penalty=getattr(args, "collision_terminate_penalty", 20.0),
         goal_bonus=50.0,                                     # v4
         random_spawn=True,
         trav_path=getattr(args, "trav_path", None),
@@ -326,6 +328,11 @@ def main():
     ap.add_argument("--no_alpha_gate", action="store_true",
                     help="UNGATED reward: trust diffused labels in invented regions too "
                          "(coherence-justified; the gated run is the safety-anchored twin)")
+    ap.add_argument("--collision_terminate_frac", type=float, default=0.0,
+                    help="footprint overlap that ENDS the episode (0 = off). "
+                         "Without it a whole episode of walking through a tree "
+                         "costs ~1%% of the goal bonus, so crashing is optimal.")
+    ap.add_argument("--collision_terminate_penalty", type=float, default=20.0)
     ap.add_argument("--backward_cost", type=float, default=0.0,
                     help="penalty * max(0,-v); tax the camera-blind backing gait")
     ap.add_argument("--trav_path", default=None,

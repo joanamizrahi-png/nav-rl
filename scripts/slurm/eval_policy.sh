@@ -28,6 +28,11 @@ if [[ "${GOAL_FRAME:-}" != "" ]]; then
     EXTRA_ARGS+=(--goal_frame "$GOAL_FRAME")       # generalization: goal the policy never trained on
     OUT_SUFFIX="_goal${GOAL_FRAME}"
 fi
+if [[ "${COLLTERM:-}" != "" ]]; then
+    EXTRA_ARGS+=(--collision_terminate_frac "$COLLTERM"
+                 --collision_terminate_penalty "${COLLPEN:-20}")
+    OUT_SUFFIX="${OUT_SUFFIX}_ct${COLLTERM}"
+fi
 if [[ "${MAX_STEPS:-}" != "" ]]; then
     EXTRA_ARGS+=(--max_steps "$MAX_STEPS")   # GND/SCAND need a longer budget
     OUT_SUFFIX="${OUT_SUFFIX}_s${MAX_STEPS}"

@@ -73,6 +73,8 @@ def build_env(args):
         look_ahead_dist=1.5, goal_radius=0.75, collision_threshold=0.1,
         spin_cost=0.05, goal_bonus=50.0, random_spawn=True,
         trav_path=args.trav_path,
+        collision_terminate_frac=args.collision_terminate_frac,
+        collision_terminate_penalty=args.collision_terminate_penalty,
         failure_snap_dir=str(args.out_dir / "failures"),
     )
     return SceneEnv(world_backend=world, semantic_backend=sem,
@@ -112,6 +114,10 @@ def main():
                     help="ribbon-cache root; evaluate on cached diffused obs "
                          "(must match what the checkpoint trained on)")
     ap.add_argument("--no_alpha_gate", action="store_true")
+    ap.add_argument("--collision_terminate_frac", type=float, default=0.0,
+                    help="match the policy's training rule; >0 ends the episode "
+                         "on a real collision (and it does NOT count as success)")
+    ap.add_argument("--collision_terminate_penalty", type=float, default=20.0)
     ap.add_argument("--sweep_sticky", type=float, default=0.0,
                     help="sticky-sweep lookup penalty in meters (0 = off, "
                          "matches training; see CachedDiffusedBackend)")

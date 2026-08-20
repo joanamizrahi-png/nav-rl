@@ -72,6 +72,13 @@ if [ "${CACHE:-0}" = "1" ]; then
         BC_ARGS="$BC_ARGS --no_alpha_gate"
         OUT=${OUT}_UNGATED
     fi
+    if [ -n "${COLLTERM:-}" ]; then
+        # crash termination: footprint overlap >= COLLTERM ends the episode
+        # (no goal bonus, -COLLPEN). Without it, walking through a tree costs
+        # ~1% of the arrival bonus and the policy correctly ignores obstacles.
+        BC_ARGS="$BC_ARGS --collision_terminate_frac $COLLTERM --collision_terminate_penalty ${COLLPEN:-20}"
+        OUT="${OUT}_ct${COLLTERM}"
+    fi
     if [ -n "${BACKCOST:-}" ]; then
         BC_ARGS="$BC_ARGS --backward_cost $BACKCOST"
         OUT=${OUT}_bk${BACKCOST}
