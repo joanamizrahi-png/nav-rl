@@ -102,6 +102,11 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         _inject_lora_for_finetune(pipe, rank=self._lora_rank,
                                   target_modules=self._lora_targets.split(","))
         _load_finetune_checkpoint(pipe, self._sem_checkpoint)
+        # peft injection leaves fresh LoRA modules in train mode, flipping the
+        # pipeline's is_training property — the 81-frame source clip is then
+        # VAE-encoded as input latents, which shape-crashes any num_frames!=81
+        # call (cache_gen never hits this: its calls always match source length).
+        pipe.eval()
         self._pipe = pipe
         self._reconstructor = pipe.reconstructor
         free, _ = torch.cuda.mem_get_info()
