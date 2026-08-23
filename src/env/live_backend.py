@@ -100,7 +100,7 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         if pipe.control_branch is not None:
             expand_control_branch_for_semantics_v2(pipe.control_branch, extra=16)
         _inject_lora_for_finetune(pipe, rank=self._lora_rank,
-                                  target_modules=self._lora_targets)
+                                  target_modules=self._lora_targets.split(","))
         _load_finetune_checkpoint(pipe, self._sem_checkpoint)
         self._pipe = pipe
         self._reconstructor = pipe.reconstructor
