@@ -123,7 +123,9 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
     # ---------- per-step live render ----------
 
     def _rasterize_and_diffuse(self, scene: dict, pose_recon: np.ndarray):
-        torch = self._torch
+        # direct import, not a handle stored by _ensure_semantic_pipe: the
+        # benchmark hands later backends an already-built pipe, skipping setup
+        import torch
         from diffsynth.utils.auxiliary import homo_matrix_inverse
         from inference_semantic import (
             _make_dual_decode, _sem_video_to_labels_and_colorized,
