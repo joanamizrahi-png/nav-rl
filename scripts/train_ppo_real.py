@@ -56,7 +56,15 @@ def make_env(args):
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
     )
-    if getattr(args, "obs_cache", None):
+    if getattr(args, "live", False):
+        # Live per-action diffusion: the policy queries the generative model at
+        # its own CONTINUOUS pose every step — no cache, no grid snapping.
+        # Observations and reward labels come from the same diffusion call.
+        from src.env.live_backend import LiveDiffusedBackend
+        world = LiveDiffusedBackend(cfg, checkpoint=args.live_ckpt,
+                                    live_frames=args.live_frames,
+                                    alpha_gate=not getattr(args, "no_alpha_gate", False))
+    elif getattr(args, "obs_cache", None):
         # Ribbon-cache mode: observations = precomputed diffused views (v10 +
         # reader), reward labels = the cache's alpha-masked diffused labels.
         # No GPU rendering during training at all.
@@ -325,6 +333,17 @@ def main():
                     help="rung 6: sample the goal frame per episode from [LO, HI]")
     ap.add_argument("--obs_cache", default=None,
                     help="ribbon-cache root (outputs/ribbon_cache); enables cached diffused observations")
+    ap.add_argument("--live", action="store_true",
+                    help="live per-action diffusion observations (no cache): one "
+                         "5-frame generation per env step at the exact pose")
+    ap.add_argument("--live_ckpt",
+                    default="/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors",
+                    help="semantic diffusion checkpoint the live backend serves")
+    ap.add_argument("--live_frames", type=int, default=5,
+                    help="frames per live call (4 history + current; 4k+1)")
+    ap.add_argument("--warmstart", type=Path, default=None,
+                    help="PPO checkpoint .zip to continue training from "
+                         "(num_timesteps preserved; total_steps counts the NEW steps)")
     ap.add_argument("--no_alpha_gate", action="store_true",
                     help="UNGATED reward: trust diffused labels in invented regions too "
                          "(coherence-justified; the gated run is the safety-anchored twin)")
@@ -358,7 +377,16 @@ def main():
     # would multiply VRAM; not worth it for the smoke.
     env = make_env(args)
 
-    model = PPO(
+    if args.warmstart is not None:
+        # Continue training an existing policy (e.g. the cache-trained champion
+        # fine-tuning on live observations). SB3 keeps num_timesteps; learn()
+        # below adds total_steps on top (reset_num_timesteps=False).
+        model = PPO.load(str(args.warmstart), env=env,
+                         tensorboard_log=str(args.output_dir / "tensorboard"))
+        print(f"[train_ppo_real] warm-start from {args.warmstart} "
+              f"(num_timesteps={model.num_timesteps})")
+    else:
+        model = PPO(
         "MultiInputPolicy", env,
         verbose=1, seed=args.seed,
         tensorboard_log=str(args.output_dir / "tensorboard"),
@@ -398,7 +426,8 @@ def main():
             print(f"[train_ppo_real] wandb unavailable ({e}); continuing without")
 
     print(f"[train_ppo_real] training {args.total_steps} steps on {args.scene} ...")
-    model.learn(total_timesteps=args.total_steps, callback=callbacks, progress_bar=True)
+    model.learn(total_timesteps=args.total_steps, callback=callbacks, progress_bar=True,
+                reset_num_timesteps=(args.warmstart is None))
     model.save(str(args.output_dir / "ppo_final.zip"))
 
     print("[train_ppo_real] eval rollout ...")

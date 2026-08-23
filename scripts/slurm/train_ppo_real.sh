@@ -48,7 +48,24 @@ else
 fi
 STEPS=200000
 SEED=${SEED:-0}
-if [ "${CACHE:-0}" = "1" ]; then
+if [ "${LIVE:-0}" = "1" ]; then
+    # LIVE per-action diffusion (no cache, 2026-08-23): one 5-frame semantic
+    # generation per env step at the exact continuous pose. Measured 1.35 s/step
+    # at 560x336 -> 50k steps ~19 h, 200k ~75 h. Submit with:
+    #   sbatch --mem=96G --time=36:00:00 ... (fine-tune)  /  --time=96:00:00 (200k)
+    # SMOKE=1 -> 500-step gate run (obs sanity + timing + VRAM before real runs).
+    BC_ARGS="--live --goal_frame_range 15 70 --goal_min_sep 1.5 --trav_path config/traversability_v14.yaml --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14"
+    OUT=/scratch/m000204-pm06b/joana/outputs/ppo_live_trail00
+    STEPS=200000
+    if [ "${NOGATE:-0}" = "1" ]; then
+        BC_ARGS="$BC_ARGS --no_alpha_gate"
+        OUT=${OUT}_UNGATED
+    fi
+    if [ "${SMOKE:-0}" = "1" ]; then
+        OUT=${OUT}_SMOKE
+        STEPS=500
+    fi
+elif [ "${CACHE:-0}" = "1" ]; then
     # v14-DIFFUSED (2026-08-15, advisor's headline ask): the 6d recipe on the
     # corrected right-handed frame, observations from the ribbon cache (v10 +
     # reader diffused views), reward from the cache's alpha-masked diffused
@@ -92,6 +109,13 @@ if [ "${CACHE:-0}" = "1" ]; then
         OUT=${OUT}_SMOKE
         STEPS=10000
     fi
+    # Run C (2026-08-23): SCENES="s1 s2 ..." trains ONE policy over several
+    # cached scenes (round-robin per episode; cache loaded per scene from the
+    # same root). RAM scales with scene count -> submit with --mem=96G.
+    if [ -n "${SCENES:-}" ]; then
+        BC_ARGS="$BC_ARGS --scenes $SCENES"
+        OUT=${OUT}_multi$(echo "$SCENES" | wc -w | tr -d ' ')
+    fi
 elif [ "${RUNG7B:-0}" = "1" ]; then
     # 7b = 7 with the KL leash OFF (it truncated 77% of update rounds).
     BC_ARGS="$BC_ARGS --goal_frame_range 15 70 --goal_min_sep 1.5 --target_kl 0 --scenes rugd_trail_00 rugd_park-1_00 rugd_park-2_00 rugd_trail-4_00"
@@ -134,6 +158,13 @@ fi
 if [ "$SEED" != "0" ]; then
     BC_ARGS="$BC_ARGS --seed $SEED"
     OUT="${OUT}_seed${SEED}"
+fi
+# WARMSTART: continue training an existing policy (.zip). Works with any rung
+# (live fine-tune of the cached champion = LIVE=1 WARMSTART=<champion ckpt>).
+# STEPS then counts the ADDITIONAL steps on top of the checkpoint's counter.
+if [ -n "${WARMSTART:-}" ]; then
+    BC_ARGS="$BC_ARGS --warmstart $WARMSTART"
+    OUT="${OUT}_warm"
 fi
 # STEPS_OVERRIDE: extend any rung without a new branch (v6d was still climbing
 # at its 400k cap -> 800k continuation). Output dir gets the step count.
