@@ -74,6 +74,11 @@ def main():
     ap.add_argument("--image_topic", default="/camera/camera/color/image_raw/compressed")
     ap.add_argument("--odom_topic", default="/Odometry")
     ap.add_argument("--cmd_topic", default="/cmd_vel")
+    ap.add_argument("--smooth", type=float, default=0.5,
+                    help="command blending 0..1: published = smooth*new + "
+                         "(1-smooth)*previous. 1.0 = raw policy output; lower "
+                         "= gentler transitions (soar-go2's RL rate-limits "
+                         "velocity changes the same way in training)")
     ap.add_argument("--dry_run", action="store_true")
     args = ap.parse_args()
 
@@ -142,6 +147,9 @@ def main():
             self.lat.append(ms)
             v = float(np.clip(action[0] * 0.25 * args.rate, -args.max_v, args.max_v))
             w = float(np.clip(action[1] * 0.30 * args.rate, -args.max_w, args.max_w))
+            a = float(np.clip(args.smooth, 0.0, 1.0))
+            v = a * v + (1.0 - a) * self.cmd[0]
+            w = a * w + (1.0 - a) * self.cmd[1]
             self.publish(v, w)
             self.get_logger().info(
                 f"dist {dist:4.1f} m bearing {np.degrees(bearing):+5.0f} deg | "
