@@ -105,6 +105,51 @@ def spin_poses(cal: NavCalibration, anchor_i: int, lateral_m: float):
     return np.stack(mats), np.array(nav)
 
 
+class DensifiedCal:
+    """NavCalibration view with anchors RESAMPLED every step_m along the path.
+
+    Fixes the coarse-clip artifact (GND: ~1 m between recorded frames -> the
+    robot walks 3-4 env steps before the nearest cached view changes). Anchors
+    interpolate position along the recorded path; heading = local tangent;
+    scene time (frame_of) = nearest recorded frame, so the dynamic-Gaussian
+    time association still holds.
+    """
+
+    def __init__(self, cal: NavCalibration, step_m: float):
+        self.cal = cal
+        self.camera_height_m = cal.camera_height_m
+        p = cal.positions[:, :2]
+        seg = np.linalg.norm(np.diff(p, axis=0), axis=1)
+        s = np.concatenate([[0.0], np.cumsum(seg)])
+        n = max(2, int(s[-1] / step_m) + 1)
+        ts = np.linspace(0.0, s[-1] - 1e-6, n)
+        self._poses, self._frames, pos = [], [], []
+        for t in ts:
+            i = int(np.searchsorted(s, t)) - 1
+            i = max(0, min(i, len(p) - 2))
+            f = (t - s[i]) / max(s[i + 1] - s[i], 1e-9)
+            xy = p[i] + f * (p[i + 1] - p[i])
+            d = p[i + 1] - p[i]
+            yaw = np.arctan2(d[1], d[0])
+            P = np.asarray(cal.robot_pose_nav(i), dtype=np.float64).copy()
+            c, si = np.cos(yaw), np.sin(yaw)
+            P[:3, :3] = np.array([[c, -si, 0.0], [si, c, 0.0], [0.0, 0.0, 1.0]])
+            P[0, 3], P[1, 3] = float(xy[0]), float(xy[1])   # z stays frame i's
+            self._poses.append(P)
+            self._frames.append(int(i if f < 0.5 else i + 1))
+            pos.append([float(xy[0]), float(xy[1]), float(P[2, 3])])
+        self.positions = np.array(pos)
+
+    def robot_pose_nav(self, i):
+        return self._poses[i]
+
+    def frame_of(self, i):
+        return self._frames[i]
+
+    def nav_cam_to_recon_cam(self, m):
+        return self.cal.nav_cam_to_recon_cam(m)
+
+
 def fan_poses(cal: NavCalibration, seg_start: int, seg_len: int,
               lateral_m: float, fan_deg: float, fan_steps: int):
     """(recon c2w [T,4,4], nav [T,3], frame_indices [T]) for one FAN cell:
@@ -135,7 +180,9 @@ def fan_poses(cal: NavCalibration, seg_start: int, seg_len: int,
             c2w_nav[:3, 3] += np.array([0.0, 0.0, cal.camera_height_m])
             c2w_nav[:3, :3] = c2w_nav[:3, :3] @ R_CAM_LOCAL
             mats.append(cal.nav_cam_to_recon_cam(c2w_nav))
-            fidx.append(int(fi))     # scene-time follows the position
+            # scene-time follows the position (densified cal maps anchor ->
+            # nearest recorded frame)
+            fidx.append(cal.frame_of(fi) if hasattr(cal, "frame_of") else int(fi))
     return np.stack(mats), np.array(nav), fidx
 
 
@@ -163,6 +210,11 @@ def main():
     ap.add_argument("--seg_starts", default=None,
                     help="fan mode: comma list of segment start frames "
                          "(pilot: one cell). Default: tile the whole path")
+    ap.add_argument("--densify_m", type=float, default=None,
+                    help="fan mode: resample anchors every N meters along the "
+                         "path (0.25 recommended for coarse clips like GND's "
+                         "~1 m/frame — kills the frozen-observation artifact). "
+                         "Default: anchors at recorded frames")
     args = ap.parse_args()
 
     cal = NavCalibration.from_npz(Path(args.poses_dir) / f"{args.scene}_poses.npz")
@@ -174,6 +226,11 @@ def main():
     manifest = {"scene": args.scene, "num_frames": len(cal.positions), "sweeps": []}
 
     if args.fan:
+        if args.densify_m:
+            cal = DensifiedCal(cal, args.densify_m)
+            print(f"densified anchors: {len(cal.positions)} at "
+                  f"{args.densify_m} m spacing (from "
+                  f"{len(cal.cal.positions)} recorded frames)")
         n_call = args.seg_len * args.fan_steps
         # The video VAE compresses time 4x -> pose counts must be 4k+1
         # (81, 121, 153, ...). 81 = the training window; anything larger is
