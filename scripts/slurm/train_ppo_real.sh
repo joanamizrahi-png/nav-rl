@@ -65,6 +65,13 @@ if [ "${LIVE:-0}" = "1" ]; then
         OUT=${OUT}_SMOKE
         STEPS=500
     fi
+    # LIVE_DEMOS: BC-prime the live run on LIVE-rendered demos (B-prime rescue
+    # for the cold-start dream-marination). NEVER pass raster/cached demo files
+    # here — observation source must match training.
+    if [ -n "${LIVE_DEMOS:-}" ]; then
+        BC_ARGS="$BC_ARGS --bc_demos $LIVE_DEMOS"
+        OUT=${OUT}_bc
+    fi
 elif [ "${CACHE:-0}" = "1" ]; then
     # v14-DIFFUSED (2026-08-15, advisor's headline ask): the 6d recipe on the
     # corrected right-handed frame, observations from the ribbon cache (v10 +

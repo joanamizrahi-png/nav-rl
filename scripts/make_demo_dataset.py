@@ -62,6 +62,12 @@ def main():
     ap.add_argument("--obs_cache", default=None,
                     help="ribbon-cache root: demo observations come from the "
                          "cached diffused views (match cached-obs training)")
+    ap.add_argument("--live", action="store_true",
+                    help="live per-action diffusion observations (MUST be used "
+                         "for BC ahead of --live training: demo obs and training "
+                         "obs must come from the same source)")
+    ap.add_argument("--live_ckpt",
+                    default="/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors")
     args = ap.parse_args()
 
     cfg = CalibratedBackendConfig(
@@ -73,7 +79,13 @@ def main():
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
     )
-    if args.obs_cache:
+    if args.live:
+        # Rendering the recorded poses IN ORDER fills the live backend's rolling
+        # history exactly like training does — demos match the training
+        # observation distribution frame for frame.
+        from src.env.live_backend import LiveDiffusedBackend
+        world = LiveDiffusedBackend(cfg, checkpoint=args.live_ckpt)
+    elif args.obs_cache:
         from src.env.cached_backend import CachedDiffusedBackend
         world = CachedDiffusedBackend(cfg, args.obs_cache)
     else:
