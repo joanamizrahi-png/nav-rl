@@ -62,6 +62,13 @@ if [[ "${OBS_CACHE:-}" != "" ]]; then
     fi
 fi
 [[ "${NOGATE:-0}" == "1" ]] && EXTRA_ARGS+=(--no_alpha_gate)
+# LIVE=1: serve live diffusion observations (evals of --live-trained policies).
+# ~1.4 s/step: submit with  sbatch --mem=96G --time=03:00:00
+if [[ "${LIVE:-0}" == "1" ]]; then
+    EXTRA_ARGS+=(--live --trav_path config/traversability_v14.yaml)
+    LABELS_DIR=/scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14
+    OUT_SUFFIX="${OUT_SUFFIX}_live"
+fi
 if [[ "${VIDEOS:-}" != "" ]]; then EXTRA_ARGS+=(--videos "$VIDEOS"); fi
 echo "==> eval: $RUN_NAME / $(basename "$CKPT") scene=$SCENE spawn_max=${SPAWN_MAX:-default} goal=${GOAL_FRAME:-train(30)}"
 python scripts/eval_policy.py \

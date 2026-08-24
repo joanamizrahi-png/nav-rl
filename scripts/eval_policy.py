@@ -54,7 +54,13 @@ def build_env(args):
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
     )
-    if args.obs_cache:
+    if args.live:
+        # Live-trained policies (--live runs) must be evaluated on live
+        # observations too — cache lookups would be an obs-distribution shift.
+        from src.env.live_backend import LiveDiffusedBackend
+        world = LiveDiffusedBackend(cfg, checkpoint=args.live_ckpt,
+                                    alpha_gate=not args.no_alpha_gate)
+    elif args.obs_cache:
         from src.env.cached_backend import CachedDiffusedBackend
         world = CachedDiffusedBackend(cfg, args.obs_cache,
                                       alpha_gate=not args.no_alpha_gate,
@@ -114,6 +120,11 @@ def main():
                     help="ribbon-cache root; evaluate on cached diffused obs "
                          "(must match what the checkpoint trained on)")
     ap.add_argument("--no_alpha_gate", action="store_true")
+    ap.add_argument("--live", action="store_true",
+                    help="serve LIVE per-step diffusion observations (evals of "
+                         "--live-trained policies; ~1.4 s/step -> raise --time)")
+    ap.add_argument("--live_ckpt",
+                    default="/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors")
     ap.add_argument("--collision_terminate_frac", type=float, default=0.0,
                     help="match the policy's training rule; >0 ends the episode "
                          "on a real collision (and it does NOT count as success)")

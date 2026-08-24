@@ -62,7 +62,14 @@ def preprocess(bgr: np.ndarray, W: int = 560, H: int = 336) -> np.ndarray:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--checkpoint", required=True)
+    ap.add_argument("--checkpoint", default=None,
+                    help="policy .zip (required unless --baseline)")
+    ap.add_argument("--baseline", action="store_true",
+                    help="IGNORE the camera: pure goal-bearing servo "
+                         "(v ~ distance, w ~ bearing). The control lap for "
+                         "the outdoor comparison — any difference between this "
+                         "trajectory and the policy's is what world-model "
+                         "training contributed.")
     ap.add_argument("--goal_dx", type=float, required=True,
                     help="goal x (m) in the robot frame at startup (forward)")
     ap.add_argument("--goal_dy", type=float, required=True,
@@ -91,8 +98,13 @@ def main():
     from geometry_msgs.msg import Twist
     from stable_baselines3 import PPO
 
-    model = PPO.load(args.checkpoint, device="cuda")
-    print(f"[deploy] loaded {args.checkpoint}")
+    if args.baseline:
+        model = None
+        print("[deploy] BASELINE mode: goal-bearing servo, camera ignored")
+    else:
+        assert args.checkpoint, "--checkpoint required unless --baseline"
+        model = PPO.load(args.checkpoint, device="cuda")
+        print(f"[deploy] loaded {args.checkpoint}")
 
     class PolicyNode(Node):
         def __init__(self):
@@ -139,14 +151,18 @@ def main():
                 self.publish(0.0, 0.0)
                 self.get_logger().info(f"GOAL REACHED ({dist:.2f} m) — holding")
                 return
-            obs = {"rgb": preprocess(self.img),
-                   "goal": np.array([dx, dy, bearing], dtype=np.float32)}
             t0 = time.perf_counter()
-            action, _ = model.predict(obs, deterministic=True)
+            if args.baseline:
+                v = float(np.clip(0.5 * dist, 0.0, args.max_v))
+                w = float(np.clip(1.5 * bearing, -args.max_w, args.max_w))
+            else:
+                obs = {"rgb": preprocess(self.img),
+                       "goal": np.array([dx, dy, bearing], dtype=np.float32)}
+                action, _ = model.predict(obs, deterministic=True)
+                v = float(np.clip(action[0] * 0.25 * args.rate, -args.max_v, args.max_v))
+                w = float(np.clip(action[1] * 0.30 * args.rate, -args.max_w, args.max_w))
             ms = (time.perf_counter() - t0) * 1e3
             self.lat.append(ms)
-            v = float(np.clip(action[0] * 0.25 * args.rate, -args.max_v, args.max_v))
-            w = float(np.clip(action[1] * 0.30 * args.rate, -args.max_w, args.max_w))
             a = float(np.clip(args.smooth, 0.0, 1.0))
             v = a * v + (1.0 - a) * self.cmd[0]
             w = a * w + (1.0 - a) * self.cmd[1]
