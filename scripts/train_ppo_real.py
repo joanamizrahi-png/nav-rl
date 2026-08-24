@@ -383,8 +383,13 @@ def main():
         # below adds total_steps on top (reset_num_timesteps=False).
         model = PPO.load(str(args.warmstart), env=env,
                          tensorboard_log=str(args.output_dir / "tensorboard"))
+        # The checkpoint carries its own target_kl — but a warm-start into a NEW
+        # setting (new scenes / new obs source) shifts the policy hard on the
+        # first updates, and the old leash aborts every round at step 0 (Run C
+        # 2026-08-23: 300k steps, zero learning). Honor the CLI value instead.
+        model.target_kl = (args.target_kl if args.target_kl > 0 else None)
         print(f"[train_ppo_real] warm-start from {args.warmstart} "
-              f"(num_timesteps={model.num_timesteps})")
+              f"(num_timesteps={model.num_timesteps}, target_kl={model.target_kl})")
     else:
         model = PPO(
         "MultiInputPolicy", env,

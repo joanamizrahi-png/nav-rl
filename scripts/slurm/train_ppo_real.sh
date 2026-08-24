@@ -166,6 +166,11 @@ if [ "$SEED" != "0" ]; then
     BC_ARGS="$BC_ARGS --seed $SEED"
     OUT="${OUT}_seed${SEED}"
 fi
+# TARGETKL: override the PPO KL leash (0 = off). Multi-scene and warm-start
+# runs need 0 — the leash aborts every update when the policy must shift.
+if [ -n "${TARGETKL:-}" ]; then
+    BC_ARGS="$BC_ARGS --target_kl $TARGETKL"
+fi
 # WARMSTART: continue training an existing policy (.zip). Works with any rung
 # (live fine-tune of the cached champion = LIVE=1 WARMSTART=<champion ckpt>).
 # STEPS then counts the ADDITIONAL steps on top of the checkpoint's counter.
