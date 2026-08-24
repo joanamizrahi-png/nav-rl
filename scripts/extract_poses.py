@@ -94,6 +94,7 @@ def poses_from_c2w_recon(
     c2w_recon: np.ndarray,          # (T, 4, 4) camera-to-world, recon frame, recon units
     gaussian_means_recon: np.ndarray,   # (N, 3) recon frame, recon units
     camera_height_m: float,
+    path_length_m: "float | None" = None,   # GT path length (from odometry)
 ) -> dict:
     """Recon-frame camera poses -> z-up, ground-at-z0, metric-scale robot poses.
 
@@ -132,7 +133,14 @@ def poses_from_c2w_recon(
             f"median camera height above fitted ground is {h_median:.4f} <= 0; "
             "the plane fit or the recon->scene rotation is wrong for this clip. "
             "Inspect the saved diagnostics before trusting anything.")
-    scale = camera_height_m / h_median
+    # Prefer GT odometry path length when the clip has it: monocular scale
+    # from an assumed mount height drifted 2-4x on the GND ZED clips (odom
+    # 33 m vs "extracted 119 m"), and the error varies per clip.
+    L_units = float(np.linalg.norm(np.diff(c2w[:, :2, 3], axis=0), axis=1).sum())
+    if path_length_m is not None and L_units > 1e-6:
+        scale = path_length_m / L_units
+    else:
+        scale = camera_height_m / h_median
     c2w[:, :3, 3] *= scale
     means *= scale
 
@@ -291,7 +299,20 @@ def main():
         if len(means) > args.max_gaussians_for_plane:
             means = means[rng.choice(len(means), args.max_gaussians_for_plane, replace=False)]
 
-        out = poses_from_c2w_recon(c2w_recon, means, camera_height_m=args.camera_height_m)
+        # GT scale from the recorder's own odometry when the clip has it
+        # (<stem>_odom.npz written by prepare_rosbag_clips next to the mp4).
+        path_length_m = None
+        odom_path = video.parent / f"{video.stem}_odom.npz"
+        if odom_path.exists():
+            od = np.load(odom_path)
+            path_length_m = float(np.linalg.norm(
+                np.diff(od["xyz"][:, :2], axis=0), axis=1).sum())
+            print(f"[extract_poses] odometry found: scaling to GT path length "
+                  f"{path_length_m:.1f} m (mount-height scale ignored)", flush=True)
+
+        out = poses_from_c2w_recon(c2w_recon, means,
+                                   camera_height_m=args.camera_height_m,
+                                   path_length_m=path_length_m)
         out["K"] = K_all[0].astype(np.float32)
         out["K_all"] = K_all.astype(np.float32)
         out["video"] = str(video)
