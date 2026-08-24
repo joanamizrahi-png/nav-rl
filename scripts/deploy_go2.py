@@ -175,7 +175,10 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        node.publish(0.0, 0.0)
+        try:
+            node.publish(0.0, 0.0)
+        except Exception:
+            pass    # Ctrl-C can tear down the ROS context before this runs
         if node.lat:
             print(f"[deploy] policy latency: median {np.median(node.lat):.1f} ms "
                   f"over {len(node.lat)} inferences")
