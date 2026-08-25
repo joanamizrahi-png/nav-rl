@@ -62,6 +62,10 @@ if [[ "${OBS_CACHE:-}" != "" ]]; then
     fi
 fi
 [[ "${NOGATE:-0}" == "1" ]] && EXTRA_ARGS+=(--no_alpha_gate)
+if [[ -n "${CHUNK:-}" && "${CHUNK}" != "1" ]]; then
+    EXTRA_ARGS+=(--action_chunk "$CHUNK")
+    OUT_SUFFIX="${OUT_SUFFIX}_chunk${CHUNK}"
+fi
 # LIVE=1: serve live diffusion observations (evals of --live-trained policies).
 # ~1.4 s/step: submit with  sbatch --mem=96G --time=03:00:00
 if [[ "${LIVE:-0}" == "1" ]]; then

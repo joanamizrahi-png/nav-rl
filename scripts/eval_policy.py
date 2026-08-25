@@ -81,6 +81,7 @@ def build_env(args):
         trav_path=args.trav_path,
         collision_terminate_frac=args.collision_terminate_frac,
         collision_terminate_penalty=args.collision_terminate_penalty,
+        action_chunk=args.action_chunk,
         failure_snap_dir=str(args.out_dir / "failures"),
     )
     return SceneEnv(world_backend=world, semantic_backend=sem,
@@ -123,6 +124,8 @@ def main():
     ap.add_argument("--live", action="store_true",
                     help="serve LIVE per-step diffusion observations (evals of "
                          "--live-trained policies; ~1.4 s/step -> raise --time)")
+    ap.add_argument("--action_chunk", type=int, default=1,
+                    help="match the policy's training chunk size (trajectory arm)")
     ap.add_argument("--live_ckpt",
                     default="/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors")
     ap.add_argument("--collision_terminate_frac", type=float, default=0.0,
