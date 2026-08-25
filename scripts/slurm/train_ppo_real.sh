@@ -166,6 +166,12 @@ if [ "$SEED" != "0" ]; then
     BC_ARGS="$BC_ARGS --seed $SEED"
     OUT="${OUT}_seed${SEED}"
 fi
+# CHUNK: trajectory arm (Jing's plan B) — policy outputs CHUNK action pairs
+# per decision, re-observes only after the chunk executes. 1/unset = per-action.
+if [ -n "${CHUNK:-}" ] && [ "${CHUNK}" != "1" ]; then
+    BC_ARGS="$BC_ARGS --action_chunk $CHUNK"
+    OUT="${OUT}_chunk${CHUNK}"
+fi
 # PROX: proximity-cost weight (geometric stay-away term; needs scene clouds
 # from dump_scene_cloud.py under outputs/scene_clouds/clouds). The clearance
 # fix motivated by Run A's grazing exploit.

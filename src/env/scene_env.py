@@ -118,6 +118,12 @@ class SceneEnvConfig:
     proximity_weight: float = 0.0       # 0 = off (every run before this date)
     proximity_margin: float = 1.0       # meters; cost ramps linearly inside this
     clouds_dir: "str | None" = None     # dir holding <scene>_cloud.npz files
+    # Trajectory output (Jing's plan B, 2026-08-25): the policy emits k action
+    # pairs per decision and only observes again after all k execute. Rewards
+    # still accrue per sub-step, so the world stays action-conditioned; only
+    # the POLICY's decision rate changes. 1 = per-action (default, all runs
+    # before this date).
+    action_chunk: int = 1
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +160,9 @@ class SceneEnv(gym.Env if gym is not None else object):
             "rgb":  spaces.Box(low=0, high=255, shape=(H, W, 3), dtype=np.uint8),
             "goal": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
         })
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(2,), dtype=np.float32)
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0,
+            shape=(2 * max(1, cfg.action_chunk),), dtype=np.float32)
 
         # Populated on reset()
         self._scene_id: Optional[str] = None
@@ -282,6 +290,35 @@ class SceneEnv(gym.Env if gym is not None else object):
         return -self.cfg.proximity_weight * (self.cfg.proximity_margin - dmin) / self.cfg.proximity_margin
 
     def step(self, action: np.ndarray):
+        """Chunk-aware step: executes cfg.action_chunk sub-actions (1 = the
+        per-action default). Sub-step rewards and components are summed; the
+        observation returned is the one AFTER the whole chunk."""
+        k = max(1, self.cfg.action_chunk)
+        action = np.asarray(action, dtype=np.float32).clip(-1.0, 1.0)
+        if k == 1:
+            return self._step_single(action)
+        total_r, agg = 0.0, None
+        obs = terminated = truncated = info = None
+        for i in range(k):
+            obs, r, terminated, truncated, info = self._step_single(
+                action[2 * i:2 * i + 2])
+            total_r += float(r)
+            if agg is None:
+                agg = {kk: float(vv) for kk, vv in info.items()
+                       if isinstance(vv, (int, float))
+                       and not isinstance(vv, bool)
+                       and kk != "dist_to_goal"}
+            else:
+                for kk in agg:
+                    agg[kk] += float(info.get(kk, 0.0))
+            if terminated or truncated:
+                break
+        info = dict(info)          # last sub-step's flags/dist survive...
+        info.update(agg)           # ...numeric reward components are summed
+        info["total"] = total_r
+        return obs, total_r, terminated, truncated, info
+
+    def _step_single(self, action: np.ndarray):
         assert self._robot_pose_world is not None, "call reset() first"
         action = np.asarray(action, dtype=np.float32).clip(-1.0, 1.0)
 

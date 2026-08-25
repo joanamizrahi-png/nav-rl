@@ -127,6 +127,7 @@ def make_env(args):
         proximity_weight=getattr(args, "proximity_weight", 0.0),
         proximity_margin=getattr(args, "proximity_margin", 1.0),
         clouds_dir=getattr(args, "clouds_dir", None),
+        action_chunk=getattr(args, "action_chunk", 1),
         goal_bonus=50.0,                                     # v4
         random_spawn=True,
         trav_path=getattr(args, "trav_path", None),
@@ -397,6 +398,10 @@ def main():
     ap.add_argument("--clouds_dir", default=None,
                     help="dir with <scene>_cloud.npz from dump_scene_cloud.py "
                          "(required for --proximity_weight > 0)")
+    ap.add_argument("--action_chunk", type=int, default=1,
+                    help="policy outputs k action pairs per decision and only "
+                         "re-observes after all k execute (trajectory arm; "
+                         "1 = per-action)")
     ap.add_argument("--trav_path", default=None,
                     help="traversability yaml override (config/traversability_v14.yaml for cached runs)")
     ap.add_argument("--goal_min_sep", type=float, default=1.0,
