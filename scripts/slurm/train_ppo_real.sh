@@ -176,7 +176,7 @@ fi
 # from dump_scene_cloud.py under outputs/scene_clouds/clouds). The clearance
 # fix motivated by Run A's grazing exploit.
 if [ -n "${PROX:-}" ]; then
-    BC_ARGS="$BC_ARGS --proximity_weight $PROX --proximity_margin ${PROXMARGIN:-1.0} --clouds_dir /scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds"
+    BC_ARGS="$BC_ARGS --proximity_weight $PROX --proximity_margin ${PROXMARGIN:-0.6} --clouds_dir /scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds"
     OUT="${OUT}_prox${PROX}"
 fi
 # TARGETKL: override the PPO KL leash (0 = off). Multi-scene and warm-start

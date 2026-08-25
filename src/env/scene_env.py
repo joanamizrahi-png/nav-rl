@@ -117,6 +117,11 @@ class SceneEnvConfig:
     # at 0.10 m median true clearance: live renders diverge at grazing range).
     proximity_weight: float = 0.0       # 0 = off (every run before this date)
     proximity_margin: float = 1.0       # meters; cost ramps linearly inside this
+    # v2 (2026-08-25): charge only SOLID classes by default. v1 included
+    # vegetation (11) — trail corridors are walled with it, so the charge was
+    # always-on everywhere: a flat tax the policy paid instead of a gradient
+    # it followed (measured: solid clearance 0.06 m vs Run C's 0.45 m).
+    proximity_classes: tuple = (10, 13)  # obstacle, vehicle
     clouds_dir: "str | None" = None     # dir holding <scene>_cloud.npz files
     # Trajectory output (plan-B arm, 2026-08-25): the policy emits k action
     # pairs per decision and only observes again after all k execute. Rewards
@@ -274,7 +279,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             return
         d = np.load(p)
         pts, labs = d["points"], d["labels"].astype(int)
-        ob = pts[np.isin(labs, [10, 11, 13])
+        ob = pts[np.isin(labs, list(self.cfg.proximity_classes))
                  & (pts[:, 2] > 0.25) & (pts[:, 2] < 2.0)][:, :2]
         self._obstacle_pts[scene_id] = ob[::4].astype(np.float32) if len(ob) else None
 
