@@ -279,8 +279,11 @@ class SceneEnv(gym.Env if gym is not None else object):
             return
         d = np.load(p)
         pts, labs = d["points"], d["labels"].astype(int)
+        # Robot-height band only (0.15-1.2 m): canopy/arches overhang the
+        # walkway without blocking a knee-high robot — charging for them
+        # taxed walking under trees (audit finding on gnd_AU_60).
         ob = pts[np.isin(labs, list(self.cfg.proximity_classes))
-                 & (pts[:, 2] > 0.25) & (pts[:, 2] < 2.0)][:, :2]
+                 & (pts[:, 2] > 0.15) & (pts[:, 2] < 1.2)][:, :2]
         self._obstacle_pts[scene_id] = ob[::4].astype(np.float32) if len(ob) else None
 
     def _proximity_term(self, robot_xy: np.ndarray) -> float:
