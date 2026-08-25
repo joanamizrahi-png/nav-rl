@@ -35,7 +35,7 @@ from stable_baselines3.common.monitor import Monitor
 
 
 class RewardComponentsCallback(BaseCallback):
-    """Log per-component reward means each rollout (Jing's ask 2026-08-13:
+    """Log per-component reward means each rollout (meeting item 2026-08-13:
     'visualize different reward vectors on wandb / see the range the reward
     falls in'). Would have exposed Run A's zero-semantic-collision anomaly
     during training instead of at eval."""
@@ -247,7 +247,7 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
         draw.ellipse([ax - 2, ay - 2, ax + 2, ay + 2], fill=(255, 80, 80, 255))
         # heading arrow: where the robot LOOKS (local +x in world), 0.8 m long.
         # If this arrow ever disagrees with where the white path advances next
-        # frame, the pose/obs frames are inconsistent — the bug Jing suspects.
+        # frame, the pose/obs frames are inconsistent — the suspected frame bug.
         hd = pose[:2, 0] / (np.linalg.norm(pose[:2, 0]) + 1e-9)
         hx, hy = to_px(path_xy[-1] + hd * 0.8)
         draw.line([(ax, ay), (hx, hy)], fill=(255, 160, 0, 255), width=2)

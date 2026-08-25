@@ -118,7 +118,7 @@ class SceneEnvConfig:
     proximity_weight: float = 0.0       # 0 = off (every run before this date)
     proximity_margin: float = 1.0       # meters; cost ramps linearly inside this
     clouds_dir: "str | None" = None     # dir holding <scene>_cloud.npz files
-    # Trajectory output (Jing's plan B, 2026-08-25): the policy emits k action
+    # Trajectory output (plan-B arm, 2026-08-25): the policy emits k action
     # pairs per decision and only observes again after all k execute. Rewards
     # still accrue per sub-step, so the world stays action-conditioned; only
     # the POLICY's decision rate changes. 1 = per-action (default, all runs

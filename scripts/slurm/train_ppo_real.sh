@@ -73,7 +73,7 @@ if [ "${LIVE:-0}" = "1" ]; then
         OUT=${OUT}_bc
     fi
 elif [ "${CACHE:-0}" = "1" ]; then
-    # v14-DIFFUSED (2026-08-15, advisor's headline ask): the 6d recipe on the
+    # v14-DIFFUSED (2026-08-15, headline ask): the 6d recipe on the
     # corrected right-handed frame, observations from the ribbon cache (v10 +
     # reader diffused views), reward from the cache's alpha-masked diffused
     # labels scored by the v14 table. Requires cache_gen.sh to have populated
@@ -166,7 +166,7 @@ if [ "$SEED" != "0" ]; then
     BC_ARGS="$BC_ARGS --seed $SEED"
     OUT="${OUT}_seed${SEED}"
 fi
-# CHUNK: trajectory arm (Jing's plan B) — policy outputs CHUNK action pairs
+# CHUNK: trajectory arm (plan B) — policy outputs CHUNK action pairs
 # per decision, re-observes only after the chunk executes. 1/unset = per-action.
 if [ -n "${CHUNK:-}" ] && [ "${CHUNK}" != "1" ]; then
     BC_ARGS="$BC_ARGS --action_chunk $CHUNK"

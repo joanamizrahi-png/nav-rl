@@ -1,7 +1,7 @@
 """Top-down avoidance figure: policy paths over the recorded traversable ribbon.
 
 Why: eval numbers prove terrain avoidance statistically (collision steps), but
-the advisor-facing claim "the policy avoids non-traversable terrain and reaches
+the headline claim "the policy avoids non-traversable terrain and reaches
 the goal" needs one picture. This draws, in metric nav frame:
   - the recorded robot path as a ribbon (the known-traversable corridor),
   - every eval episode's trajectory (from metrics.json "traj", green=success,

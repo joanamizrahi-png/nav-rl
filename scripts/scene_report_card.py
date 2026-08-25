@@ -1,4 +1,4 @@
-"""Per-scene reconstruction report card (advisor's VGGT-accuracy item, and the
+"""Per-scene reconstruction report card (VGGT-accuracy check, and the
 RL scene-vetting gate for dataset expansion).
 
 Three numbers per scene, all measured against things we actually have:

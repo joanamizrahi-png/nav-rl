@@ -1,4 +1,4 @@
-"""Pose -> image direction probe (advisor meeting item, 2026-08-10).
+"""Pose -> image direction probe (meeting item, 2026-08-10).
 
 Question: when the RL env constructs a robot pose and renders it, does the
 image actually face the direction the pose claims? The policy could silently
