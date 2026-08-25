@@ -30,8 +30,40 @@ if NEOVERSE_ROOT.exists():
     sys.path.insert(0, str(NEOVERSE_ROOT))
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
+
+
+class RewardComponentsCallback(BaseCallback):
+    """Log per-component reward means each rollout (Jing's ask 2026-08-13:
+    'visualize different reward vectors on wandb / see the range the reward
+    falls in'). Would have exposed Run A's zero-semantic-collision anomaly
+    during training instead of at eval."""
+
+    KEYS = ("semantic", "goal", "collision", "step", "void", "spin",
+            "backward", "crash", "proximity", "goal_bonus", "total")
+
+    def __init__(self):
+        super().__init__()
+        self._sums = {k: 0.0 for k in self.KEYS}
+        self._n = 0
+
+    def _on_step(self) -> bool:
+        for info in self.locals.get("infos", []):
+            if "total" not in info:
+                continue
+            for k in self.KEYS:
+                self._sums[k] += float(info.get(k, 0.0))
+            self._n += 1
+        return True
+
+    def _on_rollout_end(self) -> None:
+        if self._n == 0:
+            return
+        for k in self.KEYS:
+            self.logger.record(f"reward/{k}", self._sums[k] / self._n)
+        self._sums = {k: 0.0 for k in self.KEYS}
+        self._n = 0
 
 from src.env.scene_env import SceneEnv, SceneEnvConfig
 from src.env.real_calibrated import (
@@ -92,6 +124,9 @@ def make_env(args):
         backward_cost=getattr(args, "backward_cost", 0.0),
         collision_terminate_frac=getattr(args, "collision_terminate_frac", 0.0),
         collision_terminate_penalty=getattr(args, "collision_terminate_penalty", 20.0),
+        proximity_weight=getattr(args, "proximity_weight", 0.0),
+        proximity_margin=getattr(args, "proximity_margin", 1.0),
+        clouds_dir=getattr(args, "clouds_dir", None),
         goal_bonus=50.0,                                     # v4
         random_spawn=True,
         trav_path=getattr(args, "trav_path", None),
@@ -354,6 +389,14 @@ def main():
     ap.add_argument("--collision_terminate_penalty", type=float, default=20.0)
     ap.add_argument("--backward_cost", type=float, default=0.0,
                     help="penalty * max(0,-v); tax the camera-blind backing gait")
+    ap.add_argument("--proximity_weight", type=float, default=0.0,
+                    help="cost/step for being within proximity_margin of a "
+                         "GEOMETRIC obstacle (scene cloud) — undreamable, "
+                         "unlike the semantic footprint. 0 = off")
+    ap.add_argument("--proximity_margin", type=float, default=1.0)
+    ap.add_argument("--clouds_dir", default=None,
+                    help="dir with <scene>_cloud.npz from dump_scene_cloud.py "
+                         "(required for --proximity_weight > 0)")
     ap.add_argument("--trav_path", default=None,
                     help="traversability yaml override (config/traversability_v14.yaml for cached runs)")
     ap.add_argument("--goal_min_sep", type=float, default=1.0,
@@ -418,7 +461,8 @@ def main():
 
     callbacks = [CheckpointCallback(save_freq=2_000,
                                     save_path=str(args.output_dir / "checkpoints"),
-                                    name_prefix="ppo")]
+                                    name_prefix="ppo"),
+                 RewardComponentsCallback()]
     if args.use_wandb:
         try:
             import wandb

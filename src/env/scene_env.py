@@ -110,6 +110,14 @@ class SceneEnvConfig:
     collision_terminate_frac: float = 0.0    # >0: footprint overlap at/above this
                                         # ENDS the episode (no goal bonus) — see step().
     collision_terminate_penalty: float = 20.0  # subtracted on crash
+    # Proximity cost (2026-08-24, after Run A): charge for being NEAR obstacles,
+    # measured against the STATIC reconstructed geometry (scene cloud from
+    # dump_scene_cloud.py) — the diffusion cannot dream this away, unlike the
+    # semantic footprint (Run A scored 0.0 semantic collisions on the tree test
+    # at 0.10 m median true clearance: live renders diverge at grazing range).
+    proximity_weight: float = 0.0       # 0 = off (every run before this date)
+    proximity_margin: float = 1.0       # meters; cost ramps linearly inside this
+    clouds_dir: "str | None" = None     # dir holding <scene>_cloud.npz files
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +229,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         idx = self.np_random.integers(0, len(self.scene_ids))
         self._scene_id = self.scene_ids[idx]
         self.world_backend.load_scene(self._scene_id)
+        self._load_obstacle_points(self._scene_id)
 
         if self.cfg.random_spawn and hasattr(self.world_backend, "sample_start_pose"):
             self._robot_pose_world = self.world_backend.sample_start_pose(
@@ -240,6 +249,37 @@ class SceneEnv(gym.Env if gym is not None else object):
 
         self._render_current()
         return self._obs(), {"scene_id": self._scene_id}
+
+    def _load_obstacle_points(self, scene_id: str) -> None:
+        """Body-height obstacle points (xy) from the scene cloud, cached per
+        scene. Serves the proximity cost; silently absent -> cost is 0."""
+        if not hasattr(self, "_obstacle_pts"):
+            self._obstacle_pts = {}
+        if self.cfg.clouds_dir is None or scene_id in self._obstacle_pts:
+            return
+        from pathlib import Path
+        p = Path(self.cfg.clouds_dir) / f"{scene_id}_cloud.npz"
+        if not p.exists():
+            self._obstacle_pts[scene_id] = None
+            if self.cfg.proximity_weight > 0:
+                print(f"[SceneEnv] WARNING: proximity cost ON but no cloud at {p}")
+            return
+        d = np.load(p)
+        pts, labs = d["points"], d["labels"].astype(int)
+        ob = pts[np.isin(labs, [10, 11, 13])
+                 & (pts[:, 2] > 0.25) & (pts[:, 2] < 2.0)][:, :2]
+        self._obstacle_pts[scene_id] = ob[::4].astype(np.float32) if len(ob) else None
+
+    def _proximity_term(self, robot_xy: np.ndarray) -> float:
+        if self.cfg.proximity_weight <= 0.0:
+            return 0.0
+        ob = getattr(self, "_obstacle_pts", {}).get(self._scene_id)
+        if ob is None or len(ob) == 0:
+            return 0.0
+        dmin = float(np.sqrt(((ob - robot_xy[None, :2]) ** 2).sum(1)).min())
+        if dmin >= self.cfg.proximity_margin:
+            return 0.0
+        return -self.cfg.proximity_weight * (self.cfg.proximity_margin - dmin) / self.cfg.proximity_margin
 
     def step(self, action: np.ndarray):
         assert self._robot_pose_world is not None, "call reset() first"
@@ -308,12 +348,14 @@ class SceneEnv(gym.Env if gym is not None else object):
                 crash = -self.cfg.collision_terminate_penalty
                 truncated = True          # ends the episode, and NOT a success
                 bonus = 0.0
-        reward = breakdown.total + spin_term + back_term + bonus + crash
+        prox_term = self._proximity_term(self._robot_pose_world[:2, 3])
+        reward = breakdown.total + spin_term + back_term + bonus + crash + prox_term
 
         info = breakdown.to_dict()
         info["spin"] = spin_term
         info["backward"] = back_term
         info["crash"] = crash
+        info["proximity"] = prox_term
         info["goal_bonus"] = bonus
         info["total"] = reward
         info["dist_to_goal"] = dist_to_goal
