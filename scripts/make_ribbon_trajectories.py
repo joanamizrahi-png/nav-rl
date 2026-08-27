@@ -141,7 +141,9 @@ class DensifiedCal:
         self.positions = np.array(pos)
 
     def robot_pose_nav(self, i):
-        return self._poses[i]
+        # copy: callers offset the returned pose in place (fan/sweep lanes);
+        # returning the stored array let lane offsets accumulate onto the path
+        return self._poses[i].copy()
 
     def frame_of(self, i):
         return self._frames[i]
@@ -166,7 +168,7 @@ def fan_poses(cal: NavCalibration, seg_start: int, seg_len: int,
     offs = np.linspace(-fan_deg, fan_deg, fan_steps)
     mats, nav, fidx = [], [], []
     for k, fi in enumerate(range(seg_start, seg_start + seg_len)):
-        base = np.asarray(cal.robot_pose_nav(fi), dtype=np.float64)
+        base = np.array(cal.robot_pose_nav(fi), dtype=np.float64)
         base[:3, 3] += lateral_m * base[:3, 1]
         for hd in (offs if k % 2 == 0 else offs[::-1]):
             r = np.deg2rad(hd)
