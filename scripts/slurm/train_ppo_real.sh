@@ -123,6 +123,11 @@ elif [ "${CACHE:-0}" = "1" ]; then
         BC_ARGS="$BC_ARGS --spin_cost $SPINCOST"
         OUT=${OUT}_sp${SPINCOST}
     fi
+    # SMOOTHCOST: action-change tax (targets flip-flops, not turning)
+    if [ -n "${SMOOTHCOST:-}" ]; then
+        BC_ARGS="$BC_ARGS --action_smooth_cost $SMOOTHCOST"
+        OUT=${OUT}_sm${SMOOTHCOST}
+    fi
     if [ "${NOBC:-0}" = "1" ]; then
         OUT=${OUT}_noBC
     elif [ -n "${DEMOS_FILE:-}" ]; then

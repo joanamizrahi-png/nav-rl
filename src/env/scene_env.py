@@ -129,6 +129,11 @@ class SceneEnvConfig:
     # the POLICY's decision rate changes. 1 = per-action (default, all runs
     # before this date).
     action_chunk: int = 1
+    # Action smoothness (2026-08-27): penalty * mean|a_t - a_{t-1}|. Targets
+    # the bang-bang habit (PPO saturates clipped Gaussians at the bounds and
+    # flip-flops the turn sign -> minimum-turn-circle capture loops); charges
+    # CHANGES, so sustained gentle turns stay free. 0 = off (all runs before).
+    action_smooth_cost: float = 0.0
     # Forward-only motion (2026-08-27): negative velocity actions clamp to 0
     # (stand-and-turn). Kills the entire backward-exploit class BY CONSTRUCTION
     # instead of pricing it; clamping at the env keeps the action space shape,
@@ -254,6 +259,7 @@ class SceneEnv(gym.Env if gym is not None else object):
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         super().reset(seed=seed)
+        self._last_action = None
         # Choose a scene (round-robin for now; can be random later).
         idx = self.np_random.integers(0, len(self.scene_ids))
         self._scene_id = self.scene_ids[idx]
@@ -404,6 +410,13 @@ class SceneEnv(gym.Env if gym is not None else object):
 
         spin_term = -self.cfg.spin_cost * abs(float(action[1]))
         back_term = -self.cfg.backward_cost * max(0.0, -float(action[0]))
+        smooth_term = 0.0
+        if self.cfg.action_smooth_cost > 0.0:
+            prev = getattr(self, "_last_action", None)
+            if prev is not None:
+                smooth_term = -self.cfg.action_smooth_cost * float(
+                    np.abs(action - prev).mean())
+            self._last_action = action.copy()
         bonus = self.cfg.goal_bonus if terminated else 0.0
 
         # Crash termination (2026-08-20). Measured on the tree test: a whole
@@ -420,11 +433,13 @@ class SceneEnv(gym.Env if gym is not None else object):
                 truncated = True          # ends the episode, and NOT a success
                 bonus = 0.0
         prox_term = self._proximity_term(self._robot_pose_world[:2, 3])
-        reward = breakdown.total + spin_term + back_term + bonus + crash + prox_term
+        reward = (breakdown.total + spin_term + back_term + smooth_term
+                  + bonus + crash + prox_term)
 
         info = breakdown.to_dict()
         info["spin"] = spin_term
         info["backward"] = back_term
+        info["smooth"] = smooth_term
         info["crash"] = crash
         info["proximity"] = prox_term
         info["goal_bonus"] = bonus

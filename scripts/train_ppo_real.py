@@ -41,7 +41,7 @@ class RewardComponentsCallback(BaseCallback):
     during training instead of at eval."""
 
     KEYS = ("semantic", "goal", "collision", "step", "void", "spin",
-            "backward", "crash", "proximity", "goal_bonus", "total")
+            "backward", "smooth", "crash", "proximity", "goal_bonus", "total")
 
     def __init__(self):
         super().__init__()
@@ -130,6 +130,7 @@ def make_env(args):
         action_chunk=getattr(args, "action_chunk", 1),
         footprint_along_motion=getattr(args, "footprint_along_motion", False),
         forward_only=getattr(args, "forward_only", False),
+        action_smooth_cost=getattr(args, "action_smooth_cost", 0.0),
         goal_bonus=50.0,                                     # v4
         random_spawn=True,
         trav_path=getattr(args, "trav_path", None),
@@ -404,6 +405,9 @@ def main():
     ap.add_argument("--spin_cost", type=float, default=0.05,
                     help="penalty * |yaw action| per step; raise to break the "
                          "bang-bang full-lock turning habit")
+    ap.add_argument("--action_smooth_cost", type=float, default=0.0,
+                    help="penalty * mean|a_t - a_{t-1}|; charges action "
+                         "CHANGES (flip-flops), not turning itself")
     ap.add_argument("--proximity_weight", type=float, default=0.0,
                     help="cost/step for being within proximity_margin of a "
                          "GEOMETRIC obstacle (scene cloud) — undreamable, "
