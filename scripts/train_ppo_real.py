@@ -120,7 +120,7 @@ def make_env(args):
         look_ahead_dist=1.5,
         goal_radius=0.75,
         collision_threshold=0.1,
-        spin_cost=0.05,
+        spin_cost=getattr(args, "spin_cost", 0.05),
         backward_cost=getattr(args, "backward_cost", 0.0),
         collision_terminate_frac=getattr(args, "collision_terminate_frac", 0.0),
         collision_terminate_penalty=getattr(args, "collision_terminate_penalty", 20.0),
@@ -401,6 +401,9 @@ def main():
     ap.add_argument("--forward_only", action="store_true",
                     help="clamp negative velocity to 0 (stand-and-turn): kills "
                          "the backward-exploit class by construction")
+    ap.add_argument("--spin_cost", type=float, default=0.05,
+                    help="penalty * |yaw action| per step; raise to break the "
+                         "bang-bang full-lock turning habit")
     ap.add_argument("--proximity_weight", type=float, default=0.0,
                     help="cost/step for being within proximity_margin of a "
                          "GEOMETRIC obstacle (scene cloud) — undreamable, "

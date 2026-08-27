@@ -118,6 +118,11 @@ elif [ "${CACHE:-0}" = "1" ]; then
         BC_ARGS="$BC_ARGS --forward_only"
         OUT=${OUT}_fwd
     fi
+    # SPINCOST: |yaw action| tax override (default 0.05; 0.15 breaks bang-bang)
+    if [ -n "${SPINCOST:-}" ]; then
+        BC_ARGS="$BC_ARGS --spin_cost $SPINCOST"
+        OUT=${OUT}_sp${SPINCOST}
+    fi
     if [ "${NOBC:-0}" = "1" ]; then
         OUT=${OUT}_noBC
     elif [ -n "${DEMOS_FILE:-}" ]; then
