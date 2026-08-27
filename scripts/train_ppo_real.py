@@ -129,6 +129,7 @@ def make_env(args):
         clouds_dir=getattr(args, "clouds_dir", None),
         action_chunk=getattr(args, "action_chunk", 1),
         footprint_along_motion=getattr(args, "footprint_along_motion", False),
+        forward_only=getattr(args, "forward_only", False),
         goal_bonus=50.0,                                     # v4
         random_spawn=True,
         trav_path=getattr(args, "trav_path", None),
@@ -397,6 +398,9 @@ def main():
                     help="score the footprint along the commanded motion "
                          "direction; motion onto unseen (rear) ground prices "
                          "as worst-case terrain instead of scoring free")
+    ap.add_argument("--forward_only", action="store_true",
+                    help="clamp negative velocity to 0 (stand-and-turn): kills "
+                         "the backward-exploit class by construction")
     ap.add_argument("--proximity_weight", type=float, default=0.0,
                     help="cost/step for being within proximity_margin of a "
                          "GEOMETRIC obstacle (scene cloud) — undreamable, "

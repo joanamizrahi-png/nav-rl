@@ -129,6 +129,11 @@ class SceneEnvConfig:
     # the POLICY's decision rate changes. 1 = per-action (default, all runs
     # before this date).
     action_chunk: int = 1
+    # Forward-only motion (2026-08-27): negative velocity actions clamp to 0
+    # (stand-and-turn). Kills the entire backward-exploit class BY CONSTRUCTION
+    # instead of pricing it; clamping at the env keeps the action space shape,
+    # so warm-starts from older checkpoints still load.
+    forward_only: bool = False
     # Motion-direction footprint (2026-08-26): score the ground THIS step's
     # action moves onto — forward actions score ahead (unchanged), backward
     # actions point the footprint behind the camera, where there are no
@@ -340,6 +345,9 @@ class SceneEnv(gym.Env if gym is not None else object):
     def _step_single(self, action: np.ndarray):
         assert self._robot_pose_world is not None, "call reset() first"
         action = np.asarray(action, dtype=np.float32).clip(-1.0, 1.0)
+        if self.cfg.forward_only and action[0] < 0.0:
+            action = action.copy()
+            action[0] = 0.0
 
         # Semantic labels for the current view (from mock cache OR real segmenter).
         semantic_image = self.semantic_backend.segment(self._last_rgb)

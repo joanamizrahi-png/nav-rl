@@ -83,6 +83,7 @@ def build_env(args):
         collision_terminate_penalty=args.collision_terminate_penalty,
         action_chunk=args.action_chunk,
         footprint_along_motion=args.footprint_along_motion,
+        forward_only=args.forward_only,
         failure_snap_dir=str(args.out_dir / "failures"),
     )
     return SceneEnv(world_backend=world, semantic_backend=sem,
@@ -130,6 +131,9 @@ def main():
     ap.add_argument("--footprint_along_motion", action="store_true",
                     help="match the policy's training rule: footprint follows "
                          "the commanded motion direction")
+    ap.add_argument("--forward_only", action="store_true",
+                    help="match the policy's training rule: negative velocity "
+                         "clamps to 0")
     ap.add_argument("--live_ckpt",
                     default="/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors")
     ap.add_argument("--collision_terminate_frac", type=float, default=0.0,

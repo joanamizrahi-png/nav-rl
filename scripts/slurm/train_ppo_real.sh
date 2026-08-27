@@ -113,6 +113,11 @@ elif [ "${CACHE:-0}" = "1" ]; then
         BC_ARGS="$BC_ARGS --footprint_along_motion"
         OUT=${OUT}_mf
     fi
+    # FWDONLY=1: negative velocity clamps to 0 — no reverse, by construction.
+    if [ "${FWDONLY:-0}" = "1" ]; then
+        BC_ARGS="$BC_ARGS --forward_only"
+        OUT=${OUT}_fwd
+    fi
     if [ "${NOBC:-0}" = "1" ]; then
         OUT=${OUT}_noBC
     elif [ -n "${DEMOS_FILE:-}" ]; then

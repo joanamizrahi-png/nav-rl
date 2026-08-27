@@ -71,6 +71,11 @@ if [[ "${MOTIONFOOT:-0}" == "1" ]]; then
     EXTRA_ARGS+=(--footprint_along_motion)
     OUT_SUFFIX="${OUT_SUFFIX}_mf"
 fi
+# FWDONLY=1: match training's forward-only clamp
+if [[ "${FWDONLY:-0}" == "1" ]]; then
+    EXTRA_ARGS+=(--forward_only)
+    OUT_SUFFIX="${OUT_SUFFIX}_fwd"
+fi
 # LIVE=1: serve live diffusion observations (evals of --live-trained policies).
 # ~1.4 s/step: submit with  sbatch --mem=96G --time=03:00:00
 if [[ "${LIVE:-0}" == "1" ]]; then
