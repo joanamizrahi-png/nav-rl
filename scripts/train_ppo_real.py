@@ -128,6 +128,7 @@ def make_env(args):
         proximity_margin=getattr(args, "proximity_margin", 1.0),
         clouds_dir=getattr(args, "clouds_dir", None),
         action_chunk=getattr(args, "action_chunk", 1),
+        footprint_along_motion=getattr(args, "footprint_along_motion", False),
         goal_bonus=50.0,                                     # v4
         random_spawn=True,
         trav_path=getattr(args, "trav_path", None),
@@ -175,7 +176,9 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
         try:
             pose = base_env._robot_pose_world
             pos = pose[:3, 3]
-            hd = pose[:3, :3] @ np.array([1.0, 0.0, 0.0], dtype=np.float64)
+            hd = getattr(base_env, "_last_fp_heading", None)
+            if hd is None:
+                hd = pose[:3, :3] @ np.array([1.0, 0.0, 0.0], dtype=np.float64)
             corners = _footprint_corners_world(
                 pos, hd, look_ahead_dist=base_env.cfg.look_ahead_dist,
                 length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
@@ -390,6 +393,10 @@ def main():
     ap.add_argument("--collision_terminate_penalty", type=float, default=20.0)
     ap.add_argument("--backward_cost", type=float, default=0.0,
                     help="penalty * max(0,-v); tax the camera-blind backing gait")
+    ap.add_argument("--footprint_along_motion", action="store_true",
+                    help="score the footprint along the commanded motion "
+                         "direction; motion onto unseen (rear) ground prices "
+                         "as worst-case terrain instead of scoring free")
     ap.add_argument("--proximity_weight", type=float, default=0.0,
                     help="cost/step for being within proximity_margin of a "
                          "GEOMETRIC obstacle (scene cloud) — undreamable, "

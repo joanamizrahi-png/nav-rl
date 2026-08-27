@@ -66,6 +66,11 @@ if [[ -n "${CHUNK:-}" && "${CHUNK}" != "1" ]]; then
     EXTRA_ARGS+=(--action_chunk "$CHUNK")
     OUT_SUFFIX="${OUT_SUFFIX}_chunk${CHUNK}"
 fi
+# MOTIONFOOT=1: match training's motion-direction footprint rule
+if [[ "${MOTIONFOOT:-0}" == "1" ]]; then
+    EXTRA_ARGS+=(--footprint_along_motion)
+    OUT_SUFFIX="${OUT_SUFFIX}_mf"
+fi
 # LIVE=1: serve live diffusion observations (evals of --live-trained policies).
 # ~1.4 s/step: submit with  sbatch --mem=96G --time=03:00:00
 if [[ "${LIVE:-0}" == "1" ]]; then

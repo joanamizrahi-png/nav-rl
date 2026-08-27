@@ -129,6 +129,15 @@ class SceneEnvConfig:
     # the POLICY's decision rate changes. 1 = per-action (default, all runs
     # before this date).
     action_chunk: int = 1
+    # Motion-direction footprint (2026-08-26): score the ground THIS step's
+    # action moves onto — forward actions score ahead (unchanged), backward
+    # actions point the footprint behind the camera, where there are no
+    # labels; compute_reward's no-info branch then prices the step as
+    # worst-case terrain under terrain_as_cost. Motion onto unseen ground is
+    # never cheaper than the worst visible ground, so the camera-blind
+    # reversing exploit (prox-v2 100% backward, chunk-5 all-backward arcs)
+    # stops paying. False = heading-pinned footprint (every run before).
+    footprint_along_motion: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +214,9 @@ class SceneEnv(gym.Env if gym is not None else object):
                 GO2_BODY_LENGTH, GO2_BODY_WIDTH,
             )
             pose = self._robot_pose_world
-            hd = pose[:3, :3] @ np.array([1.0, 0.0, 0.0])
+            hd = getattr(self, "_last_fp_heading", None)
+            if hd is None:
+                hd = pose[:3, :3] @ np.array([1.0, 0.0, 0.0])
             corners = _footprint_corners_world(
                 pose[:3, 3], hd, look_ahead_dist=self.cfg.look_ahead_dist,
                 length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
@@ -338,13 +349,20 @@ class SceneEnv(gym.Env if gym is not None else object):
         robot_position = self._robot_pose_world[:3, 3].copy()
         robot_heading = self._robot_pose_world[:3, :3] @ np.array([1.0, 0.0, 0.0], dtype=np.float32)
 
+        # Footprint direction follows the commanded motion, not the nose
+        # (see cfg.footprint_along_motion). Spin-only steps keep forward.
+        fp_heading = robot_heading
+        if self.cfg.footprint_along_motion and float(action[0]) < 0.0:
+            fp_heading = -robot_heading
+        self._last_fp_heading = fp_heading
+
         # ---- decomposed reward on the CURRENT view + robot pose ----
         breakdown = compute_reward(
             semantic_image=semantic_image,
             K=self._last_K,
             w2c=self._last_w2c,
             robot_position=robot_position,
-            robot_heading=robot_heading,
+            robot_heading=fp_heading,
             goal=self._goal_world,
             traversability_scores=self._trav_scores,
             non_traversable_mask=self._non_trav,

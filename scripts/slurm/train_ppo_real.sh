@@ -107,6 +107,12 @@ elif [ "${CACHE:-0}" = "1" ]; then
         BC_ARGS="$BC_ARGS --backward_cost $BACKCOST"
         OUT=${OUT}_bk${BACKCOST}
     fi
+    # MOTIONFOOT=1: footprint scores along the commanded motion direction;
+    # reversing prices as worst-case terrain (unseen ground) instead of free.
+    if [ "${MOTIONFOOT:-0}" = "1" ]; then
+        BC_ARGS="$BC_ARGS --footprint_along_motion"
+        OUT=${OUT}_mf
+    fi
     if [ "${NOBC:-0}" = "1" ]; then
         OUT=${OUT}_noBC
     elif [ -n "${DEMOS_FILE:-}" ]; then
