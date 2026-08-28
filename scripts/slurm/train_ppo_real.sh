@@ -69,6 +69,12 @@ if [ "${LIVE:-0}" = "1" ]; then
         OUT=${OUT}_SMOKE
         STEPS=500
     fi
+    # LIVEBATCH: N robots sharing the pipe via batched generation (the
+    # parallel-training plan). 1/unset = classic single-robot live.
+    if [ -n "${LIVEBATCH:-}" ] && [ "${LIVEBATCH}" != "1" ]; then
+        BC_ARGS="$BC_ARGS --live_batch $LIVEBATCH"
+        OUT=${OUT}_x${LIVEBATCH}
+    fi
     # LIVE_DEMOS: BC-prime the live run on LIVE-rendered demos (B-prime rescue
     # for the cold-start dream-marination). NEVER pass raster/cached demo files
     # here — observation source must match training.

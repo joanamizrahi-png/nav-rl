@@ -107,11 +107,18 @@ def make_env(args):
     else:
         world = CalibratedRealWorldBackend(cfg)
     sem = GaussianLabelBackend(world)
+    env_cfg = _scene_env_cfg(args)
+    env = SceneEnv(world_backend=world, semantic_backend=sem,
+                   scene_ids=scenes, cfg=env_cfg)
+    return Monitor(env)
+
+
+def _scene_env_cfg(args):
     # Shaping v2 (approved 2026-07-23): void split from obstacles (mild penalty),
     # collision 5->1, goal pull 0.5->1.5, anti-spin tax, spawn curriculum,
     # goals ~3 real meters. Corrected metric scale (camera 0.25 m): blind zone
     # starts ~0.6 m, so look_ahead 1.5 m is safely visible.
-    env_cfg = SceneEnvConfig(
+    return SceneEnvConfig(
         max_steps=args.max_steps,
         step_size_m=0.25,                    # matches demo action scale; 0.15 clipped 43% of demos
         yaw_step_rad=0.3,
@@ -141,9 +148,45 @@ def make_env(args):
         trav_path=getattr(args, "trav_path", None),
         failure_snap_dir=str(args.output_dir / "failures"),
     )
-    env = SceneEnv(world_backend=world, semantic_backend=sem,
-                   scene_ids=scenes, cfg=env_cfg)
-    return Monitor(env)
+
+
+def make_live_vec_env(args):
+    """Batched live training: N robots in ONE scene sharing one pipe. Builds
+    the same configs as make_env, then N defer-render SceneEnvs around a
+    single BatchedLiveDiffusedBackend and the LiveVecEnv that batches every
+    render into one generation call."""
+    from src.env.vec_live_env import (
+        BatchedLiveDiffusedBackend, InjectedLabelBackend, LiveVecEnv,
+    )
+    from stable_baselines3.common.vec_env import VecMonitor
+
+    scenes = [args.scene]                     # v1: all robots share one scene
+    cfg = CalibratedBackendConfig(
+        scene_video_paths={s: f"{args.clips_dir}/{s}.mp4" for s in scenes},
+        scene_poses_paths={s: f"{args.poses_dir}/{s}_poses.npz" for s in scenes},
+        scene_labels_paths={s: f"{args.labels_dir}/{s}.npz" for s in scenes},
+        goal_frame=args.goal_frame,
+        goal_frame_range=tuple(args.goal_frame_range) if args.goal_frame_range else None,
+        goal_min_sep_m=args.goal_min_sep,
+        spawn_max_frame=args.spawn_max_frame,
+        render_mode="rasterizer_only",
+        model_path=args.model_path,
+        reconstructor_path=args.reconstructor_path,
+    )
+    world = BatchedLiveDiffusedBackend(
+        cfg, checkpoint=args.live_ckpt, live_frames=args.live_frames,
+        alpha_gate=not getattr(args, "no_alpha_gate", False))
+    world.load_scene(args.scene)
+
+    envs = []
+    for _ in range(args.live_batch):
+        env_cfg = _scene_env_cfg(args)
+        env_cfg.defer_render = True
+        e = SceneEnv(world_backend=world, semantic_backend=None,
+                     scene_ids=scenes, cfg=env_cfg)
+        e.semantic_backend = InjectedLabelBackend(e)
+        envs.append(e)
+    return VecMonitor(LiveVecEnv(envs, world))
 
 
 def save_rollout_video(model, env, out_path: Path, max_frames=120):
@@ -446,6 +489,9 @@ def main():
                     help="PPO KL trust region; 0 disables (rung 7b)")
     ap.add_argument("--scenes", nargs="+", default=None,
                     help="rung 7: train across these scenes (overrides --scene)")
+    ap.add_argument("--live_batch", type=int, default=1,
+                    help="N robots sharing one pipe via batched generation "
+                         "(live mode only; 1 = the classic single-robot path)")
     ap.add_argument("--output_dir", type=Path, default=Path("outputs/ppo_real"))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--use_wandb", action="store_true")
@@ -459,7 +505,13 @@ def main():
 
     # ONE env: each env holds a reconstructed scene on the GPU. Parallel envs
     # would multiply VRAM; not worth it for the smoke.
-    env = make_env(args)
+    if getattr(args, "live", False) and getattr(args, "live_batch", 1) > 1:
+        env = make_live_vec_env(args)
+        if args.bc_demos:
+            print("[live_batch] BC pretrain unsupported in batched mode — skipping")
+            args.bc_demos = None
+    else:
+        env = make_env(args)
 
     if args.warmstart is not None:
         # Continue training an existing policy (e.g. the cache-trained champion
@@ -521,7 +573,10 @@ def main():
     model.save(str(args.output_dir / "ppo_final.zip"))
 
     print("[train_ppo_real] eval rollout ...")
-    save_rollout_video(model, env, args.output_dir / "rollout.mp4")
+    if getattr(args, "live_batch", 1) > 1:
+        print("[live_batch] end-of-training rollout video skipped (vec env)")
+    else:
+        save_rollout_video(model, env, args.output_dir / "rollout.mp4")
 
 
 if __name__ == "__main__":

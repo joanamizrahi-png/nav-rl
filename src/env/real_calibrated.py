@@ -334,13 +334,9 @@ class CalibratedRealWorldBackend(RealWorldBackend):
 
     # ---------- rendering in the nav frame ----------
 
-    def render(self, pose_nav_robot: np.ndarray):
-        import torch
-        from diffsynth.utils.auxiliary import homo_matrix_inverse
-
-        scene = self._cache.get(self._current_scene_id)
-        if scene is None:
-            raise RuntimeError("call load_scene() first")
+    def _pose_nav_to_recon(self, pose_nav_robot: np.ndarray):
+        """(pose_recon, t_idx) for a nav-frame robot pose — the calibration
+        math shared by render() and the batched live backend."""
         cal = self._calib[self._current_scene_id]
 
         # robot(nav) -> camera(nav): lift by mount height, robot->camera axes.
@@ -369,6 +365,17 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         # content is densest at the time the camera actually stood nearby.
         t_idx = int(np.argmin(np.linalg.norm(
             cal.positions[:, :2] - pose_nav_robot[:2, 3], axis=1)))
+        return pose_recon, t_idx
+
+    def render(self, pose_nav_robot: np.ndarray):
+        import torch
+        from diffsynth.utils.auxiliary import homo_matrix_inverse
+
+        scene = self._cache.get(self._current_scene_id)
+        if scene is None:
+            raise RuntimeError("call load_scene() first")
+        cal = self._calib[self._current_scene_id]
+        pose_recon, t_idx = self._pose_nav_to_recon(pose_nav_robot)
 
         if self.cfg.render_mode == "rasterizer_only":
             # Single-frame rasterization (the parent broadcasts to all 81 frames

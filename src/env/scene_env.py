@@ -143,6 +143,12 @@ class SceneEnvConfig:
     # flip-flops the turn sign -> minimum-turn-circle capture loops); charges
     # CHANGES, so sustained gentle turns stay free. 0 = off (all runs before).
     action_smooth_cost: float = 0.0
+    # Batched live training (2026-08-27): when True the env NEVER renders
+    # itself — after each step/reset the owning vectorized env batches all
+    # robots' poses into one diffusion call and injects the frames back via
+    # inject_render(). Observations must be rebuilt (env._obs()) after
+    # injection; the obs returned by step()/reset() are stale placeholders.
+    defer_render: bool = False
     # Forward-only motion (2026-08-27): negative velocity actions clamp to 0
     # (stand-and-turn). Kills the entire backward-exploit class BY CONSTRUCTION
     # instead of pricing it; clamping at the env keeps the action space shape,
@@ -292,8 +298,26 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._prev_position = None
         self._steps = 0
 
-        self._render_current()
+        if self.cfg.defer_render:
+            self._needs_render = True
+            if self._last_rgb is None:      # first-ever reset: placeholder obs
+                H, W = self.observation_space["rgb"].shape[:2]
+                self._last_rgb = np.zeros((H, W, 3), dtype=np.uint8)
+                self._last_K = np.eye(3, dtype=np.float32)
+                self._last_w2c = np.eye(4, dtype=np.float32)
+        else:
+            self._render_current()
         return self._obs(), {"scene_id": self._scene_id}
+
+    def inject_render(self, rgb: np.ndarray, K: np.ndarray, w2c: np.ndarray,
+                      labels: "np.ndarray | None" = None) -> None:
+        """Batched-live path: the vec-env pushes this robot's frame in after
+        the shared batched diffusion call. `labels` feeds the injected
+        semantic backend (reward source for the NEXT step)."""
+        self._last_rgb, self._last_K, self._last_w2c = rgb, K, w2c
+        if labels is not None:
+            self._injected_labels = labels
+        self._needs_render = False
 
     def _load_obstacle_points(self, scene_id: str) -> None:
         """Body-height obstacle points (xy) from the scene cloud, cached per
@@ -421,7 +445,10 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._steps += 1
 
         # ---- render the new view for the NEXT step's observation ----
-        self._render_current()
+        if self.cfg.defer_render:
+            self._needs_render = True     # owning vec-env batches the render
+        else:
+            self._render_current()
 
         # Reached goal?
         dist_to_goal = float(np.linalg.norm(self._robot_pose_world[:3, 3] - self._goal_world))
