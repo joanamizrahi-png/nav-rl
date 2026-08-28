@@ -30,6 +30,7 @@ python scripts/bench_live_batch.py \
     --repeats "${REPEATS:-3}" \
     --height "${HEIGHT:-336}" \
     --width "${WIDTH:-560}" \
-    --save_samples /scratch/m000204-pm06b/joana/outputs/bench_samples
+    --num_steps "${NSTEPS:-4}" \
+    --save_samples "/scratch/m000204-pm06b/joana/outputs/bench_samples/nsteps${NSTEPS:-4}"
 
 echo "==> bench done"

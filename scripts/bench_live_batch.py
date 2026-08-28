@@ -52,6 +52,9 @@ def main():
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--height", type=int, default=336)
     ap.add_argument("--width", type=int, default=560)
+    ap.add_argument("--num_steps", type=int, default=4,
+                    help="diffusion sampler steps (distilled default 4; "
+                         "2 is the next speed rung, quality-gated by eyes)")
     ap.add_argument("--save_samples", default="",
                     help="dir to save generated rgb+semantic frame strips per "
                          "robot (the quality gate for resolution sweeps)")
@@ -139,7 +142,7 @@ def main():
                          negative_prompt=[cfg.negative_prompt] * B,
                          seed=r, rand_device=device, height=H, width=W,
                          num_frames=k, cfg_scale=cfg.cfg_scale,
-                         num_inference_steps=4, tiled=False,
+                         num_inference_steps=args.num_steps, tiled=False,
                          source_views=scene["views"],
                          target_rgb=tgt_rgb, target_depth=tgt_depth,
                          target_mask=tgt_mask,
