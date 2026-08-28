@@ -163,6 +163,7 @@ def main():
                 rv = sink.get("rgb_video")
                 sv = sink.get("sem_video")
                 head = getattr(pipe, "semantic_class_head", None)
+                alpha_b = bshape(alpha)
                 for i in range(min(B, 2)):
                     if rv is not None and getattr(rv, "ndim", 0) == 5:
                         frames = _decoded_video_to_uint8(rv[i:i + 1])
@@ -172,6 +173,17 @@ def main():
                         _, sem_rgb = _sem_video_to_labels_and_colorized(sv[i], head=head)
                         Image.fromarray(np.concatenate(list(sem_rgb), axis=1)).save(
                             out_dir / f"robot{i}_semantic.png")
+                    # ground truth the model was given: rasterized conditioning
+                    # (the NON-hallucinated reference) + which pixels were known
+                    rast = (tgt_rgb[i].detach().float().cpu().numpy()
+                            * 255).clip(0, 255).astype(np.uint8)
+                    Image.fromarray(np.concatenate(list(rast), axis=1)).save(
+                        out_dir / f"robot{i}_raster.png")
+                    known = (alpha_b[i].detach().float().cpu().numpy() > 0.5)
+                    known = (known[..., 0] if known.ndim == 4 else known)
+                    known = (known * 255).astype(np.uint8)
+                    Image.fromarray(np.concatenate(list(known), axis=1)).save(
+                        out_dir / f"robot{i}_known_mask.png")
                 print(f"    samples -> {out_dir}", flush=True)
         except Exception:
             print(f"B={B}: FAILED —")
