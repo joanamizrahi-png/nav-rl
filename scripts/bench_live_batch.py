@@ -54,6 +54,7 @@ def main():
 
     import torch
     from diffsynth.utils.auxiliary import homo_matrix_inverse
+    from inference_semantic import _make_dual_decode
 
     cfg = CalibratedBackendConfig(
         scene_video_paths={args.scene: f"{args.clips_dir}/{args.scene}.mp4"},
@@ -115,6 +116,9 @@ def main():
             for r in range(args.repeats):
                 torch.cuda.synchronize(); torch.cuda.reset_peak_memory_stats()
                 t0 = time.perf_counter()
+                sink = {}
+                orig_decode = pipe.vae.decode
+                pipe.vae.decode = _make_dual_decode(orig_decode, sink)
                 with torch.no_grad():
                     pipe(prompt=[cfg.prompt] * B,
                          negative_prompt=[cfg.negative_prompt] * B,
@@ -126,6 +130,7 @@ def main():
                          target_mask=tgt_mask,
                          target_poses=c2w, target_intrs=K_rep.reshape(B, k, 3, 3),
                          target_semantic=tgt_sem)
+                pipe.vae.decode = orig_decode
                 torch.cuda.synchronize()
                 times.append(time.perf_counter() - t0)
             vram = torch.cuda.max_memory_allocated() / 2**30
