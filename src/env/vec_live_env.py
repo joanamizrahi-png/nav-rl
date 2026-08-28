@@ -72,7 +72,8 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
         import torch
         from diffsynth.utils.auxiliary import homo_matrix_inverse
         from inference_semantic import (
-            _make_dual_decode, _sem_video_to_labels_and_colorized,
+            _decoded_video_to_uint8, _make_dual_decode,
+            _sem_video_to_labels_and_colorized,
         )
 
         scene = self._cache.get(self._current_scene_id)
@@ -139,23 +140,21 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
         finally:
             pipe.vae.decode = orig_decode
 
-        # ---- unpack last frames per robot, robust to output layout ----
+        # ---- unpack last frames per robot ----
+        # The pipe's own return is USELESS for B>1: vae_output_to_video does
+        # reduce("B C T H W -> T H W C", "mean") — it AVERAGES the robots into
+        # one ghost video. The dual-decode sink captures the raw VAE decode
+        # BEFORE that reduce, batch dim intact — per-robot frames come from it.
         def last_rgb_frames() -> list:
-            g = generated
+            rv = sink.get("rgb_video")
+            if rv is not None and getattr(rv, "ndim", 0) == 5 and rv.shape[0] == B:
+                return [_decoded_video_to_uint8(rv[i:i + 1])[-1] for i in range(B)]
             if B == 1:
-                return [np.array(g[-1])]
-            if isinstance(g, (list, tuple)):
-                if len(g) == B:                       # [B][k] nested
-                    return [np.array(seq[-1]) for seq in g]
-                if len(g) == B * k:                   # flat [B*k]
-                    return [np.array(g[(i + 1) * k - 1]) for i in range(B)]
-            arr = np.asarray(g)
-            if arr.ndim >= 4 and arr.shape[0] == B:   # [B,k,H,W,3]-ish
-                return [arr[i, -1] for i in range(B)]
+                return [np.array(generated[-1])]
             raise RuntimeError(
-                f"render_batch: unrecognized pipe output layout for B={B}: "
-                f"type={type(g)}, len/shape={getattr(g, 'shape', len(g))} — "
-                "this is the batch-support surgery point")
+                f"render_batch: no batched rgb_video in dual-decode sink for "
+                f"B={B} (keys={list(sink)}); the pipe return is batch-averaged "
+                "and cannot be unpacked per robot")
 
         rgbs = last_rgb_frames()
 
