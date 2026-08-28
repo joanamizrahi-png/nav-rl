@@ -56,6 +56,10 @@ if [ "${LIVE:-0}" = "1" ]; then
     # SMOKE=1 -> 500-step gate run (obs sanity + timing + VRAM before real runs).
     BC_ARGS="--live --goal_frame_range 15 70 --goal_min_sep 1.5 --trav_path config/traversability_v14.yaml --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14"
     OUT=/scratch/m000204-pm06b/joana/outputs/ppo_live_trail00
+    # SCENE: live-train on another world (gnd_*, sitex_*); pair with CLIPS_DIR.
+    if [ -n "${SCENE:-}" ] && [ "$SCENE" != "rugd_trail_00" ]; then
+        OUT=/scratch/m000204-pm06b/joana/outputs/ppo_live_${SCENE}
+    fi
     STEPS=200000
     if [ "${NOGATE:-0}" = "1" ]; then
         BC_ARGS="$BC_ARGS --no_alpha_gate"
@@ -229,8 +233,8 @@ if [ -n "${STEPS_OVERRIDE:-}" ]; then
 fi
 echo "==> rung: ${BC_ARGS:-pure-shaped}  steps: $STEPS  out: $OUT"
 python scripts/train_ppo_real.py \
-    --scene rugd_trail_00 \
-    --clips_dir /scratch/m000204-pm06b/joana/data/rugd_clips \
+    --scene "${SCENE:-rugd_trail_00}" \
+    --clips_dir "${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}" \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
     --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels \
     --total_steps $STEPS \
