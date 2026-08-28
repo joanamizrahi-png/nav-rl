@@ -212,6 +212,15 @@ if [ -n "${WARMSTART:-}" ]; then
     BC_ARGS="$BC_ARGS --warmstart $WARMSTART"
     OUT="${OUT}_warm"
 fi
+# RW5=1: reward design v5 (2026-08-27) — big terminal rewards (+-1000),
+# timeout penalty, potential-shaped obstacle cost (5 m horizon), strong
+# smoothness, forward-only, crash forfeits the bonus AND charges. Semantic
+# terrain term stays at default weight (sidewalk-over-driveway requirement).
+# Works in any branch incl. LIVE. Do not combine with the PROX knob.
+if [ "${RW5:-0}" = "1" ]; then
+    BC_ARGS="$BC_ARGS --goal_bonus 1000 --goal_radius 0.5 --goal_weight 10 --timeout_penalty 100 --proximity_delta --proximity_weight 10 --proximity_margin 5 --clouds_dir /scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds --action_smooth_cost 5 --forward_only --collision_terminate_frac 0.35 --collision_terminate_penalty 1000"
+    OUT="${OUT}_rw5"
+fi
 # STEPS_OVERRIDE: extend any rung without a new branch (v6d was still climbing
 # at its 400k cap -> 800k continuation). Output dir gets the step count.
 if [ -n "${STEPS_OVERRIDE:-}" ]; then
