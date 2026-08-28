@@ -122,6 +122,15 @@ class SceneEnvConfig:
     # always-on everywhere: a flat tax the policy paid instead of a gradient
     # it followed (measured: solid clearance 0.06 m vs Run C's 0.45 m).
     proximity_classes: tuple = (10, 13)  # obstacle, vehicle
+    # Potential-shaped proximity (2026-08-27, advisor reward spec): charge
+    # weight*(d_{t-1}-d_t) while within proximity_margin of an obstacle —
+    # approaching costs, retreating refunds, standing is free.
+    proximity_delta: bool = False
+    # Timeout penalty (2026-08-27, advisor reward spec): subtracted when the
+    # episode hits max_steps without reaching the goal. Makes freezing/stalling
+    # strictly worse than trying — the missing counterweight to termination
+    # penalties (the -20 crash penalty froze the policy when standing was free).
+    timeout_penalty: float = 0.0
     clouds_dir: "str | None" = None     # dir holding <scene>_cloud.npz files
     # Trajectory output (plan-B arm, 2026-08-25): the policy emits k action
     # pairs per decision and only observes again after all k execute. Rewards
@@ -260,6 +269,7 @@ class SceneEnv(gym.Env if gym is not None else object):
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         super().reset(seed=seed)
         self._last_action = None
+        self._prev_obstacle_dist = None
         # Choose a scene (round-robin for now; can be random later).
         idx = self.np_random.integers(0, len(self.scene_ids))
         self._scene_id = self.scene_ids[idx]
@@ -315,6 +325,16 @@ class SceneEnv(gym.Env if gym is not None else object):
         if ob is None or len(ob) == 0:
             return 0.0
         dmin = float(np.sqrt(((ob - robot_xy[None, :2]) ** 2).sum(1)).min())
+        if self.cfg.proximity_delta:
+            # Potential-shaped variant: charge APPROACHING an obstacle and
+            # refund retreating, weight * (d_{t-1} - d_t), active inside the
+            # margin (a wide horizon, e.g. 5 m). No standing charge, so the
+            # flat-tax failure mode is impossible by construction.
+            prev = getattr(self, "_prev_obstacle_dist", None)
+            self._prev_obstacle_dist = dmin
+            if prev is None or min(prev, dmin) >= self.cfg.proximity_margin:
+                return 0.0
+            return -self.cfg.proximity_weight * (prev - dmin)
         if dmin >= self.cfg.proximity_margin:
             return 0.0
         return -self.cfg.proximity_weight * (self.cfg.proximity_margin - dmin) / self.cfg.proximity_margin
@@ -433,13 +453,18 @@ class SceneEnv(gym.Env if gym is not None else object):
                 truncated = True          # ends the episode, and NOT a success
                 bonus = 0.0
         prox_term = self._proximity_term(self._robot_pose_world[:2, 3])
+        timeout_term = 0.0
+        if (truncated and not terminated and crash == 0.0
+                and self.cfg.timeout_penalty > 0.0):
+            timeout_term = -self.cfg.timeout_penalty
         reward = (breakdown.total + spin_term + back_term + smooth_term
-                  + bonus + crash + prox_term)
+                  + bonus + crash + prox_term + timeout_term)
 
         info = breakdown.to_dict()
         info["spin"] = spin_term
         info["backward"] = back_term
         info["smooth"] = smooth_term
+        info["timeout"] = timeout_term
         info["crash"] = crash
         info["proximity"] = prox_term
         info["goal_bonus"] = bonus

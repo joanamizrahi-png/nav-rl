@@ -41,7 +41,8 @@ class RewardComponentsCallback(BaseCallback):
     during training instead of at eval."""
 
     KEYS = ("semantic", "goal", "collision", "step", "void", "spin",
-            "backward", "smooth", "crash", "proximity", "goal_bonus", "total")
+            "backward", "smooth", "timeout", "crash", "proximity",
+            "goal_bonus", "total")
 
     def __init__(self):
         super().__init__()
@@ -114,11 +115,13 @@ def make_env(args):
         max_steps=args.max_steps,
         step_size_m=0.25,                    # matches demo action scale; 0.15 clipped 43% of demos
         yaw_step_rad=0.3,
-        reward=RewardWeights(semantic=1.0, goal=1.5, collision=1.0,
+        reward=RewardWeights(semantic=getattr(args, "semantic_weight", 1.0),
+                             goal=getattr(args, "goal_weight", 1.5),
+                             collision=1.0,
                              step_cost=0.05, void_cost=0.3,
                              terrain_as_cost=True),          # v4
         look_ahead_dist=1.5,
-        goal_radius=0.75,
+        goal_radius=getattr(args, "goal_radius", 0.75),
         collision_threshold=0.1,
         spin_cost=getattr(args, "spin_cost", 0.05),
         backward_cost=getattr(args, "backward_cost", 0.0),
@@ -131,7 +134,9 @@ def make_env(args):
         footprint_along_motion=getattr(args, "footprint_along_motion", False),
         forward_only=getattr(args, "forward_only", False),
         action_smooth_cost=getattr(args, "action_smooth_cost", 0.0),
-        goal_bonus=50.0,                                     # v4
+        goal_bonus=getattr(args, "goal_bonus", 50.0),        # v4 default
+        proximity_delta=getattr(args, "proximity_delta", False),
+        timeout_penalty=getattr(args, "timeout_penalty", 0.0),
         random_spawn=True,
         trav_path=getattr(args, "trav_path", None),
         failure_snap_dir=str(args.output_dir / "failures"),
@@ -408,6 +413,19 @@ def main():
     ap.add_argument("--action_smooth_cost", type=float, default=0.0,
                     help="penalty * mean|a_t - a_{t-1}|; charges action "
                          "CHANGES (flip-flops), not turning itself")
+    ap.add_argument("--goal_bonus", type=float, default=50.0)
+    ap.add_argument("--goal_radius", type=float, default=0.75)
+    ap.add_argument("--goal_weight", type=float, default=1.5,
+                    help="progress-to-goal shaping weight")
+    ap.add_argument("--semantic_weight", type=float, default=1.0,
+                    help="terrain/semantic footprint weight (0 disables)")
+    ap.add_argument("--timeout_penalty", type=float, default=0.0,
+                    help="subtracted at max_steps without goal — makes "
+                         "freezing strictly worse than trying")
+    ap.add_argument("--proximity_delta", action="store_true",
+                    help="potential-shaped proximity: weight*(d_prev - d_now) "
+                         "inside the margin; approaching costs, retreating "
+                         "refunds, standing is free")
     ap.add_argument("--proximity_weight", type=float, default=0.0,
                     help="cost/step for being within proximity_margin of a "
                          "GEOMETRIC obstacle (scene cloud) — undreamable, "
