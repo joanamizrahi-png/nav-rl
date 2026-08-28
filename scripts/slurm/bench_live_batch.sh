@@ -27,6 +27,9 @@ python scripts/bench_live_batch.py \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
     --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14 \
     --batches "${BATCHES:-1,2,4,8}" \
-    --repeats "${REPEATS:-3}"
+    --repeats "${REPEATS:-3}" \
+    --height "${HEIGHT:-336}" \
+    --width "${WIDTH:-560}" \
+    --save_samples /scratch/m000204-pm06b/joana/outputs/bench_samples
 
 echo "==> bench done"

@@ -50,11 +50,22 @@ def main():
     ap.add_argument("--batches", default="1,2,4,8")
     ap.add_argument("--frames", type=int, default=5)
     ap.add_argument("--repeats", type=int, default=3)
+    ap.add_argument("--height", type=int, default=336)
+    ap.add_argument("--width", type=int, default=560)
+    ap.add_argument("--save_samples", default="",
+                    help="dir to save generated rgb+semantic frame strips per "
+                         "robot (the quality gate for resolution sweeps)")
     args = ap.parse_args()
+    if args.height % 16 or args.width % 16:
+        raise SystemExit("height/width must be multiples of 16 "
+                         "(VAE 8x downsample then DiT patch 2)")
 
     import torch
     from diffsynth.utils.auxiliary import homo_matrix_inverse
-    from inference_semantic import _make_dual_decode
+    from inference_semantic import (
+        _decoded_video_to_uint8, _make_dual_decode,
+        _sem_video_to_labels_and_colorized,
+    )
 
     cfg = CalibratedBackendConfig(
         scene_video_paths={args.scene: f"{args.clips_dir}/{args.scene}.mp4"},
@@ -63,6 +74,8 @@ def main():
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
+        H=args.height,
+        W=args.width,
     )
     world = LiveDiffusedBackend(cfg, checkpoint=args.live_ckpt)
     world.load_scene(args.scene)
@@ -138,6 +151,23 @@ def main():
             print(f"B={B}: {t_med:.2f} s/call = {t_med / B:.2f} s/robot-step  "
                   f"peak VRAM {vram:.1f} GB  (times: {[f'{x:.2f}' for x in times]})",
                   flush=True)
+            if args.save_samples:
+                from PIL import Image
+                out_dir = Path(args.save_samples) / f"{args.width}x{args.height}_B{B}"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                rv = sink.get("rgb_video")
+                sv = sink.get("sem_video")
+                head = getattr(pipe, "semantic_class_head", None)
+                for i in range(min(B, 2)):
+                    if rv is not None and getattr(rv, "ndim", 0) == 5:
+                        frames = _decoded_video_to_uint8(rv[i:i + 1])
+                        Image.fromarray(np.concatenate(list(frames), axis=1)).save(
+                            out_dir / f"robot{i}_rgb.png")
+                    if sv is not None and getattr(sv, "ndim", 0) == 5:
+                        _, sem_rgb = _sem_video_to_labels_and_colorized(sv[i], head=head)
+                        Image.fromarray(np.concatenate(list(sem_rgb), axis=1)).save(
+                            out_dir / f"robot{i}_semantic.png")
+                print(f"    samples -> {out_dir}", flush=True)
         except Exception:
             print(f"B={B}: FAILED —")
             traceback.print_exc()
