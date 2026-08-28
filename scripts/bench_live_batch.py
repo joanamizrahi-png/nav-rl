@@ -56,9 +56,11 @@ def main():
                     help="dir to save generated rgb+semantic frame strips per "
                          "robot (the quality gate for resolution sweeps)")
     args = ap.parse_args()
-    if args.height % 16 or args.width % 16:
-        raise SystemExit("height/width must be multiples of 16 "
-                         "(VAE 8x downsample then DiT patch 2)")
+    if args.height % 112 or args.width % 112:
+        raise SystemExit(
+            "height/width must be multiples of 112: the WorldMirror "
+            "reconstructor ViT uses 14-px patches and the VAE(8x)+DiT(patch 2) "
+            "chain needs 16 — lcm=112. Valid: 112/224/336/448/560.")
 
     import torch
     from diffsynth.utils.auxiliary import homo_matrix_inverse
