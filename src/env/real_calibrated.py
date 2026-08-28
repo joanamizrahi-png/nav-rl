@@ -300,6 +300,14 @@ class CalibratedRealWorldBackend(RealWorldBackend):
                             resolution=(cfg.W, cfg.H), resize_mode="center_crop",
                             static_scene=False)
         labels = np.load(labels_path)["labels"]
+        # Label npz files are stored at the labeler's resolution (336x560);
+        # when the backend runs at another (e.g. the 112-multiple speed rungs)
+        # resize nearest-neighbor so labels stay per-pixel aligned with views.
+        if labels.shape[-2:] != (cfg.H, cfg.W):
+            lt = torch.as_tensor(np.ascontiguousarray(labels))[:, None].float()
+            labels = torch.nn.functional.interpolate(
+                lt, size=(cfg.H, cfg.W), mode="nearest"
+            )[:, 0].to(torch.int64).numpy()
         n = min(len(images), len(labels))
         views = {
             "img": torch.stack([F.to_tensor(im)[None] for im in images[:n]], dim=1).to(device),
