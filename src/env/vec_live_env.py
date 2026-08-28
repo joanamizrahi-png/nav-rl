@@ -122,8 +122,8 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
         try:
             with torch.no_grad():
                 generated = pipe(
-                    prompt=self.cfg.prompt,
-                    negative_prompt=self.cfg.negative_prompt,
+                    prompt=[self.cfg.prompt] * B,
+                    negative_prompt=[self.cfg.negative_prompt] * B,
                     seed=0, rand_device=device,
                     height=self.H, width=self.W, num_frames=k,
                     cfg_scale=self.cfg.cfg_scale,

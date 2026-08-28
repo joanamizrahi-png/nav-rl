@@ -116,7 +116,8 @@ def main():
                 torch.cuda.synchronize(); torch.cuda.reset_peak_memory_stats()
                 t0 = time.perf_counter()
                 with torch.no_grad():
-                    pipe(prompt=cfg.prompt, negative_prompt=cfg.negative_prompt,
+                    pipe(prompt=[cfg.prompt] * B,
+                         negative_prompt=[cfg.negative_prompt] * B,
                          seed=r, rand_device=device, height=H, width=W,
                          num_frames=k, cfg_scale=cfg.cfg_scale,
                          num_inference_steps=4, tiled=False,
