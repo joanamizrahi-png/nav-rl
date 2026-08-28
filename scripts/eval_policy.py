@@ -145,10 +145,25 @@ def main():
                          "matches training; see CachedDiffusedBackend)")
     ap.add_argument("--trav_path", default=None,
                     help="traversability yaml (v14 table for cached runs)")
+    ap.add_argument("--blind", action="store_true",
+                    help="zero the rgb observation (goal vector untouched): "
+                         "does the policy actually use the world model's "
+                         "frames, or is it odometry-only? Videos still show "
+                         "the real frames — only the policy goes blind.")
     args = ap.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    env = Monitor(build_env(args))
+    inner_env = build_env(args)
+    if args.blind:
+        import gymnasium as gym
+
+        class BlindObs(gym.ObservationWrapper):
+            def observation(self, obs):
+                obs = dict(obs)
+                obs["rgb"] = np.zeros_like(obs["rgb"])
+                return obs
+        inner_env = BlindObs(inner_env)
+    env = Monitor(inner_env)
     model = PPO.load(args.checkpoint, env=env, device="cuda")
     print(f"loaded {args.checkpoint}", flush=True)
 

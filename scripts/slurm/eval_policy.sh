@@ -28,6 +28,12 @@ if [[ "${GOAL_FRAME:-}" != "" ]]; then
     EXTRA_ARGS+=(--goal_frame "$GOAL_FRAME")       # generalization: goal the policy never trained on
     OUT_SUFFIX="_goal${GOAL_FRAME}"
 fi
+# BLIND=1: zero the rgb observation (goal vector intact) — the does-the-policy-
+# actually-look ablation. Videos still record the real frames.
+if [[ "${BLIND:-0}" == "1" ]]; then
+    EXTRA_ARGS+=(--blind)
+    OUT_SUFFIX="${OUT_SUFFIX}_blind"
+fi
 if [[ "${COLLTERM:-}" != "" ]]; then
     EXTRA_ARGS+=(--collision_terminate_frac "$COLLTERM"
                  --collision_terminate_penalty "${COLLPEN:-20}")
