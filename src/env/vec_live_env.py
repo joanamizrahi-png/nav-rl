@@ -128,7 +128,9 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
                     seed=0, rand_device=device,
                     height=self.H, width=self.W, num_frames=k,
                     cfg_scale=self.cfg.cfg_scale,
-                    num_inference_steps=4 if self.cfg.use_lora else 50,
+                    num_inference_steps=getattr(
+                        self, "num_inference_steps",
+                        4 if self.cfg.use_lora else 50),
                     tiled=False,
                     source_views=scene["views"],
                     target_rgb=tgt_rgb, target_depth=tgt_depth,
