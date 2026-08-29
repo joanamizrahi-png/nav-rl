@@ -131,6 +131,9 @@ class SceneEnvConfig:
     # strictly worse than trying — the missing counterweight to termination
     # penalties (the -20 crash penalty froze the policy when standing was free).
     timeout_penalty: float = 0.0
+    # uniform reward multiplier applied at the very end of step() — tames the
+    # critic's value targets under +-1000-scale terminals; 1.0 = off.
+    reward_scale: float = 1.0
     clouds_dir: "str | None" = None     # dir holding <scene>_cloud.npz files
     # Trajectory output (plan-B arm, 2026-08-25): the policy emits k action
     # pairs per decision and only observes again after all k execute. Rewards
@@ -503,6 +506,12 @@ class SceneEnv(gym.Env if gym is not None else object):
         info["total"] = reward
         info["dist_to_goal"] = dist_to_goal
         info["reached_goal"] = terminated
+        # reward_scale (2026-08-28): shrink the WHOLE reward uniformly (ratios
+        # preserved) so +-1000 terminals stop blowing up the critic's targets
+        # (value_loss ~1e5 in the batch-1 RW5 trio). Info keys stay unscaled
+        # so component logging remains in Jing-spec units.
+        if self.cfg.reward_scale != 1.0:
+            reward = float(reward) * self.cfg.reward_scale
         return self._obs(), reward, terminated, truncated, info
 
     def render(self):

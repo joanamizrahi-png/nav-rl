@@ -255,6 +255,18 @@ if [ -n "${GOALDIST:-}" ]; then
     BC_ARGS="$BC_ARGS --goal_dist $GOALDIST"
     OUT="${OUT}_gd${GOALDIST}"
 fi
+# REWSCALE: uniform reward multiplier (0.01 recommended if value_loss stays
+# ~1e5 — ratios preserved, critic targets tamed).
+if [ -n "${REWSCALE:-}" ]; then
+    BC_ARGS="$BC_ARGS --reward_scale $REWSCALE"
+    OUT="${OUT}_rs${REWSCALE}"
+fi
+# RW5SMOOTH: override RW5's baked-in smoothness 5 (this block sits AFTER the
+# RW5 block so the last --action_smooth_cost wins) — failure-mode-1 arm.
+if [ -n "${RW5SMOOTH:-}" ]; then
+    BC_ARGS="$BC_ARGS --action_smooth_cost $RW5SMOOTH"
+    OUT="${OUT}_sm${RW5SMOOTH}"
+fi
 # STEPS_OVERRIDE: extend any rung without a new branch (v6d was still climbing
 # at its 400k cap -> 800k continuation). Output dir gets the step count.
 if [ -n "${STEPS_OVERRIDE:-}" ]; then

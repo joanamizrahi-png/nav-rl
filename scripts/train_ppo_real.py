@@ -194,6 +194,7 @@ def _scene_env_cfg(args):
         goal_bonus=getattr(args, "goal_bonus", 50.0),        # v4 default
         proximity_delta=getattr(args, "proximity_delta", False),
         timeout_penalty=getattr(args, "timeout_penalty", 0.0),
+        reward_scale=getattr(args, "reward_scale", 1.0),
         random_spawn=True,
         trav_path=getattr(args, "trav_path", None),
         failure_snap_dir=str(args.output_dir / "failures"),
@@ -528,6 +529,9 @@ def main():
                     help="render/observation width (multiple of 112)")
     ap.add_argument("--live_steps", type=int, default=4,
                     help="diffusion sampler steps for live generation")
+    ap.add_argument("--reward_scale", type=float, default=1.0,
+                    help="uniform reward multiplier (e.g. 0.01 tames the "
+                         "critic under +-1000 terminals; ratios preserved)")
     ap.add_argument("--goal_weight", type=float, default=1.5,
                     help="progress-to-goal shaping weight")
     ap.add_argument("--semantic_weight", type=float, default=1.0,
