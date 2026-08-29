@@ -46,6 +46,11 @@ def main():
     ap.add_argument("--frames", type=int, default=40,
                     help="drive length in poses along the recorded walk")
     ap.add_argument("--start", type=int, default=5)
+    ap.add_argument("--heading", default="tangent",
+                    choices=["tangent", "recorded"],
+                    help="tangent: face the direction of motion (what a "
+                         "driving robot does); recorded: the walker's camera "
+                         "heading (pans and drifts off-path)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     if args.height % 112 or args.width % 112:
@@ -72,13 +77,30 @@ def main():
     cal = world._calib[args.scene]
 
     pal = (v14_palette().numpy() * 255).astype(np.uint8)      # [14,3] RGB
+
+    def tangent_pose(i: int) -> np.ndarray:
+        pos = np.asarray(cal.positions)
+        fwd = pos[min(i + 1, len(pos) - 1)] - pos[max(i - 1, 0)]
+        fwd[2] = 0.0
+        n = np.linalg.norm(fwd)
+        fwd = fwd / n if n > 1e-6 else np.array([1.0, 0.0, 0.0])
+        up = np.array([0.0, 0.0, 1.0])
+        pose = np.eye(4)
+        pose[:3, 0] = fwd
+        pose[:3, 1] = np.cross(up, fwd)
+        pose[:3, 2] = up
+        pose[:3, 3] = pos[i] * np.array([1.0, 1.0, 0.0])
+        return pose.astype(np.float32)
+
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    tag = f"{args.scene}_{args.width}x{args.height}_s{args.num_steps}"
+    tag = (f"{args.scene}_{args.width}x{args.height}_s{args.num_steps}"
+           + ("" if args.heading == "tangent" else "_rec"))
     vw = None
     for step in range(args.frames):
         i = min(args.start + step, 80)
-        pose = cal.robot_pose_nav(i)
+        pose = (tangent_pose(i) if args.heading == "tangent"
+                else cal.robot_pose_nav(i))
         (rgb, K, w2c, lab) = world.render_batch([(0, pose)])[0]
         sem_rgb = pal[np.clip(lab, 0, 13).astype(int)]        # HxWx3 RGB
         frame = np.hstack([rgb, sem_rgb])[:, :, ::-1]         # to BGR
