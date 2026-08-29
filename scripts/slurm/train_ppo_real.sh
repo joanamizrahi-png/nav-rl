@@ -280,6 +280,12 @@ if [ -n "${RW5SMOOTH:-}" ]; then
     BC_ARGS="$BC_ARGS --action_smooth_cost $RW5SMOOTH"
     OUT="${OUT}_sm${RW5SMOOTH}"
 fi
+# SPAWNMIN: keep spawns out of the weak-recon clip edges (confabulation
+# zone, measured 2026-08-29).
+if [ -n "${SPAWNMIN:-}" ]; then
+    BC_ARGS="$BC_ARGS --spawn_min $SPAWNMIN"
+    OUT="${OUT}_smin${SPAWNMIN}"
+fi
 # STEPS_OVERRIDE: extend any rung without a new branch (v6d was still climbing
 # at its 400k cap -> 800k continuation). Output dir gets the step count.
 if [ -n "${STEPS_OVERRIDE:-}" ]; then

@@ -138,6 +138,7 @@ def make_env(args):
         H=getattr(args, "obs_height", 336),
         W=getattr(args, "obs_width", 560),
         goal_dist_m=getattr(args, "goal_dist", None),
+        spawn_min_frame=getattr(args, "spawn_min", 0),
     )
     if getattr(args, "live", False):
         # Live per-action diffusion: the policy queries the generative model at
@@ -228,6 +229,7 @@ def make_live_vec_env(args):
         H=getattr(args, "obs_height", 336),
         W=getattr(args, "obs_width", 560),
         goal_dist_m=getattr(args, "goal_dist", None),
+        spawn_min_frame=getattr(args, "spawn_min", 0),
     )
     world = BatchedLiveDiffusedBackend(
         cfg, checkpoint=args.live_ckpt, live_frames=args.live_frames,
@@ -535,6 +537,9 @@ def main():
     ap.add_argument("--reward_scale", type=float, default=1.0,
                     help="uniform reward multiplier (e.g. 0.01 tames the "
                          "critic under +-1000 terminals; ratios preserved)")
+    ap.add_argument("--spawn_min", type=int, default=0,
+                    help="min spawn frame: keep out of the weak-recon clip "
+                         "edges where live generation confabulates")
     ap.add_argument("--scene_rotate", type=int, default=0,
                     help="live multi-scene: rotate the resident world every "
                          "N robot-steps (0 = never; needs --scenes)")

@@ -169,6 +169,9 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # frame is chosen (within goal_frame_range) so the straight-line distance
     # from the spawn is as close as possible to this many meters.
     goal_dist_m: "float | None" = None
+    # Keep spawns out of the weak-reconstruction zone at the clip's edges
+    # (live generation confabulates there — measured 2026-08-29).
+    spawn_min_frame: int = 0
 
 
 class CalibratedRealWorldBackend(RealWorldBackend):
@@ -232,16 +235,21 @@ class CalibratedRealWorldBackend(RealWorldBackend):
 
     def sample_start_pose(self, scene_id: str, rng) -> np.ndarray:
         """Spawn curriculum: a random pose along the REAL trajectory, upstream
-        of the goal (so some spawns are near it -> early successes to learn from)."""
+        of the goal (so some spawns are near it -> early successes to learn from).
+
+        spawn_min_frame (2026-08-29): the reconstruction is weakest at the
+        clip's edges (few overlapping views) and live generation there
+        confabulates (the girl/sheep frames) — keep spawns out of that zone."""
         cal = self._calib[scene_id]
+        lo = max(0, int(self.cfg.spawn_min_frame))
         if self.cfg.goal_frame_range is not None:
             hi = len(cal.positions) - 6      # goal varies: spawn anywhere on the trail
         else:
             hi = min(self.cfg.goal_frame - 5, len(cal.positions) - 6)
-        hi = max(1, hi)
+        hi = max(lo + 1, hi)
         if self.cfg.spawn_max_frame is not None:
-            hi = max(1, min(hi, self.cfg.spawn_max_frame))
-        return cal.robot_pose_nav(int(rng.integers(0, hi)))
+            hi = max(lo + 1, min(hi, self.cfg.spawn_max_frame))
+        return cal.robot_pose_nav(int(rng.integers(lo, hi)))
 
     def goal_position(self, scene_id: str) -> np.ndarray:
         if self.cfg.goal_xy_override is not None:
