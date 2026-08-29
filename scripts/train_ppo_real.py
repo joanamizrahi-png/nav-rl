@@ -35,23 +35,50 @@ from stable_baselines3.common.monitor import Monitor
 
 
 class GoalRadiusCurriculum(BaseCallback):
-    """Anneal the goal-capture radius start -> end over the first N timesteps
-    (advisor spec 2026-08-27). Attacks terminal-capture: a 1.0 m disc is
-    reachable by a fresh policy; 0.5 m is the graduation exam."""
+    """Anneal the goal-capture radius start -> end (advisor spec 2026-08-27).
+    Attacks terminal-capture: a 1.0 m disc is reachable by a fresh policy;
+    0.5 m is the graduation exam.
 
-    def __init__(self, start: float, end: float, steps: int):
+    mode="success" (default, Joana 2026-08-28): the radius only SHRINKS once
+    the policy wins >= threshold of its recent episodes at the current radius
+    (5 cm notches), and holds while it struggles — a timer would starve a
+    policy that hasn't learned the big disc yet. mode="time": linear anneal
+    over `steps` timesteps (predictable fallback)."""
+
+    def __init__(self, start: float, end: float, steps: int,
+                 mode: str = "success", window: int = 100,
+                 threshold: float = 0.5, notch: float = 0.05):
         super().__init__()
         self.start, self.end, self.steps = start, end, steps
-
-    def _on_rollout_start(self) -> None:
-        t = min(1.0, self.model.num_timesteps / max(1, self.steps))
-        r = self.start + (self.end - self.start) * t
-        self.training_env.env_method("set_goal_radius", r)
-        if self.logger is not None:
-            self.logger.record("curriculum/goal_radius", r)
+        self.mode, self.window, self.threshold, self.notch = (
+            mode, window, threshold, notch)
+        self.r = start
+        self._wins: list = []
 
     def _on_step(self) -> bool:
+        for info in self.locals.get("infos", []):
+            if "episode" in info:            # episode ended at this step
+                self._wins.append(1.0 if info.get("goal_bonus", 0.0) > 0
+                                  else 0.0)
         return True
+
+    def _on_rollout_start(self) -> None:
+        if self.mode == "time":
+            t = min(1.0, self.model.num_timesteps / max(1, self.steps))
+            self.r = self.start + (self.end - self.start) * t
+        else:
+            recent = self._wins[-self.window:]
+            if (len(recent) >= self.window // 2
+                    and float(np.mean(recent)) >= self.threshold
+                    and self.r > self.end):
+                self.r = max(self.end, self.r - self.notch)
+                self._wins.clear()           # re-earn the next notch
+        self.training_env.env_method("set_goal_radius", self.r)
+        if self.logger is not None:
+            self.logger.record("curriculum/goal_radius", self.r)
+            if self._wins:
+                self.logger.record("curriculum/recent_success",
+                                   float(np.mean(self._wins[-self.window:])))
 
 
 class RewardComponentsCallback(BaseCallback):
@@ -489,6 +516,10 @@ def main():
                     help="curriculum: capture radius anneals from this down "
                          "to --goal_radius over --curriculum_steps")
     ap.add_argument("--curriculum_steps", type=int, default=100_000)
+    ap.add_argument("--curriculum_mode", default="success",
+                    choices=["success", "time"],
+                    help="success: radius shrinks only when the policy earns "
+                         "it (>=50%% recent wins); time: linear anneal")
     ap.add_argument("--goal_dist", type=float, default=None,
                     help="fixed spawn->goal distance in meters (advisor spec)")
     ap.add_argument("--obs_height", type=int, default=336,
@@ -597,7 +628,8 @@ def main():
                  RewardComponentsCallback()]
     if args.goal_radius_start is not None:
         callbacks.append(GoalRadiusCurriculum(
-            args.goal_radius_start, args.goal_radius, args.curriculum_steps))
+            args.goal_radius_start, args.goal_radius, args.curriculum_steps,
+            mode=args.curriculum_mode))
     if args.use_wandb:
         try:
             import wandb
