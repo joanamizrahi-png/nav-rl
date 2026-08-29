@@ -165,6 +165,10 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # (x, y) instead of a trajectory frame — e.g. just past a tree, so the
     # straight line crosses it. Overrides goal_frame/goal_frame_range.
     goal_xy_override: "tuple[float, float] | None" = None
+    # RW5-v2 (advisor spec): fixed spawn->goal distance. When set, the goal
+    # frame is chosen (within goal_frame_range) so the straight-line distance
+    # from the spawn is as close as possible to this many meters.
+    goal_dist_m: "float | None" = None
 
 
 class CalibratedRealWorldBackend(RealWorldBackend):
@@ -261,6 +265,16 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         cal = self._calib[scene_id]
         lo, hi = self.cfg.goal_frame_range
         hi = min(hi, len(cal.positions) - 1)
+        if self.cfg.goal_dist_m is not None:
+            # fixed-distance mode: frame whose straight-line distance from the
+            # spawn best matches goal_dist_m (small jitter keeps episodes varied)
+            pos = np.asarray(cal.positions[lo:hi + 1])
+            d = np.linalg.norm(pos[:, :2] - np.asarray(spawn_xy), axis=1)
+            frame = lo + int(np.argmin(np.abs(d - self.cfg.goal_dist_m)))
+            frame = int(np.clip(frame + rng.integers(-2, 3), lo, hi))
+            goal = cal.positions[frame].copy()
+            goal[2] = 0.0
+            return goal.astype(np.float32)
         goal = None
         for _ in range(20):
             frame = int(rng.integers(lo, hi + 1))

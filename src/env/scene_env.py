@@ -309,6 +309,11 @@ class SceneEnv(gym.Env if gym is not None else object):
             self._render_current()
         return self._obs(), {"scene_id": self._scene_id}
 
+    def set_goal_radius(self, r: float) -> None:
+        """Curriculum hook: training callback anneals the capture radius
+        (e.g. 1.0 m -> 0.5 m) via vec_env.env_method("set_goal_radius", r)."""
+        self.cfg.goal_radius = float(r)
+
     def inject_render(self, rgb: np.ndarray, K: np.ndarray, w2c: np.ndarray,
                       labels: "np.ndarray | None" = None) -> None:
         """Batched-live path: the vec-env pushes this robot's frame in after

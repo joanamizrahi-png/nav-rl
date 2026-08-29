@@ -34,6 +34,26 @@ from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 
 
+class GoalRadiusCurriculum(BaseCallback):
+    """Anneal the goal-capture radius start -> end over the first N timesteps
+    (advisor spec 2026-08-27). Attacks terminal-capture: a 1.0 m disc is
+    reachable by a fresh policy; 0.5 m is the graduation exam."""
+
+    def __init__(self, start: float, end: float, steps: int):
+        super().__init__()
+        self.start, self.end, self.steps = start, end, steps
+
+    def _on_rollout_start(self) -> None:
+        t = min(1.0, self.model.num_timesteps / max(1, self.steps))
+        r = self.start + (self.end - self.start) * t
+        self.training_env.env_method("set_goal_radius", r)
+        if self.logger is not None:
+            self.logger.record("curriculum/goal_radius", r)
+
+    def _on_step(self) -> bool:
+        return True
+
+
 class RewardComponentsCallback(BaseCallback):
     """Log per-component reward means each rollout (meeting item 2026-08-13:
     'visualize different reward vectors on wandb / see the range the reward
@@ -88,6 +108,9 @@ def make_env(args):
         render_mode="rasterizer_only",       # cheap per-step; diffusion later
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
+        H=getattr(args, "obs_height", 336),
+        W=getattr(args, "obs_width", 560),
+        goal_dist_m=getattr(args, "goal_dist", None),
     )
     if getattr(args, "live", False):
         # Live per-action diffusion: the policy queries the generative model at
@@ -172,10 +195,14 @@ def make_live_vec_env(args):
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
+        H=getattr(args, "obs_height", 336),
+        W=getattr(args, "obs_width", 560),
+        goal_dist_m=getattr(args, "goal_dist", None),
     )
     world = BatchedLiveDiffusedBackend(
         cfg, checkpoint=args.live_ckpt, live_frames=args.live_frames,
         alpha_gate=not getattr(args, "no_alpha_gate", False))
+    world.num_inference_steps = args.live_steps
     world.load_scene(args.scene)
 
     envs = []
@@ -458,6 +485,18 @@ def main():
                          "CHANGES (flip-flops), not turning itself")
     ap.add_argument("--goal_bonus", type=float, default=50.0)
     ap.add_argument("--goal_radius", type=float, default=0.75)
+    ap.add_argument("--goal_radius_start", type=float, default=None,
+                    help="curriculum: capture radius anneals from this down "
+                         "to --goal_radius over --curriculum_steps")
+    ap.add_argument("--curriculum_steps", type=int, default=100_000)
+    ap.add_argument("--goal_dist", type=float, default=None,
+                    help="fixed spawn->goal distance in meters (advisor spec)")
+    ap.add_argument("--obs_height", type=int, default=336,
+                    help="render/observation height (multiple of 112)")
+    ap.add_argument("--obs_width", type=int, default=560,
+                    help="render/observation width (multiple of 112)")
+    ap.add_argument("--live_steps", type=int, default=4,
+                    help="diffusion sampler steps for live generation")
     ap.add_argument("--goal_weight", type=float, default=1.5,
                     help="progress-to-goal shaping weight")
     ap.add_argument("--semantic_weight", type=float, default=1.0,
@@ -556,6 +595,9 @@ def main():
                                     save_path=str(args.output_dir / "checkpoints"),
                                     name_prefix="ppo"),
                  RewardComponentsCallback()]
+    if args.goal_radius_start is not None:
+        callbacks.append(GoalRadiusCurriculum(
+            args.goal_radius_start, args.goal_radius, args.curriculum_steps))
     if args.use_wandb:
         try:
             import wandb

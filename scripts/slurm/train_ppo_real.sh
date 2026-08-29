@@ -231,6 +231,30 @@ if [ "${RW5:-0}" = "1" ]; then
     BC_ARGS="$BC_ARGS --goal_bonus 1000 --goal_radius 0.5 --goal_weight 10 --timeout_penalty 100 --proximity_delta --proximity_weight 10 --proximity_margin 5 --clouds_dir /scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds --action_smooth_cost 5 --forward_only --collision_terminate_frac 0.35 --collision_terminate_penalty 1000"
     OUT="${OUT}_rw5"
 fi
+# HEIGHT/WIDTH: native render+observation resolution (multiples of 112).
+# The policy CNN sizes itself to this — checkpoints do NOT warm-start across
+# resolutions. Speed rung measured 2026-08-28: 336x224 ~2.2x faster.
+if [ -n "${HEIGHT:-}" ] || [ -n "${WIDTH:-}" ]; then
+    BC_ARGS="$BC_ARGS --obs_height ${HEIGHT:-336} --obs_width ${WIDTH:-560}"
+    OUT="${OUT}_r${WIDTH:-560}x${HEIGHT:-336}"
+fi
+# LIVESTEPS: diffusion sampler steps for live generation (default 4; 2 = the
+# measured ~2x rung, quality-gated by the drive previews).
+if [ -n "${LIVESTEPS:-}" ] && [ "${LIVESTEPS}" != "4" ]; then
+    BC_ARGS="$BC_ARGS --live_steps $LIVESTEPS"
+    OUT="${OUT}_ls${LIVESTEPS}"
+fi
+# CURRICULUM=1: goal-capture radius anneals 1.0 -> --goal_radius over the
+# first 100k steps (terminal-capture fix, advisor spec 2026-08-27).
+if [ "${CURRICULUM:-0}" = "1" ]; then
+    BC_ARGS="$BC_ARGS --goal_radius_start 1.0"
+    OUT="${OUT}_cur"
+fi
+# GOALDIST: fixed spawn->goal distance in meters (advisor spec).
+if [ -n "${GOALDIST:-}" ]; then
+    BC_ARGS="$BC_ARGS --goal_dist $GOALDIST"
+    OUT="${OUT}_gd${GOALDIST}"
+fi
 # STEPS_OVERRIDE: extend any rung without a new branch (v6d was still climbing
 # at its 400k cap -> 800k continuation). Output dir gets the step count.
 if [ -n "${STEPS_OVERRIDE:-}" ]; then
