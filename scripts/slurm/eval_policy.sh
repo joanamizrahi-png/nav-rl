@@ -34,6 +34,12 @@ if [[ "${BLIND:-0}" == "1" ]]; then
     EXTRA_ARGS+=(--blind)
     OUT_SUFFIX="${OUT_SUFFIX}_blind"
 fi
+# HEIGHT/WIDTH: obs resolution — MUST match the checkpoint's training res
+# (the CNN is size-locked; RW5-v2 arms train at 336x224).
+if [[ -n "${HEIGHT:-}" || -n "${WIDTH:-}" ]]; then
+    EXTRA_ARGS+=(--obs_height "${HEIGHT:-336}" --obs_width "${WIDTH:-560}")
+    OUT_SUFFIX="${OUT_SUFFIX}_r${WIDTH:-560}x${HEIGHT:-336}"
+fi
 if [[ "${COLLTERM:-}" != "" ]]; then
     EXTRA_ARGS+=(--collision_terminate_frac "$COLLTERM"
                  --collision_terminate_penalty "${COLLPEN:-20}")

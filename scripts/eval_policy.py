@@ -53,6 +53,8 @@ def build_env(args):
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
+        H=args.obs_height,
+        W=args.obs_width,
     )
     if args.live:
         # Live-trained policies (--live runs) must be evaluated on live
@@ -145,6 +147,10 @@ def main():
                          "matches training; see CachedDiffusedBackend)")
     ap.add_argument("--trav_path", default=None,
                     help="traversability yaml (v14 table for cached runs)")
+    ap.add_argument("--obs_height", type=int, default=336,
+                    help="render/obs height — MUST match the checkpoint's "
+                         "training resolution (policy CNN is size-locked)")
+    ap.add_argument("--obs_width", type=int, default=560)
     ap.add_argument("--blind", action="store_true",
                     help="zero the rgb observation (goal vector untouched): "
                          "does the policy actually use the world model's "
