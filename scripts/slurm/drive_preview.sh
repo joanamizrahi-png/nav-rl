@@ -32,6 +32,7 @@ python scripts/drive_preview.py \
     --num_steps "${NSTEPS:-4}" \
     --frames "${FRAMES:-40}" \
     --start "${START:-5}" \
+    ${TARGET:+--target_xy "$TARGET"} \
     --live_ckpt "${LIVECKPT:-/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors}" \
     --out /scratch/m000204-pm06b/joana/outputs/drive_preview
 

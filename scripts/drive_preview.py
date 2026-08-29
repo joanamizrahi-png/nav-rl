@@ -51,6 +51,10 @@ def main():
                     help="tangent: face the direction of motion (what a "
                          "driving robot does); recorded: the walker's camera "
                          "heading (pans and drifts off-path)")
+    ap.add_argument("--target_xy", default=None,
+                    help="'x,y': leave the recorded path at --start and walk "
+                         "STRAIGHT AT this nav-frame point in 0.25 m policy "
+                         "steps, camera facing it (obstacle visibility quest)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     if args.height % 112 or args.width % 112:
@@ -92,16 +96,40 @@ def main():
         pose[:3, 3] = pos[i] * np.array([1.0, 1.0, 0.0])
         return pose.astype(np.float32)
 
+    def pose_at(position_xy: np.ndarray, fwd_xy: np.ndarray) -> np.ndarray:
+        fwd = np.array([fwd_xy[0], fwd_xy[1], 0.0])
+        n = np.linalg.norm(fwd)
+        fwd = fwd / n if n > 1e-6 else np.array([1.0, 0.0, 0.0])
+        up = np.array([0.0, 0.0, 1.0])
+        pose = np.eye(4)
+        pose[:3, 0] = fwd
+        pose[:3, 1] = np.cross(up, fwd)
+        pose[:3, 2] = up
+        pose[:3, 3] = np.array([position_xy[0], position_xy[1], 0.0])
+        return pose.astype(np.float32)
+
+    target = (np.array([float(v) for v in args.target_xy.split(",")])
+              if args.target_xy else None)
+
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     tag = (f"{args.scene}_{args.width}x{args.height}_s{args.num_steps}"
            + ("" if args.heading == "tangent" else "_rec")
-           + ("" if args.start == 5 else f"_st{args.start}"))
+           + ("" if args.start == 5 else f"_st{args.start}")
+           + ("" if target is None else "_totgt"))
     vw = None
     for step in range(args.frames):
         i = min(args.start + step, 80)
-        pose = (tangent_pose(i) if args.heading == "tangent"
-                else cal.robot_pose_nav(i))
+        if target is not None:
+            origin = np.asarray(cal.positions[args.start])[:2]
+            d = target - origin
+            dist = np.linalg.norm(d)
+            u = d / max(dist, 1e-6)
+            cur = origin + u * min(0.25 * step, max(dist - 0.4, 0.0))
+            pose = pose_at(cur, u)
+        else:
+            pose = (tangent_pose(i) if args.heading == "tangent"
+                    else cal.robot_pose_nav(i))
         (rgb, K, w2c, lab) = world.render_batch([(0, pose)])[0]
         sem_rgb = pal[np.clip(lab, 0, 13).astype(int)]        # HxWx3 RGB
         frame = np.hstack([rgb, sem_rgb])[:, :, ::-1]         # to BGR
