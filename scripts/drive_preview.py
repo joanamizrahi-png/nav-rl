@@ -95,7 +95,8 @@ def main():
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     tag = (f"{args.scene}_{args.width}x{args.height}_s{args.num_steps}"
-           + ("" if args.heading == "tangent" else "_rec"))
+           + ("" if args.heading == "tangent" else "_rec")
+           + ("" if args.start == 5 else f"_st{args.start}"))
     vw = None
     for step in range(args.frames):
         i = min(args.start + step, 80)
