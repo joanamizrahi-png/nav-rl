@@ -206,11 +206,23 @@ except Exception:                                     # import-time safety only
 
 
 class LiveVecEnv(VecEnv):
-    """N SceneEnvs (defer_render) sharing one BatchedLiveDiffusedBackend."""
+    """N SceneEnvs (defer_render) sharing one BatchedLiveDiffusedBackend.
 
-    def __init__(self, envs: list, backend: BatchedLiveDiffusedBackend):
+    Multi-scene (2026-08-29, Joana's call: "the policy must learn what
+    obstacles look like — one world can't teach that"): pass `scenes` and
+    `rotate_every` and the env rotates the resident world on a step budget —
+    all episodes force-truncate cleanly, the next scene's Gaussians load,
+    pose histories clear (cold-start walk-ins rebuild), robots respawn there.
+    """
+
+    def __init__(self, envs: list, backend: BatchedLiveDiffusedBackend,
+                 scenes: "list[str] | None" = None, rotate_every: int = 0):
         self.envs = envs
         self.backend = backend
+        self.scenes = list(scenes) if scenes else []
+        self.rotate_every = int(rotate_every)
+        self._scene_i = 0
+        self._steps_since_rot = 0
         self._actions: Optional[np.ndarray] = None
         self.render_mode = None
         super().__init__(len(envs), envs[0].observation_space, envs[0].action_space)
@@ -251,13 +263,30 @@ class LiveVecEnv(VecEnv):
             info = dict(info)
             info["TimeLimit.truncated"] = bool(trunc and not term)
             infos[i] = info
-        # one batched render at the post-step poses (correct terminal obs too)
+        self._steps_since_rot += self.num_envs
+        rotate = (self.rotate_every > 0 and len(self.scenes) > 1
+                  and self._steps_since_rot >= self.rotate_every)
+        if rotate:
+            for i in range(self.num_envs):     # force-truncate survivors
+                if not dones[i]:
+                    dones[i] = True
+                    infos[i]["TimeLimit.truncated"] = True
+        # one batched render at the post-step poses (correct terminal obs too,
+        # still in the OLD scene when rotating)
         self._render_and_inject(list(range(self.num_envs)))
         reset_idx = [i for i in range(self.num_envs) if dones[i]]
         for i in reset_idx:
             infos[i]["terminal_observation"] = self.envs[i]._obs()
-            self.envs[i].reset()
-        self._render_and_inject(reset_idx)            # spawn views, usually tiny
+        if rotate:
+            self._scene_i = (self._scene_i + 1) % len(self.scenes)
+            new_scene = self.scenes[self._scene_i]
+            self.backend._hists.clear()        # cross-scene coords may alias;
+            for e in self.envs:                # walk-ins rebuild on reset
+                e.scene_ids = [new_scene]
+            self._steps_since_rot = 0
+        for i in reset_idx:
+            self.envs[i].reset()               # load_scene(new) happens here
+        self._render_and_inject(reset_idx)     # spawn views, usually tiny
         obs = self._stack_obs([e._obs() for e in self.envs])
         return obs, rewards, dones, infos
 

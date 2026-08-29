@@ -211,7 +211,9 @@ def make_live_vec_env(args):
     )
     from stable_baselines3.common.vec_env import VecMonitor
 
-    scenes = [args.scene]                     # v1: all robots share one scene
+    # Multi-scene rotation (2026-08-29): all robots still share ONE resident
+    # scene at a time; LiveVecEnv rotates it every --scene_rotate steps.
+    scenes = args.scenes if getattr(args, "scenes", None) else [args.scene]
     cfg = CalibratedBackendConfig(
         scene_video_paths={s: f"{args.clips_dir}/{s}.mp4" for s in scenes},
         scene_poses_paths={s: f"{args.poses_dir}/{s}_poses.npz" for s in scenes},
@@ -231,7 +233,7 @@ def make_live_vec_env(args):
         cfg, checkpoint=args.live_ckpt, live_frames=args.live_frames,
         alpha_gate=not getattr(args, "no_alpha_gate", False))
     world.num_inference_steps = args.live_steps
-    world.load_scene(args.scene)
+    world.load_scene(scenes[0])
 
     envs = []
     for _ in range(args.live_batch):
@@ -241,7 +243,8 @@ def make_live_vec_env(args):
                      scene_ids=scenes, cfg=env_cfg)
         e.semantic_backend = InjectedLabelBackend(e)
         envs.append(e)
-    return VecMonitor(LiveVecEnv(envs, world))
+    return VecMonitor(LiveVecEnv(envs, world, scenes=scenes,
+                                 rotate_every=getattr(args, "scene_rotate", 0)))
 
 
 def save_rollout_video(model, env, out_path: Path, max_frames=120):
@@ -532,6 +535,9 @@ def main():
     ap.add_argument("--reward_scale", type=float, default=1.0,
                     help="uniform reward multiplier (e.g. 0.01 tames the "
                          "critic under +-1000 terminals; ratios preserved)")
+    ap.add_argument("--scene_rotate", type=int, default=0,
+                    help="live multi-scene: rotate the resident world every "
+                         "N robot-steps (0 = never; needs --scenes)")
     ap.add_argument("--goal_weight", type=float, default=1.5,
                     help="progress-to-goal shaping weight")
     ap.add_argument("--semantic_weight", type=float, default=1.0,

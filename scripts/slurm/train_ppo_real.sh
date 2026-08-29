@@ -82,6 +82,19 @@ if [ "${LIVE:-0}" = "1" ]; then
         BC_ARGS="$BC_ARGS --bc_demos $LIVE_DEMOS"
         OUT=${OUT}_bc
     fi
+    # SCENES (comma list) + ROTATE: live multi-scene rotation (2026-08-29).
+    # All robots share one resident world; it swaps every ROTATE robot-steps.
+    if [ -n "${SCENES:-}" ]; then
+        BC_ARGS="$BC_ARGS --scenes ${SCENES//,/ } --scene_rotate ${ROTATE:-4000}"
+        NSC=$(echo "$SCENES" | awk -F, '{print NF}')
+        OUT=${OUT}_ms${NSC}
+    fi
+    # LIVECKPT: semantics checkpoint for live generation (default v10; set to
+    # the v21 all-GT checkpoint for urban-scene training).
+    if [ -n "${LIVECKPT:-}" ]; then
+        BC_ARGS="$BC_ARGS --live_ckpt $LIVECKPT"
+        OUT=${OUT}_v21obs
+    fi
 elif [ "${CACHE:-0}" = "1" ]; then
     # v14-DIFFUSED (2026-08-15, headline ask): the 6d recipe on the
     # corrected right-handed frame, observations from the ribbon cache (v10 +
