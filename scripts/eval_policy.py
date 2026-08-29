@@ -183,6 +183,7 @@ def main():
         goal = env.unwrapped._goal_world
         traj = [_pose_xyyaw(env) + [0]]   # [x, y, yaw, collision_this_step]
         done, steps, collided, total_r = False, 0, 0, 0.0
+        ground_counts: dict = {}
         while not done:
             action, _ = model.predict(obs, deterministic=True)
             obs, r, term, trunc, info = env.step(action)
@@ -193,17 +194,36 @@ def main():
             frac = round(float(max(0.0, -info.get("collision", 0.0))), 3)
             hit = int(frac > 0.01)
             collided += hit
-            traj.append(_pose_xyyaw(env) + [frac])
+            # terrain occupancy: which class was under the footprint this step
+            # (the sidewalk-preference metric, 2026-08-28)
+            gc = int(info.get("dominant_class_id", -1))
+            ground_counts[gc] = ground_counts.get(gc, 0) + 1
+            traj.append(_pose_xyyaw(env) + [frac, gc])
             done = term or trunc
         results.append({"episode": ep, "success": bool(term),
                         "steps": steps, "return": round(total_r, 2),
                         "collision_steps": collided,
                         "final_dist": round(float(info.get("dist_to_goal", -1)), 2),
                         "goal_xy": [round(float(goal[0]), 3), round(float(goal[1]), 3)],
+                        "ground_class_counts": {str(k): v for k, v
+                                                in sorted(ground_counts.items())},
                         "traj": traj})
         print(f"ep {ep:2d}: success={term} steps={steps} return={total_r:+.1f}", flush=True)
 
     succ = [r for r in results if r["success"]]
+    # aggregate terrain occupancy across all episodes (share of ALL steps)
+    agg: dict = {}
+    for rr in results:
+        for k, v in rr.get("ground_class_counts", {}).items():
+            agg[k] = agg.get(k, 0) + v
+    n_all = max(1, sum(agg.values()))
+    class_names = {
+        "0": "void", "1": "sky", "2": "trail", "3": "grass", "4": "rough",
+        "5": "water", "6": "sidewalk", "7": "road", "8": "pavement",
+        "9": "stairs", "10": "obstacle", "11": "vegetation", "12": "person",
+        "13": "vehicle", "-1": "none"}
+    ground_share = {class_names.get(k, k): round(v / n_all, 3)
+                    for k, v in sorted(agg.items(), key=lambda kv: -kv[1])}
     summary = {
         "checkpoint": str(args.checkpoint),
         "episodes": args.episodes,
@@ -211,6 +231,7 @@ def main():
         "mean_steps_to_goal": round(float(np.mean([r["steps"] for r in succ])), 1) if succ else None,
         "mean_return": round(float(np.mean([r["return"] for r in results])), 2),
         "mean_collision_steps": round(float(np.mean([r["collision_steps"] for r in results])), 2),
+        "ground_share": ground_share,
     }
     with open(args.out_dir / "metrics.json", "w") as f:
         json.dump({"summary": summary, "episodes": results,
