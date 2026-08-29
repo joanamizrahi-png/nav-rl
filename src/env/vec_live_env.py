@@ -54,13 +54,15 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
         self._hists: dict[int, list] = {}
 
     def _robot_hist(self, robot_id: int, pose_recon: np.ndarray) -> list:
+        from .live_backend import cold_history
         hist = self._hists.get(robot_id, [])
         if hist:
             jump = np.linalg.norm(hist[-1][:3, 3] - pose_recon[:3, 3])
             if jump > 0.5:
                 hist = []
         if not hist:
-            hist = [pose_recon] * self.live_frames
+            scene = self._cache.get(self._current_scene_id)
+            hist = cold_history(pose_recon, scene, self.live_frames)
         else:
             hist = (hist + [pose_recon])[-self.live_frames:]
         self._hists[robot_id] = hist

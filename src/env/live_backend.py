@@ -33,6 +33,32 @@ import numpy as np
 from .real_calibrated import CalibratedRealWorldBackend
 
 
+def cold_history(pose_recon: np.ndarray, scene: dict, k: int) -> list:
+    """Synthesize a straight walk-in ending at pose_recon.
+
+    Five IDENTICAL poses (the old cold start) are out-of-distribution for the
+    video model — with no motion context its generic prior takes over and it
+    renders faces/sheep/buildings for the first steps of every episode
+    (measured 2026-08-29 on drive previews; the policy's every reset began
+    with hallucinations, teaching it to distrust vision). Back-extrapolating
+    along the camera's forward axis, stepped by the scene's own median
+    inter-frame spacing, gives the model a coherent approach clip instead.
+    """
+    src = scene["cam2world"][:, :3, 3].detach().cpu().numpy()
+    steps = np.linalg.norm(np.diff(src, axis=0), axis=1)
+    step = float(np.median(steps)) if len(steps) else 0.05
+    fwd = pose_recon[:3, 2].astype(np.float64)
+    n = np.linalg.norm(fwd)
+    fwd = fwd / n if n > 1e-6 else np.array([0.0, 0.0, 1.0])
+    hist = []
+    for i in range(k - 1, 0, -1):
+        p = pose_recon.copy()
+        p[:3, 3] = pose_recon[:3, 3] - (fwd * step * i).astype(np.float32)
+        hist.append(p.astype(np.float32))
+    hist.append(pose_recon.astype(np.float32))
+    return hist
+
+
 class LiveDiffusedBackend(CalibratedRealWorldBackend):
     """Per-action live generation with the semantic diffusion pipeline."""
 
@@ -143,7 +169,7 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
             if jump > 0.5:
                 self._pose_hist = []
         if not self._pose_hist:
-            self._pose_hist = [pose_recon] * self.live_frames
+            self._pose_hist = cold_history(pose_recon, scene, self.live_frames)
         else:
             self._pose_hist.append(pose_recon)
             self._pose_hist = self._pose_hist[-self.live_frames:]
