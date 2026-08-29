@@ -92,6 +92,9 @@ fi
 # ~1.4 s/step: submit with  sbatch --mem=96G --time=03:00:00
 if [[ "${LIVE:-0}" == "1" ]]; then
     EXTRA_ARGS+=(--live --trav_path config/traversability_v14.yaml)
+    if [[ -n "${LIVECKPT:-}" ]]; then
+        EXTRA_ARGS+=(--live_ckpt "$LIVECKPT")
+    fi
     LABELS_DIR=/scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14
     OUT_SUFFIX="${OUT_SUFFIX}_live"
 fi
