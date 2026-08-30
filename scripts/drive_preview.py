@@ -189,7 +189,12 @@ def main():
         sem_rgb = pal[np.clip(lab, 0, 13).astype(int)]        # HxWx3 RGB
         frame = np.hstack([rgb, sem_rgb])[:, :, ::-1]         # to BGR
         frame = np.ascontiguousarray(frame)
-        hud = f"{tag}  pose {i}  {world.last_timings['total']:.2f}s"
+        # In totgt mode the walk leaves the recorded path, so "pose i" would be
+        # a lie (found 2026-08-30: the off-path tree got mislocated to "pose 25")
+        # — label by steps/meters walked instead.
+        where = (f"step {step} ({0.25 * step:.1f}m walked)"
+                 if target is not None else f"pose {i}")
+        hud = f"{tag}  {where}  {world.last_timings['total']:.2f}s"
         if goal is not None:
             gd = float(np.linalg.norm(goal[:2] - pose[:3, 3][:2]))
             hud += f"  goal {gd:.1f}m"
