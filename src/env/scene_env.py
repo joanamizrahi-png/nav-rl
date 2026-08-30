@@ -134,6 +134,12 @@ class SceneEnvConfig:
     # uniform reward multiplier applied at the very end of step() — tames the
     # critic's value targets under +-1000-scale terminals; 1.0 = off.
     reward_scale: float = 1.0
+    # Render-high / observe-small (2026-08-30, her design after the w270
+    # resolution ladder: 336-render is mush on campus scenes, 560 is coherent).
+    # When set to (h, w): the WORLD keeps the backend's native render size for
+    # reward/footprint/labels, and only the policy-facing obs["rgb"] is
+    # downsampled to (h, w). None = obs at render size (every run before this).
+    obs_out_hw: "tuple | None" = None
     clouds_dir: "str | None" = None     # dir holding <scene>_cloud.npz files
     # Trajectory output (plan-B arm, 2026-08-25): the policy emits k action
     # pairs per decision and only observes again after all k execute. Rewards
@@ -198,6 +204,8 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._non_trav = self._trav_scores <= cfg.collision_threshold
 
         H, W = world_backend.H, world_backend.W
+        if cfg.obs_out_hw is not None:
+            H, W = int(cfg.obs_out_hw[0]), int(cfg.obs_out_hw[1])
         self.observation_space = spaces.Dict({
             "rgb":  spaces.Box(low=0, high=255, shape=(H, W, 3), dtype=np.uint8),
             "goal": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
@@ -529,8 +537,14 @@ class SceneEnv(gym.Env if gym is not None else object):
 
     def _obs(self) -> dict:
         goal_robot = self._goal_in_robot_frame()
+        rgb = self._last_rgb
+        if self.cfg.obs_out_hw is not None:
+            oh, ow = int(self.cfg.obs_out_hw[0]), int(self.cfg.obs_out_hw[1])
+            if rgb.shape[0] != oh or rgb.shape[1] != ow:
+                import cv2
+                rgb = cv2.resize(rgb, (ow, oh), interpolation=cv2.INTER_AREA)
         return {
-            "rgb":  self._last_rgb.copy(),
+            "rgb":  rgb.copy(),
             "goal": goal_robot.astype(np.float32),
         }
 

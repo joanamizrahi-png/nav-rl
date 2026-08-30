@@ -53,8 +53,8 @@ def build_env(args):
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
-        H=args.obs_height,
-        W=args.obs_width,
+        H=args.render_height or args.obs_height,
+        W=args.render_width or args.obs_width,
     )
     if args.live:
         # Live-trained policies (--live runs) must be evaluated on live
@@ -87,6 +87,8 @@ def build_env(args):
         footprint_along_motion=args.footprint_along_motion,
         forward_only=args.forward_only,
         failure_snap_dir=str(args.out_dir / "failures"),
+        obs_out_hw=((args.obs_height, args.obs_width)
+                    if (args.render_height or args.render_width) else None),
     )
     return SceneEnv(world_backend=world, semantic_backend=sem,
                     scene_ids=[args.scene], cfg=env_cfg)
@@ -138,6 +140,10 @@ def main():
                          "clamps to 0")
     ap.add_argument("--live_ckpt",
                     default="/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors")
+    ap.add_argument("--render_height", type=int, default=None,
+                    help="render-high/observe-small: match the checkpoint's "
+                         "training RENDERH (world at this res, obs downsized)")
+    ap.add_argument("--render_width", type=int, default=None)
     ap.add_argument("--collision_terminate_frac", type=float, default=0.0,
                     help="match the policy's training rule; >0 ends the episode "
                          "on a real collision (and it does NOT count as success)")

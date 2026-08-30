@@ -169,8 +169,8 @@ def make_env(args):
         render_mode="rasterizer_only",       # cheap per-step; diffusion later
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
-        H=getattr(args, "obs_height", 336),
-        W=getattr(args, "obs_width", 560),
+        H=getattr(args, "render_height", None) or getattr(args, "obs_height", 336),
+        W=getattr(args, "render_width", None) or getattr(args, "obs_width", 560),
         goal_dist_m=getattr(args, "goal_dist", None),
         spawn_min_frame=getattr(args, "spawn_min", 0),
     )
@@ -227,6 +227,9 @@ def _scene_env_cfg(args):
         forward_only=getattr(args, "forward_only", False),
         action_smooth_cost=getattr(args, "action_smooth_cost", 0.0),
         goal_bonus=getattr(args, "goal_bonus", 50.0),        # v4 default
+        obs_out_hw=((getattr(args, "obs_height", 336), getattr(args, "obs_width", 560))
+                    if (getattr(args, "render_height", None)
+                        or getattr(args, "render_width", None)) else None),
         proximity_delta=getattr(args, "proximity_delta", False),
         timeout_penalty=getattr(args, "timeout_penalty", 0.0),
         reward_scale=getattr(args, "reward_scale", 1.0),
@@ -260,8 +263,8 @@ def make_live_vec_env(args):
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
-        H=getattr(args, "obs_height", 336),
-        W=getattr(args, "obs_width", 560),
+        H=getattr(args, "render_height", None) or getattr(args, "obs_height", 336),
+        W=getattr(args, "render_width", None) or getattr(args, "obs_width", 560),
         goal_dist_m=getattr(args, "goal_dist", None),
         spawn_min_frame=getattr(args, "spawn_min", 0),
     )
@@ -573,6 +576,12 @@ def main():
                     help="render/observation height (multiple of 112)")
     ap.add_argument("--obs_width", type=int, default=560,
                     help="render/observation width (multiple of 112)")
+    ap.add_argument("--render_height", type=int, default=None,
+                    help="render-high/observe-small: diffusion renders at this "
+                         "height (multiple of 112) and obs['rgb'] is downsized "
+                         "to --obs_height. Reward/labels stay at render size.")
+    ap.add_argument("--render_width", type=int, default=None,
+                    help="see --render_height")
     ap.add_argument("--live_steps", type=int, default=4,
                     help="diffusion sampler steps for live generation")
     ap.add_argument("--reward_scale", type=float, default=1.0,

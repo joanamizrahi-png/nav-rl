@@ -40,6 +40,10 @@ if [[ -n "${HEIGHT:-}" || -n "${WIDTH:-}" ]]; then
     EXTRA_ARGS+=(--obs_height "${HEIGHT:-336}" --obs_width "${WIDTH:-560}")
     OUT_SUFFIX="${OUT_SUFFIX}_r${WIDTH:-560}x${HEIGHT:-336}"
 fi
+if [[ -n "${RENDERH:-}" || -n "${RENDERW:-}" ]]; then
+    EXTRA_ARGS+=(--render_height "${RENDERH:-336}" --render_width "${RENDERW:-560}")
+    OUT_SUFFIX="${OUT_SUFFIX}_rr${RENDERW:-560}x${RENDERH:-336}"
+fi
 if [[ "${COLLTERM:-}" != "" ]]; then
     EXTRA_ARGS+=(--collision_terminate_frac "$COLLTERM"
                  --collision_terminate_penalty "${COLLPEN:-20}")

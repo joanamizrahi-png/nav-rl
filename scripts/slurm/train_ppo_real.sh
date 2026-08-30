@@ -251,6 +251,13 @@ if [ -n "${HEIGHT:-}" ] || [ -n "${WIDTH:-}" ]; then
     BC_ARGS="$BC_ARGS --obs_height ${HEIGHT:-336} --obs_width ${WIDTH:-560}"
     OUT="${OUT}_r${WIDTH:-560}x${HEIGHT:-336}"
 fi
+# RENDERH/RENDERW: render-high/observe-small (2026-08-30, her design) — the
+# diffusion renders at this res (~2x slower at 560), obs["rgb"] is downsized
+# to HEIGHT/WIDTH for the policy; reward/labels stay at render res.
+if [ -n "${RENDERH:-}" ] || [ -n "${RENDERW:-}" ]; then
+    BC_ARGS="$BC_ARGS --render_height ${RENDERH:-336} --render_width ${RENDERW:-560}"
+    OUT="${OUT}_rr${RENDERW:-560}x${RENDERH:-336}"
+fi
 # LIVESTEPS: diffusion sampler steps for live generation (default 4; 2 = the
 # measured ~2x rung, quality-gated by the drive previews).
 if [ -n "${LIVESTEPS:-}" ] && [ "${LIVESTEPS}" != "4" ]; then
