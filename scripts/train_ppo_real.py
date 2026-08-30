@@ -81,6 +81,40 @@ class GoalRadiusCurriculum(BaseCallback):
                                    float(np.mean(self._wins[-self.window:])))
 
 
+class GoalDistCurriculum(BaseCallback):
+    """Success-gated goal-DISTANCE growth (2026-08-29, Joana's catch: fixed
+    6 m goals removed the easy-win bootstrap that made Arm B learn — B's
+    frame-range goals included near-spawn gimmes that fed its curriculum).
+    Goals start close and grow a notch each time the policy earns >= threshold
+    recent wins, up to the target distance. Runs alongside the radius
+    curriculum; both gates draw on the same win stream."""
+
+    def __init__(self, start: float, end: float, window: int = 100,
+                 threshold: float = 0.5, notch: float = 0.5):
+        super().__init__()
+        self.d, self.end = start, end
+        self.window, self.threshold, self.notch = window, threshold, notch
+        self._wins: list = []
+
+    def _on_step(self) -> bool:
+        for info in self.locals.get("infos", []):
+            if "episode" in info:
+                self._wins.append(1.0 if info.get("goal_bonus", 0.0) > 0
+                                  else 0.0)
+        return True
+
+    def _on_rollout_start(self) -> None:
+        recent = self._wins[-self.window:]
+        if (len(recent) >= self.window // 2
+                and float(np.mean(recent)) >= self.threshold
+                and self.d < self.end):
+            self.d = min(self.end, self.d + self.notch)
+            self._wins.clear()               # re-earn the next notch
+        self.training_env.env_method("set_goal_dist", self.d)
+        if self.logger is not None:
+            self.logger.record("curriculum/goal_dist", self.d)
+
+
 class RewardComponentsCallback(BaseCallback):
     """Log per-component reward means each rollout (meeting item 2026-08-13:
     'visualize different reward vectors on wandb / see the range the reward
@@ -528,6 +562,9 @@ def main():
                          "it (>=50%% recent wins); time: linear anneal")
     ap.add_argument("--goal_dist", type=float, default=None,
                     help="fixed spawn->goal distance in meters (advisor spec)")
+    ap.add_argument("--goal_dist_start", type=float, default=None,
+                    help="distance curriculum: goals start here and grow to "
+                         "--goal_dist as the policy earns wins")
     ap.add_argument("--obs_height", type=int, default=336,
                     help="render/observation height (multiple of 112)")
     ap.add_argument("--obs_width", type=int, default=560,
@@ -645,6 +682,9 @@ def main():
         callbacks.append(GoalRadiusCurriculum(
             args.goal_radius_start, args.goal_radius, args.curriculum_steps,
             mode=args.curriculum_mode))
+    if args.goal_dist_start is not None and args.goal_dist is not None:
+        callbacks.append(GoalDistCurriculum(
+            args.goal_dist_start, args.goal_dist))
     if args.use_wandb:
         try:
             import wandb

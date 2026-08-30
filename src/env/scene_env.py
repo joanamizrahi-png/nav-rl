@@ -317,6 +317,14 @@ class SceneEnv(gym.Env if gym is not None else object):
         (e.g. 1.0 m -> 0.5 m) via vec_env.env_method("set_goal_radius", r)."""
         self.cfg.goal_radius = float(r)
 
+    def set_goal_dist(self, d: float) -> None:
+        """Distance-curriculum hook (2026-08-29, Joana: E must bootstrap like
+        B did): goals START close (~3 m) and GROW as the policy earns wins.
+        Backends sample goals, so the knob lives on the backend cfg."""
+        cfg = getattr(self.world_backend, "cfg", None)
+        if cfg is not None:
+            cfg.goal_dist_m = float(d)
+
     def inject_render(self, rgb: np.ndarray, K: np.ndarray, w2c: np.ndarray,
                       labels: "np.ndarray | None" = None) -> None:
         """Batched-live path: the vec-env pushes this robot's frame in after

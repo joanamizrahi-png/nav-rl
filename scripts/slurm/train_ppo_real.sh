@@ -280,6 +280,12 @@ if [ -n "${RW5SMOOTH:-}" ]; then
     BC_ARGS="$BC_ARGS --action_smooth_cost $RW5SMOOTH"
     OUT="${OUT}_sm${RW5SMOOTH}"
 fi
+# GOALDIST_START: distance curriculum — goals start here, grow to GOALDIST
+# as the policy earns wins (the bootstrap E was missing).
+if [ -n "${GOALDIST_START:-}" ]; then
+    BC_ARGS="$BC_ARGS --goal_dist_start $GOALDIST_START"
+    OUT="${OUT}_gds${GOALDIST_START}"
+fi
 # SPAWNMIN: keep spawns out of the weak-recon clip edges (confabulation
 # zone, measured 2026-08-29).
 if [ -n "${SPAWNMIN:-}" ]; then
