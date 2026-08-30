@@ -34,6 +34,7 @@ python scripts/drive_preview.py \
     --num_steps "${NSTEPS:-4}" \
     --frames "${FRAMES:-40}" \
     --start "${START:-5}" \
+    --heading "${HEADING:-tangent}" \
     ${TARGET:+--target_xy "$TARGET"} \
     ${GOALFRAME:+--goal_frame "$GOALFRAME"} \
     ${GOALXY:+--goal_xy "$GOALXY"} \
