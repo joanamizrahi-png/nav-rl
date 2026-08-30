@@ -280,6 +280,12 @@ if [ -n "${RW5SMOOTH:-}" ]; then
     BC_ARGS="$BC_ARGS --action_smooth_cost $RW5SMOOTH"
     OUT="${OUT}_sm${RW5SMOOTH}"
 fi
+# ENCODER: policy visual encoder (nature | dinov2 | resnet18) — frozen
+# pretrained backbones for the advisor's encoder ablation (2026-08-30).
+if [ -n "${ENCODER:-}" ] && [ "${ENCODER}" != "nature" ]; then
+    BC_ARGS="$BC_ARGS --encoder $ENCODER"
+    OUT="${OUT}_${ENCODER}"
+fi
 # GOALDIST_START: distance curriculum — goals start here, grow to GOALDIST
 # as the policy earns wins (the bootstrap E was missing).
 if [ -n "${GOALDIST_START:-}" ]; then

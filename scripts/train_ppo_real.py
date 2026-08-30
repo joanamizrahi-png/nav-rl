@@ -562,6 +562,10 @@ def main():
                          "it (>=50%% recent wins); time: linear anneal")
     ap.add_argument("--goal_dist", type=float, default=None,
                     help="fixed spawn->goal distance in meters (advisor spec)")
+    ap.add_argument("--encoder", default="nature",
+                    choices=["nature", "dinov2", "resnet18", "both"],
+                    help="policy visual encoder: SB3 NatureCNN (scratch) or "
+                         "a frozen pretrained backbone (advisor ablation)")
     ap.add_argument("--goal_dist_start", type=float, default=None,
                     help="distance curriculum: goals start here and grow to "
                          "--goal_dist as the policy earns wins")
@@ -649,8 +653,15 @@ def main():
         print(f"[train_ppo_real] warm-start from {args.warmstart} "
               f"(num_timesteps={model.num_timesteps}, target_kl={model.target_kl})")
     else:
+        policy_kwargs = dict(net_arch=[dict(pi=[64, 64], vf=[64, 64])])
+        if getattr(args, "encoder", "nature") != "nature":
+            from src.policy.encoders import FrozenBackboneExtractor
+            policy_kwargs.update(
+                features_extractor_class=FrozenBackboneExtractor,
+                features_extractor_kwargs=dict(backbone=args.encoder))
         model = PPO(
         "MultiInputPolicy", env,
+        policy_kwargs=policy_kwargs,
         verbose=1, seed=args.seed,
         tensorboard_log=str(args.output_dir / "tensorboard"),
         n_steps=128, batch_size=64,
@@ -667,7 +678,6 @@ def main():
         target_kl=(args.target_kl if args.target_kl > 0 else None),
         gamma=0.99, gae_lambda=0.95,
         clip_range=0.2, ent_coef=0.01,
-        policy_kwargs=dict(net_arch=[dict(pi=[64, 64], vf=[64, 64])]),
     )
 
     if args.bc_demos is not None:
