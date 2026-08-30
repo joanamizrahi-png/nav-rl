@@ -12,7 +12,9 @@
 
 # Moving-through-the-world diffusion preview: consecutive recorded poses,
 # any resolution/steps. HEIGHT/WIDTH multiples of 112. Knobs:
-#   HEIGHT WIDTH NSTEPS FRAMES SCENE
+#   HEIGHT WIDTH NSTEPS FRAMES SCENE START TARGET LIVECKPT
+#   GOALFRAME (goal = pose at this frame) / GOALXY "x,y" — goal marker in
+#   both panels + topdown inset + distance HUD (goal-placement design tool)
 
 set -euo pipefail
 module load conda/24.3.0-0
@@ -33,6 +35,8 @@ python scripts/drive_preview.py \
     --frames "${FRAMES:-40}" \
     --start "${START:-5}" \
     ${TARGET:+--target_xy "$TARGET"} \
+    ${GOALFRAME:+--goal_frame "$GOALFRAME"} \
+    ${GOALXY:+--goal_xy "$GOALXY"} \
     --live_ckpt "${LIVECKPT:-/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors}" \
     --out /scratch/m000204-pm06b/joana/outputs/drive_preview
 

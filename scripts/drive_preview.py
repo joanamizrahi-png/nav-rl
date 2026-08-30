@@ -55,6 +55,13 @@ def main():
                     help="'x,y': leave the recorded path at --start and walk "
                          "STRAIGHT AT this nav-frame point in 0.25 m policy "
                          "steps, camera facing it (obstacle visibility quest)")
+    ap.add_argument("--goal_frame", type=int, default=None,
+                    help="mark the pose at this frame index as the GOAL: "
+                         "projected dot in both panels + topdown inset + "
+                         "distance in the HUD (goal-placement design tool)")
+    ap.add_argument("--goal_xy", default=None,
+                    help="'x,y': mark this nav-frame point as the GOAL "
+                         "(ignored if --goal_frame is set)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     if args.height % 112 or args.width % 112:
@@ -111,12 +118,60 @@ def main():
     target = (np.array([float(v) for v in args.target_xy.split(",")])
               if args.target_xy else None)
 
+    goal = None
+    if args.goal_frame is not None:
+        goal = np.asarray(cal.positions[args.goal_frame], dtype=float).copy()
+        goal[2] = 0.0
+    elif args.goal_xy:
+        gx, gy = (float(v) for v in args.goal_xy.split(","))
+        goal = np.array([gx, gy, 0.0])
+
+    path_xy = np.asarray(cal.positions, dtype=float)[:, :2]
+
+    def topdown_inset(cur_xy, side):
+        """Mini-map: recorded path, spawn end, current pose, goal. BGR."""
+        allp = (np.vstack([path_xy, goal[None, :2]])
+                if goal is not None else path_xy)
+        lo = allp.min(0) - 1.0
+        span = max(*(allp.max(0) + 1.0 - lo))
+        def px(p):
+            x = int((p[0] - lo[0]) / span * (side - 12)) + 6
+            y = side - 1 - (int((p[1] - lo[1]) / span * (side - 12)) + 6)
+            return x, y
+        img = np.full((side, side, 3), 25, np.uint8)
+        for a, b in zip(path_xy[:-1], path_xy[1:]):
+            cv2.line(img, px(a), px(b), (190, 190, 190), 1, cv2.LINE_AA)
+        cv2.circle(img, px(path_xy[0]), 3, (255, 255, 255), -1)   # pose 0
+        if goal is not None:
+            cv2.drawMarker(img, px(goal[:2]), (0, 255, 0),
+                           cv2.MARKER_CROSS, 9, 2)
+        cv2.circle(img, px(cur_xy), 4, (0, 140, 255), -1)         # current
+        return img
+
+    def project_goal(K, w2c):
+        """Goal -> pixel via the render's own K/w2c (OpenCV convention)."""
+        K = np.asarray(K, dtype=float).reshape(3, 3)
+        M = np.asarray(w2c, dtype=float)
+        if M.shape == (3, 4):
+            M = np.vstack([M, [0.0, 0.0, 0.0, 1.0]])
+        p = M @ np.array([goal[0], goal[1], goal[2], 1.0])
+        if p[2] <= 0.1:
+            return None
+        u = K[0, 0] * p[0] / p[2] + K[0, 2]
+        v = K[1, 1] * p[1] / p[2] + K[1, 2]
+        if not (0 <= u < args.width and 0 <= v < args.height):
+            return None
+        return int(u), int(v)
+
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     tag = (f"{args.scene}_{args.width}x{args.height}_s{args.num_steps}"
            + ("" if args.heading == "tangent" else "_rec")
            + ("" if args.start == 5 else f"_st{args.start}")
-           + ("" if target is None else "_totgt"))
+           + ("" if target is None else "_totgt")
+           + ("" if args.goal_frame is None else f"_gf{args.goal_frame}")
+           + ("" if (args.goal_frame is not None or not args.goal_xy) else
+              "_g" + args.goal_xy.replace(",", "_")))
     vw = None
     for step in range(args.frames):
         i = min(args.start + step, 80)
@@ -134,7 +189,23 @@ def main():
         sem_rgb = pal[np.clip(lab, 0, 13).astype(int)]        # HxWx3 RGB
         frame = np.hstack([rgb, sem_rgb])[:, :, ::-1]         # to BGR
         frame = np.ascontiguousarray(frame)
-        cv2.putText(frame, f"{tag}  pose {i}  {world.last_timings['total']:.2f}s",
+        hud = f"{tag}  pose {i}  {world.last_timings['total']:.2f}s"
+        if goal is not None:
+            gd = float(np.linalg.norm(goal[:2] - pose[:3, 3][:2]))
+            hud += f"  goal {gd:.1f}m"
+            uv = project_goal(K, w2c)
+            if uv is not None:
+                for dx in (0, args.width):
+                    cv2.circle(frame, (uv[0] + dx, uv[1]), 8, (0, 255, 0), 2)
+                    cv2.drawMarker(frame, (uv[0] + dx, uv[1]), (0, 255, 0),
+                                   cv2.MARKER_CROSS, 10, 2)
+            else:
+                hud += " (goal off-screen)"
+        side = max(96, args.height // 3)
+        inset = topdown_inset(pose[:3, 3][:2], side)
+        frame[frame.shape[0] - side - 8:frame.shape[0] - 8,
+              args.width - side - 8:args.width - 8] = inset
+        cv2.putText(frame, hud,
                     (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2,
                     cv2.LINE_AA)
         if vw is None:
