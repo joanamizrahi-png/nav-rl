@@ -141,6 +141,22 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
         tgt_mask = (tgt_alpha > 1.0).float()
         tgt_sem = bshape(sem_t.argmax(dim=-1).to(torch.long))
 
+        # Splat-raster debug view (2026-08-31, her ask): the raw Gaussian
+        # raster the diffusion is conditioned on, LAST history frame per item.
+        # Read-only attr, consumed by drive_preview's RASTER panel — shows
+        # where the splats end and diffusion hallucination begins.
+        try:
+            arr = tgt_rgb.reshape(B, k, -1)[:, -1].detach().float().cpu().numpy()
+            arr = arr.reshape(B, self.H, self.W, -1)[..., :3]
+            if arr.max() <= 1.5:
+                arr = arr * 255.0
+            self.last_raster = [np.clip(arr[i], 0, 255).astype(np.uint8)
+                                for i in range(B)]
+        except Exception as e:
+            print(f"[raster] debug view failed on shape "
+                  f"{tuple(tgt_rgb.shape)}: {e}", flush=True)
+            self.last_raster = None
+
         sink: dict = {}
         orig_decode = pipe.vae.decode
         pipe.vae.decode = _make_dual_decode(orig_decode, sink)

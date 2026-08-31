@@ -40,6 +40,7 @@ python scripts/drive_preview.py \
     ${GOALXY:+--goal_xy "$GOALXY"} \
     ${SPIN:+--spin} \
     ${SPINDEG:+--spin_deg "$SPINDEG"} \
+    ${RASTER:+--raster} \
     --live_ckpt "${LIVECKPT:-/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors}" \
     --out /scratch/m000204-pm06b/joana/outputs/drive_preview
 

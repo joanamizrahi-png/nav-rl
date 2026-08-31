@@ -69,6 +69,10 @@ def main():
     ap.add_argument("--spin_deg", type=float, default=360.0,
                     help="with --spin: sweep only +-this/2 around the path "
                          "tangent (visualize the goal cone's view range)")
+    ap.add_argument("--raster", action="store_true",
+                    help="append a third panel: the RAW Gaussian-splat raster "
+                         "the diffusion is conditioned on — shows where the "
+                         "splats end and hallucination begins")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     if args.height % 112 or args.width % 112:
@@ -197,7 +201,8 @@ def main():
                ("_spin" if args.spin_deg >= 360.0 else f"_spin{args.spin_deg:.0f}")))
            + ("" if args.goal_frame is None else f"_gf{args.goal_frame}")
            + ("" if (args.goal_frame is not None or not args.goal_xy) else
-              "_g" + args.goal_xy.replace(",", "_")))
+              "_g" + args.goal_xy.replace(",", "_"))
+           + ("_ras" if args.raster else ""))
     if args.spin:
         # Recorded-heading sanity: angle between the recorded camera forward
         # and the path tangent at the spin pose. Large values mean the spin
@@ -244,8 +249,21 @@ def main():
                     else cal.robot_pose_nav(i))
         (rgb, K, w2c, lab) = world.render_batch([(0, pose)])[0]
         sem_rgb = pal[np.clip(lab, 0, 13).astype(int)]        # HxWx3 RGB
-        frame = np.hstack([rgb, sem_rgb])[:, :, ::-1]         # to BGR
+        panels = [rgb, sem_rgb]
+        if args.raster:
+            ras = getattr(world, "last_raster", None)
+            ras = ras[0] if ras else np.zeros_like(rgb)
+            if ras.shape[:2] != rgb.shape[:2]:
+                ras = cv2.resize(ras, (rgb.shape[1], rgb.shape[0]),
+                                 interpolation=cv2.INTER_NEAREST)
+            panels.append(ras)
+        frame = np.hstack(panels)[:, :, ::-1]                 # to BGR
         frame = np.ascontiguousarray(frame)
+        if args.raster:
+            cv2.putText(frame, "SPLAT RASTER (pre-diffusion)",
+                        (2 * args.width + 8, frame.shape[0] - 12),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1,
+                        cv2.LINE_AA)
         # In totgt mode the walk leaves the recorded path, so "pose i" would be
         # a lie (found 2026-08-30: the off-path tree got mislocated to "pose 25")
         # — label by steps/meters walked instead.
