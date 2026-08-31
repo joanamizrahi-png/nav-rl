@@ -66,6 +66,9 @@ def main():
                     help="J-spec spawn certification: hold position at --start "
                          "and rotate a full 360 over --frames steps; HUD shows "
                          "heading + reconstruction coverage per view")
+    ap.add_argument("--spin_deg", type=float, default=360.0,
+                    help="with --spin: sweep only +-this/2 around the path "
+                         "tangent (visualize the goal cone's view range)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     if args.height % 112 or args.width % 112:
@@ -173,7 +176,8 @@ def main():
            + ("" if args.heading == "tangent" else "_rec")
            + ("" if args.start == 5 else f"_st{args.start}")
            + ("" if target is None else "_totgt")
-           + ("_spin" if args.spin else "")
+           + (("" if not args.spin else
+               ("_spin" if args.spin_deg >= 360.0 else f"_spin{args.spin_deg:.0f}")))
            + ("" if args.goal_frame is None else f"_gf{args.goal_frame}")
            + ("" if (args.goal_frame is not None or not args.goal_xy) else
               "_g" + args.goal_xy.replace(",", "_")))
@@ -182,7 +186,11 @@ def main():
         i = min(args.start + step, 80)
         if args.spin:
             i = args.start
-            ang = 2.0 * np.pi * step / max(args.frames, 1)
+            if args.spin_deg < 360.0:
+                sweep = np.deg2rad(args.spin_deg)
+                ang = sweep * (step / max(args.frames - 1, 1) - 0.5)
+            else:
+                ang = 2.0 * np.pi * step / max(args.frames, 1)
             base = tangent_pose(i)
             fwd = base[:2, 0]
             c, s = np.cos(ang), np.sin(ang)
@@ -206,7 +214,10 @@ def main():
         # In totgt mode the walk leaves the recorded path, so "pose i" would be
         # a lie (found 2026-08-30: the off-path tree got mislocated to "pose 25")
         # — label by steps/meters walked instead.
-        if args.spin:
+        if args.spin and args.spin_deg < 360.0:
+            off = args.spin_deg * (step / max(args.frames - 1, 1) - 0.5)
+            where = f"tangent{off:+.0f}deg @pose {i}"
+        elif args.spin:
             where = f"heading {int(360 * step / max(args.frames, 1)):3d}deg @pose {i}"
         elif target is not None:
             where = f"step {step} ({0.25 * step:.1f}m walked)"
