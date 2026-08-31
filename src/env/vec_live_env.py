@@ -84,6 +84,14 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
         cal = self._calib[self._current_scene_id]
         pipe = self._pipe
         device = next(pipe.reconstructor.parameters()).device
+        # 2026-08-30: the startup pre-reconstruction pass parks scene caches on
+        # CPU; whatever path re-activates the resident scene can miss the
+        # upload (cdist device crash, G12 456804). Guard here — the render is
+        # the one place that MUST have the scene on the GPU.
+        if torch.is_tensor(scene.get("K")) and scene["K"].device.type == "cpu":
+            from .real_backend import _move_tree_to
+            scene = _move_tree_to(scene, device)
+            self._cache[self._current_scene_id] = scene
         B, k = len(items), self.live_frames
         t0 = time.perf_counter()
 
