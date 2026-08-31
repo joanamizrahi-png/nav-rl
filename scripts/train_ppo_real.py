@@ -279,12 +279,19 @@ def make_live_vec_env(args):
     # so the next reconstruction also sees a clean GPU; rotation later never
     # reconstructs, it only uploads from the cache.
     if len(scenes) > 1:
+        import gc as _gc
         import torch as _torch
         from src.env.real_backend import _move_tree_to
         for s in scenes:
-            print(f"[make_live_vec_env] pre-reconstructing {s} ...", flush=True)
+            free0 = _torch.cuda.mem_get_info()[0] / 1e9
+            print(f"[make_live_vec_env] pre-reconstructing {s} "
+                  f"(free {free0:.1f} GB) ...", flush=True)
             world.load_scene(s)
             world._cache[s] = _move_tree_to(world._cache[s], "cpu")
+            # 2026-08-30 night: without an explicit collect, ~GBs leak per
+            # reconstruction at 560 (8 scenes in, headroom was gone) — the
+            # evicted GPU tensors hang on ref cycles until gc runs.
+            _gc.collect()
             _torch.cuda.empty_cache()
     world.load_scene(scenes[0])
 
