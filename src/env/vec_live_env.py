@@ -119,9 +119,14 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
         # view is backed by real Gaussians vs inpainted. Read-only attr;
         # consumed by drive_preview's HUD.
         try:
+            # Shape-robust: whatever the leading layout, total elements are
+            # (B*k*H*W[*1]) in flat stacking order — reshape and take the
+            # LAST history frame per item.
             self.last_coverage = float(
-                alpha_t.reshape(B, k, *alpha_t.shape[1:])[:, -1].mean())
-        except Exception:
+                alpha_t.reshape(B, k, -1)[:, -1].float().mean())
+        except Exception as e:
+            print(f"[coverage] failed on alpha shape "
+                  f"{tuple(alpha_t.shape)}: {e}", flush=True)
             self.last_coverage = float("nan")
         sem_t, _, _ = raster.forward(
             scene["gaussians"], render_viewmats=[w2c], render_Ks=[K_rep],
