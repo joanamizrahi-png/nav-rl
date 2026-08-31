@@ -244,6 +244,20 @@ if [ "${RW5:-0}" = "1" ]; then
     BC_ARGS="$BC_ARGS --goal_bonus 1000 --goal_radius 0.5 --goal_weight 10 --timeout_penalty 100 --proximity_delta --proximity_weight 10 --proximity_margin 5 --clouds_dir /scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds --action_smooth_cost 5 --forward_only --collision_terminate_frac 0.35 --collision_terminate_penalty 1000"
     OUT="${OUT}_rw5"
 fi
+# SEMW: semantic terrain-reward weight override (2026-08-31 preference pair:
+# SEMW=5 vs SEMW=0 warm-started twins answer "does the semantic term teach
+# terrain values"). Default (unset) keeps 1.0.
+if [ -n "${SEMW:-}" ]; then
+    BC_ARGS="$BC_ARGS --semantic_weight $SEMW"
+    OUT="${OUT}_semw${SEMW}"
+fi
+# GOALNOISE: std (meters) of Gaussian noise added to the goal-vector obs each
+# step (2026-08-31 anti-odometry lever: a noisy compass forces the policy to
+# use vision for reliable navigation).
+if [ -n "${GOALNOISE:-}" ]; then
+    BC_ARGS="$BC_ARGS --goal_noise_std $GOALNOISE"
+    OUT="${OUT}_gn${GOALNOISE}"
+fi
 # HEIGHT/WIDTH: native render+observation resolution (multiples of 112).
 # The policy CNN sizes itself to this — checkpoints do NOT warm-start across
 # resolutions. Speed rung measured 2026-08-28: 336x224 ~2.2x faster.

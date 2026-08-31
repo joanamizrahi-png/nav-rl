@@ -230,6 +230,7 @@ def _scene_env_cfg(args):
         obs_out_hw=((getattr(args, "obs_height", 336), getattr(args, "obs_width", 560))
                     if (getattr(args, "render_height", None)
                         or getattr(args, "render_width", None)) else None),
+        goal_noise_std=getattr(args, "goal_noise_std", 0.0),
         proximity_delta=getattr(args, "proximity_delta", False),
         timeout_penalty=getattr(args, "timeout_penalty", 0.0),
         reward_scale=getattr(args, "reward_scale", 1.0),
@@ -634,6 +635,10 @@ def main():
                          "N robot-steps (0 = never; needs --scenes)")
     ap.add_argument("--goal_weight", type=float, default=1.5,
                     help="progress-to-goal shaping weight")
+    ap.add_argument("--goal_noise_std", type=float, default=0.0,
+                    help="std (m) of Gaussian noise on the goal-vector obs xy "
+                         "each step — the anti-odometry lever; reward and "
+                         "termination still use the true goal")
     ap.add_argument("--semantic_weight", type=float, default=1.0,
                     help="terrain/semantic footprint weight (0 disables)")
     ap.add_argument("--timeout_penalty", type=float, default=0.0,

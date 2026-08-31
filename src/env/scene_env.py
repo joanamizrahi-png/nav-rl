@@ -140,6 +140,12 @@ class SceneEnvConfig:
     # reward/footprint/labels, and only the policy-facing obs["rgb"] is
     # downsampled to (h, w). None = obs at render size (every run before this).
     obs_out_hw: "tuple | None" = None
+    # Anti-odometry lever (2026-08-31): Gaussian noise (std in meters) added to
+    # the goal-vector observation's xy each step. A perfect goal vector makes
+    # vision optional for the dominant reward terms — a noisy compass forces
+    # visual navigation. 0 = off (every run before this). Reward/termination
+    # still use the TRUE goal; only the policy's observation is corrupted.
+    goal_noise_std: float = 0.0
     clouds_dir: "str | None" = None     # dir holding <scene>_cloud.npz files
     # Trajectory output (plan-B arm, 2026-08-25): the policy emits k action
     # pairs per decision and only observes again after all k execute. Rewards
@@ -537,6 +543,10 @@ class SceneEnv(gym.Env if gym is not None else object):
 
     def _obs(self) -> dict:
         goal_robot = self._goal_in_robot_frame()
+        if self.cfg.goal_noise_std > 0.0:
+            goal_robot = goal_robot.copy()
+            goal_robot[:2] += self.np_random.normal(
+                0.0, self.cfg.goal_noise_std, size=2)
         rgb = self._last_rgb
         if self.cfg.obs_out_hw is not None:
             oh, ow = int(self.cfg.obs_out_hw[0]), int(self.cfg.obs_out_hw[1])
