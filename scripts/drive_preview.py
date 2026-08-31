@@ -135,8 +135,12 @@ def main():
 
     path_xy = np.asarray(cal.positions, dtype=float)[:, :2]
 
-    def topdown_inset(cur_xy, side):
-        """Mini-map: recorded path, spawn end, current pose, goal. BGR."""
+    def topdown_inset(cur_xy, side, cur_fwd=None, rec_fwd=None):
+        """Mini-map: recorded path, spawn end, current pose, goal. BGR.
+        cur_fwd/rec_fwd: world-frame XY unit vectors — orange arrow = where
+        the render is facing, white arrow = the RECORDED camera heading at
+        this pose (should lie along the path; if not, the recorded
+        orientation itself is wrong and spins center on garbage)."""
         allp = (np.vstack([path_xy, goal[None, :2]])
                 if goal is not None else path_xy)
         lo = allp.min(0) - 1.0
@@ -152,7 +156,20 @@ def main():
         if goal is not None:
             cv2.drawMarker(img, px(goal[:2]), (0, 255, 0),
                            cv2.MARKER_CROSS, 9, 2)
-        cv2.circle(img, px(cur_xy), 4, (0, 140, 255), -1)         # current
+        cx, cy = px(cur_xy)
+        def arrow(fwd_xy, length, color, thick):
+            n = float(np.linalg.norm(fwd_xy))
+            if n < 1e-6:
+                return
+            fx, fy = fwd_xy[0] / n, fwd_xy[1] / n
+            tip = (int(cx + fx * length), int(cy - fy * length))  # y up->down
+            cv2.arrowedLine(img, (cx, cy), tip, color, thick,
+                            cv2.LINE_AA, tipLength=0.35)
+        if rec_fwd is not None:
+            arrow(rec_fwd, side * 0.30, (255, 255, 255), 1)
+        if cur_fwd is not None:
+            arrow(cur_fwd, side * 0.20, (0, 140, 255), 2)
+        cv2.circle(img, (cx, cy), 4, (0, 140, 255), -1)           # current
         return img
 
     def project_goal(K, w2c):
@@ -181,6 +198,16 @@ def main():
            + ("" if args.goal_frame is None else f"_gf{args.goal_frame}")
            + ("" if (args.goal_frame is not None or not args.goal_xy) else
               "_g" + args.goal_xy.replace(",", "_")))
+    if args.spin:
+        # Recorded-heading sanity: angle between the recorded camera forward
+        # and the path tangent at the spin pose. Large values mean the spin
+        # center itself is off-path and every offset inherits that error.
+        rp = cal.robot_pose_nav(args.start)[:2, 0]
+        tp = tangent_pose(args.start)[:2, 0]
+        dang = np.degrees(np.arctan2(rp[0] * tp[1] - rp[1] * tp[0],
+                                     float(np.dot(rp, tp))))
+        print(f"[spin] recorded heading vs path tangent at pose "
+              f"{args.start}: {dang:+.1f}deg", flush=True)
     vw = None
     for step in range(args.frames):
         i = min(args.start + step, 80)
@@ -245,8 +272,10 @@ def main():
                                    cv2.MARKER_CROSS, 10, 2)
             else:
                 hud += " (goal off-screen)"
-        side = max(96, args.height // 3)
-        inset = topdown_inset(pose[:3, 3][:2], side)
+        side = max(120, args.height // 3)
+        inset = topdown_inset(pose[:3, 3][:2], side,
+                              cur_fwd=pose[:2, 0],
+                              rec_fwd=cal.robot_pose_nav(i)[:2, 0])
         frame[frame.shape[0] - side - 8:frame.shape[0] - 8,
               args.width - side - 8:args.width - 8] = inset
         cv2.putText(frame, hud,
