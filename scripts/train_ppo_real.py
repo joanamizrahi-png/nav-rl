@@ -272,6 +272,20 @@ def make_live_vec_env(args):
         cfg, checkpoint=args.live_ckpt, live_frames=args.live_frames,
         alpha_gate=not getattr(args, "no_alpha_gate", False))
     world.num_inference_steps = args.live_steps
+    # Pre-reconstruct EVERY rotation scene now, while GPU headroom is maximal
+    # (2026-08-30, G12 saga: first-visit reconstruction mid-training OOMs at
+    # 560-render — training state + the resident scene's splats eat the ~7.3GB
+    # the reconstructor needs). Each fresh cache is evicted to CPU immediately
+    # so the next reconstruction also sees a clean GPU; rotation later never
+    # reconstructs, it only uploads from the cache.
+    if len(scenes) > 1:
+        import torch as _torch
+        from src.env.real_backend import _move_tree_to
+        for s in scenes:
+            print(f"[make_live_vec_env] pre-reconstructing {s} ...", flush=True)
+            world.load_scene(s)
+            world._cache[s] = _move_tree_to(world._cache[s], "cpu")
+            _torch.cuda.empty_cache()
     world.load_scene(scenes[0])
 
     envs = []
