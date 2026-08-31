@@ -258,6 +258,17 @@ if [ -n "${GOALNOISE:-}" ]; then
     BC_ARGS="$BC_ARGS --goal_noise_std $GOALNOISE"
     OUT="${OUT}_gn${GOALNOISE}"
 fi
+# GOALXY: fix the goal at 'x,y' every episode — obstacle-encounter training
+# (goals behind an obstacle). SPAWNMAX caps spawn frames (pair with SPAWNMIN
+# for a tight before-the-obstacle spawn zone).
+if [ -n "${GOALXY:-}" ]; then
+    BC_ARGS="$BC_ARGS --goal_xy $GOALXY"
+    OUT="${OUT}_gxy${GOALXY/,/_}"
+fi
+if [ -n "${SPAWNMAX:-}" ]; then
+    BC_ARGS="$BC_ARGS --spawn_max_frame $SPAWNMAX"
+    OUT="${OUT}_smax${SPAWNMAX}"
+fi
 # HEIGHT/WIDTH: native render+observation resolution (multiples of 112).
 # The policy CNN sizes itself to this — checkpoints do NOT warm-start across
 # resolutions. Speed rung measured 2026-08-28: 336x224 ~2.2x faster.

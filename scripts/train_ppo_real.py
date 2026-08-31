@@ -166,6 +166,8 @@ def make_env(args):
         goal_frame_range=tuple(args.goal_frame_range) if args.goal_frame_range else None,
         goal_min_sep_m=args.goal_min_sep,
         spawn_max_frame=args.spawn_max_frame,
+        goal_xy_override=(tuple(float(v) for v in args.goal_xy.split(","))
+                          if getattr(args, "goal_xy", None) else None),
         render_mode="rasterizer_only",       # cheap per-step; diffusion later
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -261,6 +263,8 @@ def make_live_vec_env(args):
         goal_frame_range=tuple(args.goal_frame_range) if args.goal_frame_range else None,
         goal_min_sep_m=args.goal_min_sep,
         spawn_max_frame=args.spawn_max_frame,
+        goal_xy_override=(tuple(float(v) for v in args.goal_xy.split(","))
+                          if getattr(args, "goal_xy", None) else None),
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -635,6 +639,11 @@ def main():
                          "N robot-steps (0 = never; needs --scenes)")
     ap.add_argument("--goal_weight", type=float, default=1.5,
                     help="progress-to-goal shaping weight")
+    ap.add_argument("--goal_xy", default=None,
+                    help="'x,y': FIX the goal at this nav-frame point every "
+                         "episode — obstacle-encounter training (2026-08-31, "
+                         "Jing's non-traversable-areas directive): goals "
+                         "placed behind an obstacle force avoidance learning")
     ap.add_argument("--goal_noise_std", type=float, default=0.0,
                     help="std (m) of Gaussian noise on the goal-vector obs xy "
                          "each step — the anti-odometry lever; reward and "
