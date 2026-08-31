@@ -219,13 +219,21 @@ def main():
         if args.spin:
             i = args.start
             if args.spin_deg < 360.0:
-                # Diverge from center: 0, +d, -d, +2d, -2d, ... — the video
-                # OPENS on the best-supported view and quality decays outward
-                # (her spec 2026-08-31; also makes the cov curve symmetric).
-                half_steps = max((args.frames - 1) // 2, 1)
-                d = np.deg2rad(args.spin_deg) / 2.0 / half_steps
-                k = (step + 1) // 2
-                ang = d * k * (1 if step % 2 == 1 else -1) if step > 0 else 0.0
+                # MONOTONIC pan (her fix 2026-08-31 #2): the generator is a
+                # VIDEO model conditioned on the previous poses — the earlier
+                # diverging order 0,+5,-5,+10,... fed it a jittering camera
+                # and poisoned the conditioning. Sweep smoothly instead:
+                # 0 -> -S/2 -> back through 0 -> +S/2, opening on the recorded
+                # pose (her spec) so the history warms up on the best view.
+                # Use FRAMES = 3*m+1 (e.g. 49 @ SPINDEG=160 = 5deg/step) for
+                # equal angular speed on both legs.
+                n = max(args.frames - 1, 3)
+                m = max(n // 3, 1)
+                half = np.deg2rad(args.spin_deg) / 2.0
+                if step <= m:
+                    ang = -half * step / m
+                else:
+                    ang = -half + 2.0 * half * (step - m) / (n - m)
             else:
                 ang = 2.0 * np.pi * step / max(args.frames, 1)
             # Center on the RECORDED camera heading — maximal quality by
