@@ -411,6 +411,48 @@ class CalibratedRealWorldBackend(RealWorldBackend):
             "timestamp": torch.arange(0, n, dtype=torch.int64, device=device).unsqueeze(0),
             "labels": torch.as_tensor(labels[:n], dtype=torch.long, device=device).unsqueeze(0),
         }
+        # PANO SIDE-VIEWS (2026-08-31, the true-360 track): if virtual pinhole
+        # side views carved from a 360 pano exist beside the clip
+        # (<stem>_pano_yawNNN.mp4, made by prepare_rosbag_clips --pano_topic)
+        # AND have v14 labels (<stem>_pano_yawNNN.npz in the labels dir),
+        # append them to the reconstruction diet at the SAME timestamps —
+        # real geometry at the flanks, so off-heading rendering stops
+        # hallucinating. Back view (yaw180) excluded by convention: the
+        # operator-followers live there. Inert when the files don't exist.
+        from pathlib import Path as _P
+        _vp, _lp = _P(video_path), _P(labels_path)
+        for _yaw in (90, 270):
+            side_mp4 = _vp.with_name(f"{_vp.stem}_pano_yaw{_yaw:03d}.mp4")
+            side_lab = _lp.with_name(f"{_lp.stem}_pano_yaw{_yaw:03d}.npz")
+            if not (side_mp4.exists() and side_lab.exists()):
+                continue
+            simgs = load_video(str(side_mp4), cfg.num_frames,
+                               resolution=(cfg.W, cfg.H),
+                               resize_mode="center_crop", static_scene=False)
+            slab = np.load(side_lab)["labels"]
+            if slab.shape[-2:] != (cfg.H, cfg.W):
+                lt = torch.as_tensor(np.ascontiguousarray(slab))[:, None].float()
+                slab = torch.nn.functional.interpolate(
+                    lt, size=(cfg.H, cfg.W), mode="nearest"
+                )[:, 0].to(torch.int64).numpy()
+            m = min(len(simgs), len(slab), n)
+            views["img"] = torch.cat(
+                [views["img"], torch.stack(
+                    [F.to_tensor(im)[None] for im in simgs[:m]],
+                    dim=1).to(device)], dim=1)
+            for k2, fill in (("is_target", False), ("is_static", False)):
+                views[k2] = torch.cat(
+                    [views[k2], torch.full((1, m), fill, dtype=torch.bool,
+                                           device=device)], dim=1)
+            views["timestamp"] = torch.cat(
+                [views["timestamp"], torch.arange(
+                    0, m, dtype=torch.int64, device=device).unsqueeze(0)], dim=1)
+            views["labels"] = torch.cat(
+                [views["labels"], torch.as_tensor(
+                    slab[:m], dtype=torch.long,
+                    device=device).unsqueeze(0)], dim=1)
+            print(f"[pano] {_vp.stem}: appended side view yaw{_yaw:03d} "
+                  f"({m} frames)", flush=True)
         with torch.no_grad(), torch.amp.autocast("cuda", dtype=dtype):
             predictions = reconstructor(views, is_inference=True, use_motion=False)
         cache = {
