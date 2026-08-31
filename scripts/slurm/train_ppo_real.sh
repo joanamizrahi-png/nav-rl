@@ -284,6 +284,10 @@ if [ -n "${GOALRANGE:-}" ]; then
     BC_ARGS="$BC_ARGS --goal_dist_range $GOALRANGE"
     OUT="${OUT}_gr${GOALRANGE/,/-}"
 fi
+if [ -n "${GOALCONE:-}" ]; then
+    BC_ARGS="$BC_ARGS --goal_cone_deg $GOALCONE"
+    OUT="${OUT}_gc${GOALCONE}"
+fi
 if [ -n "${SPAWNCLS:-}" ]; then
     BC_ARGS="$BC_ARGS --spawn_classes $SPAWNCLS"
     OUT="${OUT}_spcls"

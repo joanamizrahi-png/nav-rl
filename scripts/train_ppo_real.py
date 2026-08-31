@@ -169,6 +169,7 @@ def make_env(args):
         goal_xy_override=(tuple(float(v) for v in args.goal_xy.split(","))
                           if getattr(args, "goal_xy", None) else None),
         goal_dir_360=getattr(args, "goal_dir_360", False),
+        goal_cone_deg=getattr(args, "goal_cone_deg", 360.0),
         goal_dist_range=(tuple(float(v) for v in args.goal_dist_range.split(","))
                          if getattr(args, "goal_dist_range", None) else None),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
@@ -271,6 +272,7 @@ def make_live_vec_env(args):
         goal_xy_override=(tuple(float(v) for v in args.goal_xy.split(","))
                           if getattr(args, "goal_xy", None) else None),
         goal_dir_360=getattr(args, "goal_dir_360", False),
+        goal_cone_deg=getattr(args, "goal_cone_deg", 360.0),
         goal_dist_range=(tuple(float(v) for v in args.goal_dist_range.split(","))
                          if getattr(args, "goal_dist_range", None) else None),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
@@ -655,6 +657,10 @@ def main():
                          "land on non-traversable ground BY DESIGN")
     ap.add_argument("--goal_dist_range", default=None,
                     help="'lo,hi' meters for --goal_dir_360 (e.g. 5,10)")
+    ap.add_argument("--goal_cone_deg", type=float, default=360.0,
+                    help="constrain --goal_dir_360 bearings to +-this/2 of "
+                         "the path tangent (single-pass capture only renders "
+                         "a forward cone; 360 once pano scenes exist)")
     ap.add_argument("--spawn_classes", default=None,
                     help="comma class ids; only spawn on frames whose ground "
                          "patch is one of these (e.g. 6,8 = sidewalk/pavement)")

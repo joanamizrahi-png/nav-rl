@@ -177,6 +177,12 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # world model is never asked to render where reconstruction is empty.
     goal_dir_360: bool = False
     goal_dist_range: "tuple | None" = None      # (lo_m, hi_m), e.g. (5, 10)
+    # Cone constraint (2026-08-31, her spin sweep verdict: single-pass capture
+    # only supports a forward viewing cone — backward views render the backs
+    # of one-sided splats and the reward labels there are garbage). Goals are
+    # sampled within +-goal_cone_deg/2 of the path tangent at the spawn.
+    # 360 = unconstrained (the original J-spec; valid once pano scenes land).
+    goal_cone_deg: float = 360.0
     # Spawn validity (her check): only spawn on frames whose ground patch is
     # labeled with one of these class ids (e.g. (6, 8) = sidewalk/pavement).
     # None = no filtering (all runs before this).
@@ -320,7 +326,18 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         if self.cfg.goal_dir_360:
             lo_d, hi_d = self.cfg.goal_dist_range or (5.0, 10.0)
             d = float(rng.uniform(lo_d, hi_d))
-            th = float(rng.uniform(0.0, 2.0 * np.pi))
+            cone = float(self.cfg.goal_cone_deg)
+            if cone >= 360.0:
+                th = float(rng.uniform(0.0, 2.0 * np.pi))
+            else:
+                cal = self._calib[scene_id]
+                pos = np.asarray(cal.positions)[:, :2]
+                i = int(np.argmin(np.linalg.norm(
+                    pos - np.asarray(spawn_xy), axis=1)))
+                fwd = pos[min(i + 1, len(pos) - 1)] - pos[max(i - 1, 0)]
+                base = float(np.arctan2(fwd[1], fwd[0]))
+                half = float(np.deg2rad(cone)) / 2.0
+                th = base + float(rng.uniform(-half, half))
             return np.array([spawn_xy[0] + d * np.cos(th),
                              spawn_xy[1] + d * np.sin(th), 0.0],
                             dtype=np.float32)
