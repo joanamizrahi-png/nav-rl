@@ -73,6 +73,12 @@ def main():
                     help="append a third panel: the RAW Gaussian-splat raster "
                          "the diffusion is conditioned on — shows where the "
                          "splats end and hallucination begins")
+    ap.add_argument("--goal_sample", default=None,
+                    help="'cone_deg,dmin,dmax,seed': sample a goal EXACTLY "
+                         "like J-training does (tangent-centered cone at "
+                         "--start, uniform dist) then walk straight at it, "
+                         "camera on it — a rendered J-episode. Spawn is the "
+                         "recorded path pose at --start.")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     if args.height % 112 or args.width % 112:
@@ -130,7 +136,26 @@ def main():
               if args.target_xy else None)
 
     goal = None
-    if args.goal_frame is not None:
+    gs_seed = None
+    if args.goal_sample:
+        cone_deg, dmin, dmax, s = (float(v) for v in args.goal_sample.split(","))
+        gs_seed = int(s)
+        rng = np.random.default_rng(gs_seed)
+        pos = np.asarray(cal.positions, dtype=float)[:, :2]
+        i0 = args.start
+        fwd = pos[min(i0 + 1, len(pos) - 1)] - pos[max(i0 - 1, 0)]
+        base = float(np.arctan2(fwd[1], fwd[0]))
+        th = base + float(rng.uniform(-np.deg2rad(cone_deg) / 2.0,
+                                      np.deg2rad(cone_deg) / 2.0))
+        d = float(rng.uniform(dmin, dmax))
+        goal = np.array([pos[i0, 0] + d * np.cos(th),
+                         pos[i0, 1] + d * np.sin(th), 0.0])
+        target = goal[:2].copy()
+        print(f"[goal_sample] cone {cone_deg:.0f}deg dist {dmin:.0f}-{dmax:.0f}m "
+              f"seed {gs_seed} -> goal ({goal[0]:.2f},{goal[1]:.2f})  "
+              f"offset {np.degrees(th - base):+.1f}deg  dist {d:.2f}m",
+              flush=True)
+    elif args.goal_frame is not None:
         goal = np.asarray(cal.positions[args.goal_frame], dtype=float).copy()
         goal[2] = 0.0
     elif args.goal_xy:
@@ -202,6 +227,7 @@ def main():
            + ("" if args.goal_frame is None else f"_gf{args.goal_frame}")
            + ("" if (args.goal_frame is not None or not args.goal_xy) else
               "_g" + args.goal_xy.replace(",", "_"))
+           + ("" if gs_seed is None else f"_gs{gs_seed}")
            + ("_ras" if args.raster else ""))
     if args.spin:
         # Recorded-heading sanity: angle between the recorded camera forward
