@@ -282,17 +282,35 @@ def make_live_vec_env(args):
         import gc as _gc
         import torch as _torch
         from src.env.real_backend import _move_tree_to
+        done = []
         for s in scenes:
             free0 = _torch.cuda.mem_get_info()[0] / 1e9
-            print(f"[make_live_vec_env] pre-reconstructing {s} "
-                  f"(free {free0:.1f} GB) ...", flush=True)
-            world.load_scene(s)
+            try:
+                world.load_scene(s)
+            except _torch.cuda.OutOfMemoryError:
+                # 2026-08-30: ~2 GB/scene leaks through eviction at 560-render
+                # (measured ladder 32.6->18.7 over 8 scenes). Until the leak is
+                # found, survive: train on the scenes that fit, say so loudly.
+                print(f"[make_live_vec_env] OOM pre-reconstructing {s} — "
+                      f"PRUNING scene list to the {len(done)} that fit: "
+                      f"{done}", flush=True)
+                break
             world._cache[s] = _move_tree_to(world._cache[s], "cpu")
-            # 2026-08-30 night: without an explicit collect, ~GBs leak per
-            # reconstruction at 560 (8 scenes in, headroom was gone) — the
-            # evicted GPU tensors hang on ref cycles until gc runs.
+            # Clear the rasterizer's own splat reference (leak suspect #1) and
+            # collect ref cycles before measuring.
+            runner = getattr(getattr(getattr(world._reconstructor, "gs_renderer", None),
+                                     "rasterizer", None), "runner", None)
+            if runner is not None and hasattr(runner, "splats"):
+                runner.splats = None
             _gc.collect()
             _torch.cuda.empty_cache()
+            free1 = _torch.cuda.mem_get_info()[0] / 1e9
+            done.append(s)
+            print(f"[make_live_vec_env] pre-reconstructed {s}: free "
+                  f"{free0:.1f} -> {free1:.1f} GB (leak {free0 - free1:.2f})",
+                  flush=True)
+        if done and len(done) < len(scenes):
+            scenes = done
     world.load_scene(scenes[0])
 
     envs = []
