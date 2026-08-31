@@ -269,6 +269,25 @@ if [ -n "${SPAWNMAX:-}" ]; then
     BC_ARGS="$BC_ARGS --spawn_max_frame $SPAWNMAX"
     OUT="${OUT}_smax${SPAWNMAX}"
 fi
+# J-spec knobs (2026-08-31 Jing meeting): strict traversability table, 360
+# random goals at 5-10m, spawn-validity filter. TRAV overrides RW5's table
+# (argparse last-wins).
+if [ -n "${TRAV:-}" ]; then
+    BC_ARGS="$BC_ARGS --trav_path $TRAV"
+    OUT="${OUT}_trstrict"
+fi
+if [ "${GOAL360:-0}" = "1" ]; then
+    BC_ARGS="$BC_ARGS --goal_dir_360"
+    OUT="${OUT}_g360"
+fi
+if [ -n "${GOALRANGE:-}" ]; then
+    BC_ARGS="$BC_ARGS --goal_dist_range $GOALRANGE"
+    OUT="${OUT}_gr${GOALRANGE/,/-}"
+fi
+if [ -n "${SPAWNCLS:-}" ]; then
+    BC_ARGS="$BC_ARGS --spawn_classes $SPAWNCLS"
+    OUT="${OUT}_spcls"
+fi
 # HEIGHT/WIDTH: native render+observation resolution (multiples of 112).
 # The policy CNN sizes itself to this — checkpoints do NOT warm-start across
 # resolutions. Speed rung measured 2026-08-28: 336x224 ~2.2x faster.

@@ -169,6 +169,18 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # frame is chosen (within goal_frame_range) so the straight-line distance
     # from the spawn is as close as possible to this many meters.
     goal_dist_m: "float | None" = None
+    # J-spec (2026-08-31, Jing meeting): goals at a random bearing (full 360,
+    # NOT on the trajectory) and a random distance drawn from goal_dist_range.
+    # Goals may land on non-traversable ground BY DESIGN — with the strict
+    # traversability table the optimal policy walks the sidewalk to the edge
+    # nearest the goal and stops. The robot itself stays on-corridor, so the
+    # world model is never asked to render where reconstruction is empty.
+    goal_dir_360: bool = False
+    goal_dist_range: "tuple | None" = None      # (lo_m, hi_m), e.g. (5, 10)
+    # Spawn validity (her check): only spawn on frames whose ground patch is
+    # labeled with one of these class ids (e.g. (6, 8) = sidewalk/pavement).
+    # None = no filtering (all runs before this).
+    spawn_label_classes: "tuple | None" = None
     # Keep spawns out of the weak-reconstruction zone at the clip's edges
     # (live generation confabulates there — measured 2026-08-29).
     spawn_min_frame: int = 0
@@ -249,7 +261,44 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         hi = max(lo + 1, hi)
         if self.cfg.spawn_max_frame is not None:
             hi = max(lo + 1, min(hi, self.cfg.spawn_max_frame))
+        ok = self._spawn_ok_frames(scene_id)
+        if ok is not None:
+            cand = [f for f in range(lo, hi) if ok[f]]
+            if cand:
+                return cal.robot_pose_nav(int(cand[int(rng.integers(0, len(cand)))]))
+            print(f"[spawn_label_classes] WARNING: no valid spawn frames in "
+                  f"[{lo},{hi}) for {scene_id}; falling back to unfiltered")
         return cal.robot_pose_nav(int(rng.integers(lo, hi)))
+
+    _spawn_ok_cache: "dict | None" = None
+
+    def _spawn_ok_frames(self, scene_id: str):
+        """Per-frame spawn validity from the scene's label npz: the ground
+        patch under the camera (bottom-center of the frame) must be one of
+        cfg.spawn_label_classes. Computed once per scene. None = filter off."""
+        if self.cfg.spawn_label_classes is None:
+            return None
+        if self._spawn_ok_cache is None:
+            self._spawn_ok_cache = {}
+        if scene_id in self._spawn_ok_cache:
+            return self._spawn_ok_cache[scene_id]
+        labels_path = self.cfg.scene_labels_paths.get(scene_id)
+        if labels_path is None:
+            self._spawn_ok_cache[scene_id] = None
+            return None
+        labels = np.load(labels_path)["labels"]          # [T, H, W]
+        H, W = labels.shape[-2:]
+        patch = labels[:, int(H * 0.8):, int(W * 0.35):int(W * 0.65)]
+        allowed = set(int(c) for c in self.cfg.spawn_label_classes)
+        ok = np.zeros(len(labels), dtype=bool)
+        for i in range(len(labels)):
+            vals, counts = np.unique(patch[i], return_counts=True)
+            ok[i] = int(vals[np.argmax(counts)]) in allowed
+        n = int(ok.sum())
+        print(f"[spawn_label_classes] {scene_id}: {n}/{len(ok)} frames "
+              f"spawnable on classes {sorted(allowed)}")
+        self._spawn_ok_cache[scene_id] = ok
+        return ok
 
     def goal_position(self, scene_id: str) -> np.ndarray:
         if self.cfg.goal_xy_override is not None:
@@ -268,6 +317,13 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         """Per-episode goal (rung 6). With goal_frame_range set, draw a frame
         uniformly, rejecting draws closer than min_sep_m to the spawn (those
         episodes are pre-won and teach nothing). Range unset -> fixed goal."""
+        if self.cfg.goal_dir_360:
+            lo_d, hi_d = self.cfg.goal_dist_range or (5.0, 10.0)
+            d = float(rng.uniform(lo_d, hi_d))
+            th = float(rng.uniform(0.0, 2.0 * np.pi))
+            return np.array([spawn_xy[0] + d * np.cos(th),
+                             spawn_xy[1] + d * np.sin(th), 0.0],
+                            dtype=np.float32)
         if self.cfg.goal_xy_override is not None or self.cfg.goal_frame_range is None:
             return self.goal_position(scene_id)
         cal = self._calib[scene_id]

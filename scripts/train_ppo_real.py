@@ -168,6 +168,11 @@ def make_env(args):
         spawn_max_frame=args.spawn_max_frame,
         goal_xy_override=(tuple(float(v) for v in args.goal_xy.split(","))
                           if getattr(args, "goal_xy", None) else None),
+        goal_dir_360=getattr(args, "goal_dir_360", False),
+        goal_dist_range=(tuple(float(v) for v in args.goal_dist_range.split(","))
+                         if getattr(args, "goal_dist_range", None) else None),
+        spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
+                             if getattr(args, "spawn_classes", None) else None),
         render_mode="rasterizer_only",       # cheap per-step; diffusion later
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -265,6 +270,11 @@ def make_live_vec_env(args):
         spawn_max_frame=args.spawn_max_frame,
         goal_xy_override=(tuple(float(v) for v in args.goal_xy.split(","))
                           if getattr(args, "goal_xy", None) else None),
+        goal_dir_360=getattr(args, "goal_dir_360", False),
+        goal_dist_range=(tuple(float(v) for v in args.goal_dist_range.split(","))
+                         if getattr(args, "goal_dist_range", None) else None),
+        spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
+                             if getattr(args, "spawn_classes", None) else None),
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -639,6 +649,15 @@ def main():
                          "N robot-steps (0 = never; needs --scenes)")
     ap.add_argument("--goal_weight", type=float, default=1.5,
                     help="progress-to-goal shaping weight")
+    ap.add_argument("--goal_dir_360", action="store_true",
+                    help="J-spec: goals at random 360-degree bearing and "
+                         "random distance (--goal_dist_range) from spawn; may "
+                         "land on non-traversable ground BY DESIGN")
+    ap.add_argument("--goal_dist_range", default=None,
+                    help="'lo,hi' meters for --goal_dir_360 (e.g. 5,10)")
+    ap.add_argument("--spawn_classes", default=None,
+                    help="comma class ids; only spawn on frames whose ground "
+                         "patch is one of these (e.g. 6,8 = sidewalk/pavement)")
     ap.add_argument("--goal_xy", default=None,
                     help="'x,y': FIX the goal at this nav-frame point every "
                          "episode — obstacle-encounter training (2026-08-31, "

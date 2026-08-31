@@ -1,0 +1,46 @@
+# STRICT campus traversability (2026-08-31, Jing's spec: robot only on hard
+# walkways; grass is NON-traversable). Classes at 0.0 score below the 0.1
+# collision threshold -> stepping there is a collision; >=0.35 footprint
+# overlap crash-terminates. sidewalk/pavement 1.0 per Joana.
+0:
+  name: void
+  score: 0.0
+1:
+  name: sky
+  score: 0.0
+2:
+  name: trail
+  score: 0.0
+3:
+  name: grass
+  score: 0.0
+4:
+  name: rough
+  score: 0.0
+5:
+  name: water
+  score: 0.0
+6:
+  name: sidewalk
+  score: 1.0
+7:
+  name: road
+  score: 0.15
+8:
+  name: pavement
+  score: 1.0
+9:
+  name: stairs
+  score: 0.3
+10:
+  name: obstacle
+  score: 0.0
+11:
+  name: vegetation
+  score: 0.0
+12:
+  name: person
+  score: 0.0
+13:
+  name: vehicle
+  score: 0.0
