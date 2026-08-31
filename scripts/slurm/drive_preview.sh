@@ -38,6 +38,7 @@ python scripts/drive_preview.py \
     ${TARGET:+--target_xy "$TARGET"} \
     ${GOALFRAME:+--goal_frame "$GOALFRAME"} \
     ${GOALXY:+--goal_xy "$GOALXY"} \
+    ${SPIN:+--spin} \
     --live_ckpt "${LIVECKPT:-/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors}" \
     --out /scratch/m000204-pm06b/joana/outputs/drive_preview
 

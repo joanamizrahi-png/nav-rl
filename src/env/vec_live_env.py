@@ -114,6 +114,15 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
             scene["gaussians"], render_viewmats=[w2c], render_Ks=[K_rep],
             render_timestamps=[target_ts], sh_degree=0,
             width=self.W, height=self.H)
+        # Coverage telemetry (2026-08-31, her spawn-certification ask): mean
+        # reconstruction alpha of the LAST frame per item = how much of the
+        # view is backed by real Gaussians vs inpainted. Read-only attr;
+        # consumed by drive_preview's HUD.
+        try:
+            self.last_coverage = float(
+                alpha_t.reshape(B, k, *alpha_t.shape[1:])[:, -1].mean())
+        except Exception:
+            self.last_coverage = float("nan")
         sem_t, _, _ = raster.forward(
             scene["gaussians"], render_viewmats=[w2c], render_Ks=[K_rep],
             render_timestamps=[target_ts], sh_degree=0,

@@ -62,6 +62,10 @@ def main():
     ap.add_argument("--goal_xy", default=None,
                     help="'x,y': mark this nav-frame point as the GOAL "
                          "(ignored if --goal_frame is set)")
+    ap.add_argument("--spin", action="store_true",
+                    help="J-spec spawn certification: hold position at --start "
+                         "and rotate a full 360 over --frames steps; HUD shows "
+                         "heading + reconstruction coverage per view")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     if args.height % 112 or args.width % 112:
@@ -169,13 +173,23 @@ def main():
            + ("" if args.heading == "tangent" else "_rec")
            + ("" if args.start == 5 else f"_st{args.start}")
            + ("" if target is None else "_totgt")
+           + ("_spin" if args.spin else "")
            + ("" if args.goal_frame is None else f"_gf{args.goal_frame}")
            + ("" if (args.goal_frame is not None or not args.goal_xy) else
               "_g" + args.goal_xy.replace(",", "_")))
     vw = None
     for step in range(args.frames):
         i = min(args.start + step, 80)
-        if target is not None:
+        if args.spin:
+            i = args.start
+            ang = 2.0 * np.pi * step / max(args.frames, 1)
+            base = tangent_pose(i)
+            fwd = base[:2, 0]
+            c, s = np.cos(ang), np.sin(ang)
+            fwd_rot = np.array([c * fwd[0] - s * fwd[1],
+                                s * fwd[0] + c * fwd[1]])
+            pose = pose_at(base[:2, 3], fwd_rot)
+        elif target is not None:
             origin = np.asarray(cal.positions[args.start])[:2]
             d = target - origin
             dist = np.linalg.norm(d)
@@ -192,9 +206,16 @@ def main():
         # In totgt mode the walk leaves the recorded path, so "pose i" would be
         # a lie (found 2026-08-30: the off-path tree got mislocated to "pose 25")
         # — label by steps/meters walked instead.
-        where = (f"step {step} ({0.25 * step:.1f}m walked)"
-                 if target is not None else f"pose {i}")
+        if args.spin:
+            where = f"heading {int(360 * step / max(args.frames, 1)):3d}deg @pose {i}"
+        elif target is not None:
+            where = f"step {step} ({0.25 * step:.1f}m walked)"
+        else:
+            where = f"pose {i}"
         hud = f"{tag}  {where}  {world.last_timings['total']:.2f}s"
+        cov = getattr(world, "last_coverage", None)
+        if cov is not None and cov == cov:
+            hud += f"  cov {cov * 100:.0f}%"
         if goal is not None:
             gd = float(np.linalg.norm(goal[:2] - pose[:3, 3][:2]))
             hud += f"  goal {gd:.1f}m"
