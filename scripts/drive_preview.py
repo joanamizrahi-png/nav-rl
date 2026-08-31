@@ -187,16 +187,24 @@ def main():
         if args.spin:
             i = args.start
             if args.spin_deg < 360.0:
-                sweep = np.deg2rad(args.spin_deg)
-                ang = sweep * (step / max(args.frames - 1, 1) - 0.5)
+                # Diverge from center: 0, +d, -d, +2d, -2d, ... — the video
+                # OPENS on the best-supported view and quality decays outward
+                # (her spec 2026-08-31; also makes the cov curve symmetric).
+                half_steps = max((args.frames - 1) // 2, 1)
+                d = np.deg2rad(args.spin_deg) / 2.0 / half_steps
+                k = (step + 1) // 2
+                ang = d * k * (1 if step % 2 == 1 else -1) if step > 0 else 0.0
             else:
                 ang = 2.0 * np.pi * step / max(args.frames, 1)
-            base = tangent_pose(i)
+            # Center on the RECORDED camera heading — maximal quality by
+            # construction — not the path tangent.
+            base = cal.robot_pose_nav(i)
             fwd = base[:2, 0]
             c, s = np.cos(ang), np.sin(ang)
             fwd_rot = np.array([c * fwd[0] - s * fwd[1],
                                 s * fwd[0] + c * fwd[1]])
             pose = pose_at(base[:2, 3], fwd_rot)
+            spin_off_deg = float(np.degrees(ang))
         elif target is not None:
             origin = np.asarray(cal.positions[args.start])[:2]
             d = target - origin
@@ -215,8 +223,7 @@ def main():
         # a lie (found 2026-08-30: the off-path tree got mislocated to "pose 25")
         # — label by steps/meters walked instead.
         if args.spin and args.spin_deg < 360.0:
-            off = args.spin_deg * (step / max(args.frames - 1, 1) - 0.5)
-            where = f"tangent{off:+.0f}deg @pose {i}"
+            where = f"rec{spin_off_deg:+.0f}deg @pose {i}"
         elif args.spin:
             where = f"heading {int(360 * step / max(args.frames, 1)):3d}deg @pose {i}"
         elif target is not None:
@@ -250,8 +257,13 @@ def main():
                                  cv2.VideoWriter_fourcc(*"mp4v"), 5.0,
                                  (frame.shape[1], frame.shape[0]))
         vw.write(frame)
+        cov_txt = ""
+        if cov is not None and cov == cov:
+            cov_txt = f"  cov {cov * 100:5.1f}%"
+        off_txt = (f"  off {spin_off_deg:+6.1f}deg"
+                   if (args.spin and args.spin_deg < 360.0) else "")
         print(f"[{step + 1}/{args.frames}] pose {i} "
-              f"{world.last_timings['total']:.2f}s", flush=True)
+              f"{world.last_timings['total']:.2f}s{off_txt}{cov_txt}", flush=True)
     vw.release()
     print(f"==> {out_dir / f'DRIVE_{tag}.mp4'}", flush=True)
 
