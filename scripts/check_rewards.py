@@ -73,9 +73,23 @@ def pose_at(xy, heading):
 
 
 def episode_poses(cal, rng, n_steps, cone_deg, dist_range, yaw_jit, lat_jit,
-                  spawn_min=10, goal_xy=None, spawn_frame=None):
+                  spawn_min=10, goal_xy=None, spawn_frame=None,
+                  walk="straight", step_size_m=0.3, yaw_step_rad=0.5,
+                  wander_fwd_min=0.0):
     """One J-spec episode: jittered spawn on the recorded path, goal in the
-    tangent cone, then a straight walk toward it in 0.3 m steps.
+    tangent cone, then a walk from there.
+
+    walk="straight": drive dead at the goal. This is the BEST case — the
+      perfectly-trained policy that never leaves the cone. It samples the
+      corridor we already believe is coherent, so it systematically MISSES the
+      regime where the world model actually breaks down (Joana, 2026-09-01:
+      "the policy still wanders off on its own... going too far away into
+      completely incoherent/hallucinated zone").
+
+    walk="wander": random actions through the REAL kinematics (yaw first, then
+      translate along the new heading — mirrors SceneEnv._advance_pose), which
+      is what an untrained policy does. This is the regime the gate has to
+      survive.
 
     goal_xy overrides the sampled goal (obstacle probe): the walk then heads at
     a fixed world point, so the same real obstacle is approached every episode.
@@ -96,10 +110,21 @@ def episode_poses(cal, rng, n_steps, cone_deg, dist_range, yaw_jit, lat_jit,
         th = base + np.deg2rad(rng.uniform(-1, 1) * cone_deg / 2.0)
         goal = p + rng.uniform(*dist_range) * np.array([np.cos(th), np.sin(th)])
 
-    u = (goal - p) / max(np.linalg.norm(goal - p), 1e-6)
     poses = [pose_at(p, yaw)]
-    for k in range(1, n_steps):
-        poses.append(pose_at(p + u * 0.3 * k, float(np.arctan2(u[1], u[0]))))
+    if walk == "wander":
+        cur_p, cur_yaw = p.astype(float).copy(), float(yaw)
+        for _ in range(1, n_steps):
+            a_fwd = rng.uniform(wander_fwd_min, 1.0)
+            a_yaw = rng.uniform(-1.0, 1.0)
+            cur_yaw += a_yaw * yaw_step_rad          # yaw first ...
+            cur_p = cur_p + a_fwd * step_size_m * np.array(
+                [np.cos(cur_yaw), np.sin(cur_yaw)])   # ... then translate
+            poses.append(pose_at(cur_p, cur_yaw))
+    else:
+        u = (goal - p) / max(np.linalg.norm(goal - p), 1e-6)
+        for k in range(1, n_steps):
+            poses.append(pose_at(p + u * step_size_m * k,
+                                 float(np.arctan2(u[1], u[0]))))
     return poses, goal
 
 
@@ -133,7 +158,10 @@ def render_episodes(args):
             cal, rng, args.steps, args.cone_deg,
             tuple(float(v) for v in args.dist_range.split(",")),
             args.spawn_yaw_jitter, args.spawn_lat_jitter,
-            goal_xy=goal_xy, spawn_frame=args.spawn_frame)
+            goal_xy=goal_xy, spawn_frame=args.spawn_frame,
+            walk=args.walk, step_size_m=args.step_size_m,
+            yaw_step_rad=args.yaw_step_rad,
+            wander_fwd_min=args.wander_fwd_min)
         prev = None
         for si, pose in enumerate(poses):
             (rgb, K, w2c, lab) = world.render_batch([(0, pose)])[0]
@@ -261,6 +289,15 @@ def main():
                     help="alpha-gate thresholds to score; 0 = ungated")
     ap.add_argument("--gate_tau", type=float, default=0.5,
                     help="the threshold shown in the panels and detail blocks")
+    ap.add_argument("--walk", default="straight", choices=["straight", "wander"],
+                    help="straight = drive at the goal (best case, coherent "
+                         "corridor); wander = random actions through the real "
+                         "kinematics (what an untrained policy does)")
+    ap.add_argument("--step_size_m", type=float, default=0.3)
+    ap.add_argument("--yaw_step_rad", type=float, default=0.5)
+    ap.add_argument("--wander_fwd_min", type=float, default=0.0,
+                    help="lower bound on the forward action while wandering; "
+                         "-1 allows backing up, 0 keeps it moving outward")
     ap.add_argument("--goal_xy", default="",
                     help="obstacle probe: fixed world goal 'x,y' for all episodes")
     ap.add_argument("--spawn_frame", type=int, default=None,
@@ -318,6 +355,46 @@ def main():
         print(alpha_histogram(fp_a))
         print("  A GAP between two humps = a principled threshold. A smooth "
               "ramp = any threshold is a policy choice, not a fact.", flush=True)
+
+    # ---- COHERENCE: does consecutive stepping stay in the SAME world? ----
+    # Joana's worse-than-phantom failure mode (2026-09-01): "it hallucinates a
+    # completely different scene or something completely incoherent". A 0.3 m
+    # step in a coherent world changes the image a little; a world model that
+    # flips to a different scene changes it a lot. Measure that jump directly,
+    # and check whether raster support predicts it.
+    jump_keys = set()
+    jumps = []
+    for i in range(1, len(recs)):
+        a, b = recs[i - 1], recs[i]
+        if b["ep"] != a["ep"] or b["step"] != a["step"] + 1:
+            continue
+        d = float(np.abs(b["rgb"].astype(np.int16)
+                         - a["rgb"].astype(np.int16)).mean() / 255.0)
+        dist = float(np.linalg.norm(b["pos"][:2] - a["pos"][:2]))
+        ma = float(b["alpha"].mean()) if b["alpha"] is not None else float("nan")
+        jumps.append((d, dist, ma, b["ep"], b["step"]))
+    if jumps:
+        J = np.array([[j[0], j[1], j[2]] for j in jumps], dtype=float)
+        print("\n===== COHERENCE BETWEEN CONSECUTIVE STEPS =====")
+        print(f"  frame-to-frame |dRGB| (0-1):  mean {J[:, 0].mean():.4f}  "
+              f"p50 {np.percentile(J[:, 0], 50):.4f}  "
+              f"p90 {np.percentile(J[:, 0], 90):.4f}  max {J[:, 0].max():.4f}")
+        print(f"  distance moved per step (m):  mean {J[:, 1].mean():.3f}  "
+              f"max {J[:, 1].max():.3f}")
+        if not np.isnan(J[:, 2]).all():
+            order = np.argsort(J[:, 2])
+            k = max(len(order) // 3, 1)
+            lo, hi = order[:k], order[-k:]
+            print(f"  LOW-support third  (alpha {J[lo, 2].mean():.3f}):  "
+                  f"jump {J[lo, 0].mean():.4f}")
+            print(f"  HIGH-support third (alpha {J[hi, 2].mean():.3f}):  "
+                  f"jump {J[hi, 0].mean():.4f}")
+            print("  Low-support third jumping MORE = coverage predicts "
+                  "coherence (Joana's hypothesis).")
+        worst = sorted(jumps, key=lambda j: -j[0])[:4]
+        print("  worst jumps (panels saved):  " + ", ".join(
+            f"ep{e}s{s} d={d:.3f} alpha={m:.2f}" for d, _, m, e, s in worst))
+        jump_keys = {(e, s) for _, _, _, e, s in worst}
 
     # ---- does the diffusion degrade where the rasterizer has no support? ----
     # Joana's hypothesis (2026-09-01): world-model coherence tracks how much of
@@ -444,10 +521,13 @@ def main():
                 return "RESCUED"        # gate turned a crash into survivable void
             if key in crash_g:
                 return "NEWCRASH"       # gate CREATED a crash — must be zero
+            if key in jump_keys:
+                return "JUMP"           # biggest frame-to-frame incoherence
             return "ok"
 
         # every episode-0 step (the walk-through), plus EVERY crash-level step
-        # wherever it happened — those are the frames the whole argument rests on
+        # and the worst coherence jumps wherever they happened — those are the
+        # frames the whole argument rests on
         sel = [r for r in recs if r["ep"] == 0
                or verdict((r["ep"], r["step"])) != "ok"]
         for r in sel:

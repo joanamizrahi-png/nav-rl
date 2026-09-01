@@ -40,6 +40,7 @@ python scripts/check_rewards.py \
     --steps "${STEPS:-8}" \
     --sweep "${SWEEP:-0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8}" \
     --gate_tau "${GATETAU:-0.5}" \
+    --walk "${WALK:-straight}" \
     --live_ckpt "${LIVECKPT:-/scratch/m000204-pm06b/joana/runs/train_semantic_v21/checkpoint-epoch-12.safetensors}" \
     "${EXTRA[@]}"
 

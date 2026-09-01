@@ -298,6 +298,31 @@ class SceneEnv(gym.Env if gym is not None else object):
         cv2.imwrite(str(out / f"collision_{self._failure_snaps:04d}_"
                               f"{self._scene_id}_step{self._steps:03d}.png"),
                     img[:, :, ::-1])
+
+        # Machine-readable sidecar (2026-09-01). The pose used to live only in
+        # the burned-in text, so 1304 crash snapshots could be looked at but
+        # never REPLAYED — we could not re-render a crash to ask whether the
+        # obstacle was real. One CSV line per crash fixes that for good.
+        try:
+            hd_w = pose[:3, :3] @ np.array([1.0, 0.0, 0.0])
+            csv_p = out / "crash_poses.csv"
+            if not csv_p.exists():
+                csv_p.write_text(
+                    "n,scene,step,x,y,z,hx,hy,goal_x,goal_y,collision,"
+                    "void_frac,dominant,footprint_px,trav_px\n")
+            with open(csv_p, "a") as fh:
+                fh.write(
+                    f"{self._failure_snaps},{self._scene_id},{self._steps},"
+                    f"{pose[0, 3]:.4f},{pose[1, 3]:.4f},{pose[2, 3]:.4f},"
+                    f"{hd_w[0]:.4f},{hd_w[1]:.4f},"
+                    f"{self._goal_world[0]:.4f},{self._goal_world[1]:.4f},"
+                    f"{breakdown.collision:.4f},{breakdown.void_frac:.4f},"
+                    f"{breakdown.dominant_class_id},"
+                    f"{breakdown.n_footprint_pixels},"
+                    f"{breakdown.n_traversable_pixels}\n")
+        except Exception:
+            pass
+
         self._failure_snaps += 1
 
     # ---------------- gym API ----------------
