@@ -124,8 +124,12 @@ def run(args, gate: bool):
                 weights=weights)
             prev = np.array([pos[0], pos[1], 0.0])
             if ep == 0:                      # frames for the visual check
+                _ras = getattr(world, "last_raster", None)
+                _sr = getattr(world, "last_sem_raster", None)
                 keep.append((rgb.copy(), lab.copy(),
-                             None if a is None else a.copy()))
+                             None if a is None else a.copy(),
+                             None if not _ras else _ras[0].copy(),
+                             None if not _sr else _sr[0].copy()))
             cls, cnt = np.unique(lab, return_counts=True)
             top = V14_NAMES[int(cls[np.argmax(cnt)])]
             rows.append(dict(
@@ -207,9 +211,13 @@ def main():
         import cv2
         from diffsynth.utils.class_taxonomy import v14_palette
         pal = (v14_palette(args.sem_palette).numpy() * 255).astype(np.uint8)
-        for i, ((rgb, lu, au), (_, lg, _)) in enumerate(
-                zip(frames["ungated"], frames["gated"])):
+        for i, (fu, fg) in enumerate(zip(frames["ungated"], frames["gated"])):
+            rgb, lu, au, ras, sras = fu
+            lg = fg[1]
             pu, pg = pal[np.clip(lu, 0, 13)], pal[np.clip(lg, 0, 13)]
+            ras = np.zeros_like(rgb) if ras is None else ras
+            psr = (np.zeros_like(rgb) if sras is None
+                   else pal[np.clip(sras, 0, 13).astype(int)])
             if au is not None:
                 amax = float(np.percentile(au, 99)) or 1.0
                 heat = cv2.applyColorMap(
@@ -217,7 +225,7 @@ def main():
                     cv2.COLORMAP_VIRIDIS)[:, :, ::-1]
             else:
                 heat = np.zeros_like(rgb)
-            panel = np.hstack([rgb, pu, pg, heat])[:, :, ::-1]
+            panel = np.hstack([rgb, ras, pu, pg, psr, heat])[:, :, ::-1]
             panel = np.ascontiguousarray(panel)
             ru = out["ungated"][i]; rg = out["gated"][i]
             hud = (f"step {i}  UNGATED coll {ru['fp_coll']:.2f} void "
@@ -226,7 +234,10 @@ def main():
                    f"alpha_mean {rg['mean_alpha']:.2f}")
             cv2.putText(panel, hud, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                         (255, 255, 255), 1, cv2.LINE_AA)
-            for k, name in enumerate(["RGB", "LABELS ungated", "LABELS gated",
+            for k, name in enumerate(["RGB diffused", "RGB raster (splats)",
+                                      "SEM diffused ungated",
+                                      "SEM diffused gated",
+                                      "SEM raster (splat labels)",
                                       "SUPPORT (alpha)"]):
                 cv2.putText(panel, name, (k * args.width + 8,
                                           panel.shape[0] - 10),
