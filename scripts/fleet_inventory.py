@@ -103,6 +103,30 @@ def _is_token(p: str) -> bool:
                any(c.isdigit() for c in p[len(pre):]) for pre, _ in VALUED)
 
 
+def eval_index(root: Path) -> dict:
+    """run dir -> list of (eval dir, success_rate).
+
+    eval_policy.py writes to its OWN --out_dir (outputs/eval_*), not into the
+    run directory, and records the checkpoint path inside metrics.json. So the
+    only way to know whether a run was ever evaluated is to read every
+    metrics.json and map its checkpoint back to the run it came from.
+    """
+    import json
+    idx = {}
+    for mp in root.glob("*/metrics.json"):
+        try:
+            s = json.loads(mp.read_text()).get("summary", {})
+        except Exception:
+            continue
+        ck = str(s.get("checkpoint", ""))
+        for d in root.glob("ppo_*"):
+            if d.is_dir() and (str(d) + "/") in ck:
+                idx.setdefault(d.name, []).append(
+                    (mp.parent.name, s.get("success_rate")))
+                break
+    return idx
+
+
 def running_dirs() -> dict:
     """job id -> output dir, read from each job's launcher echo."""
     out = {}
@@ -136,6 +160,7 @@ def main():
 
     live = running_dirs()
     live_by_dir = {v: k for k, v in live.items()}
+    evals = eval_index(Path(args.root))
 
     rows = []
     for d in sorted(Path(args.root).glob("ppo_*")):
@@ -152,13 +177,22 @@ def main():
                 last = max(last, int(m.group(1)))
         fails = len(list((d / "failures").glob("*.png"))) if (d / "failures").is_dir() else 0
         has_crash_csv = (d / "failures" / "crash_poses.csv").exists()
-        evald = any((d / s).exists() for s in ("eval", "evals", "eval_out")) or \
-            bool(list(d.glob("eval*")))
+        # failure_snap_max is 200 PER ENV (scene_env.py), so an x8 run caps at
+        # ~1600 and the column saturates. Flag it — it is not a crash count.
+        nrob = int(cfg.get("n_robots", "1") or 1)
+        cap = 200 * max(nrob, 1)
+        ev = evals.get(d.name, [])
+        best = max((e[1] for e in ev if e[1] is not None), default=None)
         final = (d / "ppo_final.zip").exists()
         age_h = (time.time() - d.stat().st_mtime) / 3600.0
         rows.append(dict(
             job=live_by_dir.get(str(d), ""), name=d.name,
-            mode=cfg.get("mode", "?"), scene=cfg.get("scene", "?"),
+            mode=cfg.get("mode", "?"),
+            # ms6/ms12 runs rotate over N scenes; the member list lives only in
+            # the launcher's "==> rung:" line, never in the directory name — so
+            # printing the base scene here would be a lie.
+            scene=(f"multi-{cfg['multi_scene']}" if cfg.get("multi_scene")
+                   else cfg.get("scene", "?")),
             gate=cfg.get("gate"), reward=cfg.get("reward"),
             sem=cfg.get("semantics"), semw=cfg.get("semantic_w", ""),
             trav=cfg.get("trav", "v14"), cone=cfg.get("goal_cone", ""),
@@ -167,14 +201,16 @@ def main():
             n_robots=cfg.get("n_robots", "1"),
             ckpt_steps=last, n_ckpt=len(ck), crashes=fails,
             crash_csv="yes" if has_crash_csv else "",
-            done="yes" if final else "", evaluated="yes" if evald else "",
+            done="yes" if final else "",
+            evals=len(ev), best_sr="" if best is None else best,
+            capped="CAP" if fails >= 0.95 * cap else "",
             idle_h=round(age_h, 1)))
 
-    rows.sort(key=lambda r: (r["evaluated"] != "", -r["ckpt_steps"]))
+    rows.sort(key=lambda r: (r["evals"] > 0, -r["ckpt_steps"]))
 
     hdr = ["job", "scene", "mode", "gate", "reward", "sem", "semw", "trav",
            "cone", "voidterm", "ivt", "enc", "warm", "ckpt_steps", "crashes",
-           "done", "evaluated", "idle_h"]
+           "capped", "done", "evals", "best_sr", "idle_h"]
     w = {h: max(len(h), *(len(str(r.get(h, ""))) for r in rows)) if rows else len(h)
          for h in hdr}
     print("  ".join(h.ljust(w[h]) for h in hdr))
@@ -182,9 +218,12 @@ def main():
     for r in rows:
         print("  ".join(str(r.get(h, "")).ljust(w[h]) for h in hdr))
     print(f"\n{len(rows)} runs   "
-          f"{sum(1 for r in rows if r['evaluated'])} evaluated   "
-          f"{sum(1 for r in rows if not r['evaluated'] and r['ckpt_steps'] > 0)} "
+          f"{sum(1 for r in rows if r['evals'])} evaluated   "
+          f"{sum(1 for r in rows if not r['evals'] and r['ckpt_steps'] > 0)} "
           f"trained but NEVER evaluated")
+    print("NOTE  'crashes' counts snapshot PNGs and saturates at 200 per robot "
+          "(scene_env.failure_snap_max);\n      'CAP' means it hit the ceiling "
+          "— it is a sample of crashes, not a crash rate.")
     print("\nfull names:")
     for r in rows:
         print(f"  {r['job'] or '   -  '}  {r['name']}")

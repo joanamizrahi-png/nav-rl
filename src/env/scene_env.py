@@ -84,6 +84,9 @@ class WorldBackend(Protocol):
 # Env config
 # ---------------------------------------------------------------------------
 
+_ENV_SEQ = 0    # per-process env counter, tags crash snapshots
+
+
 @dataclass
 class SceneEnvConfig:
     max_steps: int = 100
@@ -247,6 +250,12 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._last_K: Optional[np.ndarray] = None
         self._last_w2c: Optional[np.ndarray] = None
         self._failure_snaps = 0
+        # x4/x8 runs put N envs behind one failure_snap_dir, each with its own
+        # counter — so robot 0 and robot 1 both wrote collision_0000_... and
+        # silently overwrote each other. Every env gets a tag (2026-09-01).
+        global _ENV_SEQ
+        _ENV_SEQ += 1
+        self._env_tag = _ENV_SEQ
 
     def _save_failure_snapshot(self, breakdown, semantic_image) -> None:
         """One PNG per collision: [obs RGB | v14-colorized semantics], with the
@@ -295,7 +304,8 @@ class SceneEnv(gym.Env if gym is not None else object):
                          f"trav_px={breakdown.n_traversable_pixels}", (6, 37),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
         img = np.concatenate([bar, panel], axis=0)
-        cv2.imwrite(str(out / f"collision_{self._failure_snaps:04d}_"
+        cv2.imwrite(str(out / f"collision_e{self._env_tag:02d}_"
+                              f"{self._failure_snaps:04d}_"
                               f"{self._scene_id}_step{self._steps:03d}.png"),
                     img[:, :, ::-1])
 
@@ -308,11 +318,12 @@ class SceneEnv(gym.Env if gym is not None else object):
             csv_p = out / "crash_poses.csv"
             if not csv_p.exists():
                 csv_p.write_text(
-                    "n,scene,step,x,y,z,hx,hy,goal_x,goal_y,collision,"
+                    "env,n,scene,step,x,y,z,hx,hy,goal_x,goal_y,collision,"
                     "void_frac,dominant,footprint_px,trav_px\n")
             with open(csv_p, "a") as fh:
                 fh.write(
-                    f"{self._failure_snaps},{self._scene_id},{self._steps},"
+                    f"{self._env_tag},{self._failure_snaps},"
+                    f"{self._scene_id},{self._steps},"
                     f"{pose[0, 3]:.4f},{pose[1, 3]:.4f},{pose[2, 3]:.4f},"
                     f"{hd_w[0]:.4f},{hd_w[1]:.4f},"
                     f"{self._goal_world[0]:.4f},{self._goal_world[1]:.4f},"
