@@ -63,7 +63,8 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
     """Per-action live generation with the semantic diffusion pipeline."""
 
     def __init__(self, cfg, checkpoint: str, live_frames: int = 5,
-                 alpha_gate: bool = False, num_classes: int = 14,
+                 alpha_gate: bool = False, alpha_gate_tau: float = 0.5,
+                 num_classes: int = 14,
                  lora_rank: int = 8,
                  lora_target_modules: str = "q,k,v,o,ffn.0,ffn.2"):
         # Any mode other than "rasterizer_plus_diffusion" keeps the scene
@@ -74,6 +75,12 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         self._sem_checkpoint = checkpoint
         self.live_frames = int(live_frames)
         self._alpha_gate = bool(alpha_gate)
+        # Gate threshold. 0.5 was inherited and never validated; the sweep on
+        # 2026-09-01 (gnd_AUw360, 32 renders) showed alpha is BIMODAL — 24% of
+        # pixels below 0.1, 48% above 0.9, a shallow trough between — and that
+        # every phantom crash is already removed at tau=0.1, so everything
+        # above that is pure cost. Default stays 0.5 so old runs reproduce.
+        self._alpha_gate_tau = float(alpha_gate_tau)
         self._num_classes = int(num_classes)
         self._lora_rank = int(lora_rank)
         self._lora_targets = lora_target_modules
@@ -235,7 +242,8 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
             lab_last = labels[-1].astype(np.int8)
         else:  # checkpoint without semantic output — degrade to raster hint
             lab_last = target_semantic[0, -1].detach().cpu().numpy().astype(np.int8)
-        alpha_last = (target_alpha[0, -1].detach().float().cpu().numpy() > 0.5).squeeze(-1)
+        alpha_last = (target_alpha[0, -1].detach().float().cpu().numpy()
+                      > self._alpha_gate_tau).squeeze(-1)
         if self._alpha_gate:
             gated = lab_last.copy()
             gated[~alpha_last] = 0

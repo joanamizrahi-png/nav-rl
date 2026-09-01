@@ -244,7 +244,8 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
                 tgt_sem[i, -1].detach().cpu().numpy().astype(np.int8)
                 for i in range(B)]
 
-        alpha_last = (tgt_alpha[:, -1].detach().float().cpu().numpy() > 0.5)
+        alpha_last = (tgt_alpha[:, -1].detach().float().cpu().numpy()
+                      > getattr(self, "_alpha_gate_tau", 0.5))
         if alpha_last.ndim == 4:
             alpha_last = alpha_last.squeeze(-1)
 

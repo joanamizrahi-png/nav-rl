@@ -42,12 +42,13 @@ TOKENS = [
     ("cur",      lambda v: ("curriculum", "on")),
     ("mf",       lambda v: ("footprint", "along-motion")),
     ("fwd",      lambda v: ("forward_only", "yes")),
+    ("both",     lambda v: ("encoder", "both")),
     ("dinov2",   lambda v: ("encoder", "dinov2")),
     ("resnet18", lambda v: ("encoder", "resnet18")),
 ]
 # prefix -> column, for tokens that carry a value
 VALUED = [
-    ("smax", "spawn_max"), ("smin", "spawn_min"), ("sjy", "spawn_jit_yaw"),
+    ("tau", "gate_tau"), ("smax", "spawn_max"), ("smin", "spawn_min"), ("sjy", "spawn_jit_yaw"),
     ("sjl", "spawn_jit_lat"), ("gxy", "goal_xy"), ("gds", "goal_dist_start"),
     ("gd", "goal_dist"), ("gr", "goal_range"), ("gc", "goal_cone"),
     ("gn", "goal_noise"), ("ivt", "imgvoidterm"), ("vt", "voidterm"),
@@ -209,7 +210,8 @@ def main():
     rows.sort(key=lambda r: (r["evals"] > 0, -r["ckpt_steps"]))
 
     hdr = ["job", "scene", "mode", "gate", "reward", "sem", "semw", "trav",
-           "cone", "voidterm", "ivt", "enc", "warm", "ckpt_steps", "crashes",
+           "cone", "gate_tau", "voidterm", "ivt", "enc", "warm", "ckpt_steps",
+           "crashes",
            "capped", "done", "evals", "best_sr", "idle_h"]
     w = {h: max(len(h), *(len(str(r.get(h, ""))) for r in rows)) if rows else len(h)
          for h in hdr}

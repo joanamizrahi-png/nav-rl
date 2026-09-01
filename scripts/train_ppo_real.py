@@ -199,14 +199,16 @@ def make_env(args):
         from src.env.live_backend import LiveDiffusedBackend
         world = LiveDiffusedBackend(cfg, checkpoint=args.live_ckpt,
                                     live_frames=args.live_frames,
-                                    alpha_gate=not getattr(args, "no_alpha_gate", False))
+                                    alpha_gate=not getattr(args, "no_alpha_gate", False),
+        alpha_gate_tau=getattr(args, "alpha_gate_tau", 0.5))
     elif getattr(args, "obs_cache", None):
         # Ribbon-cache mode: observations = precomputed diffused views (v10 +
         # reader), reward labels = the cache's alpha-masked diffused labels.
         # No GPU rendering during training at all.
         from src.env.cached_backend import CachedDiffusedBackend
         world = CachedDiffusedBackend(cfg, cache_root=args.obs_cache,
-                                      alpha_gate=not getattr(args, "no_alpha_gate", False))
+                                      alpha_gate=not getattr(args, "no_alpha_gate", False),
+        alpha_gate_tau=getattr(args, "alpha_gate_tau", 0.5))
     else:
         world = CalibratedRealWorldBackend(cfg)
     sem = GaussianLabelBackend(world)
@@ -303,7 +305,8 @@ def make_live_vec_env(args):
     )
     world = BatchedLiveDiffusedBackend(
         cfg, checkpoint=args.live_ckpt, live_frames=args.live_frames,
-        alpha_gate=not getattr(args, "no_alpha_gate", False))
+        alpha_gate=not getattr(args, "no_alpha_gate", False),
+        alpha_gate_tau=getattr(args, "alpha_gate_tau", 0.5))
     world.num_inference_steps = args.live_steps
     # Pre-reconstruct EVERY rotation scene now, while GPU headroom is maximal
     # (2026-08-30, G12 saga: first-visit reconstruction mid-training OOMs at
@@ -614,6 +617,10 @@ def main():
     ap.add_argument("--void_terminate_penalty", type=float, default=100.0,
                     help="cost applied on void termination (RW5 scale: a real "
                          "crash is 1000)")
+    ap.add_argument("--alpha_gate_tau", type=float, default=0.5,
+                    help="alpha below this is relabelled void in the REWARD's "
+                         "label map (never in the observation). Measured "
+                         "2026-09-01: all phantom crashes gone by 0.1")
     ap.add_argument("--no_alpha_gate", action="store_true",
                     help="UNGATED reward: trust diffused labels in invented regions too "
                          "(coherence-justified; the gated run is the safety-anchored twin)")

@@ -300,6 +300,13 @@ if [ -n "${VOIDTERM:-}" ]; then
     BC_ARGS="$BC_ARGS --void_terminate_frac $VOIDTERM"
     OUT="${OUT}_vt${VOIDTERM}"
 fi
+# GATETAU: alpha-gate threshold. Measured 2026-09-01 on gnd_AUw360 — alpha is
+# bimodal (24% <0.1, 48% >0.9) and every phantom crash is already gone at 0.1,
+# so 0.5 was paying 37% of total reward for zero extra protection.
+if [ -n "${GATETAU:-}" ]; then
+    BC_ARGS="$BC_ARGS --alpha_gate_tau $GATETAU"
+    OUT="${OUT}_tau${GATETAU}"
+fi
 if [ -n "${SEMPAL:-}" ]; then
     BC_ARGS="$BC_ARGS --sem_palette $SEMPAL"
     OUT="${OUT}_pal${SEMPAL}"
