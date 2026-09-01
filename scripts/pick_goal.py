@@ -54,10 +54,23 @@ def main():
 
     cloud = np.load(Path(args.clouds_dir) / f"{args.scene}_cloud.npz")
     pts, labs = cloud["points"], cloud["labels"].astype(int)
-    poses = np.load(Path(args.poses_dir) / f"{args.scene}_poses.npz")
-    key = "positions" if "positions" in poses else list(poses.keys())[0]
-    path = np.asarray(poses[key], dtype=float)
-    path = path[:, :3, 3][:, :2] if path.ndim == 3 else path[:, :2]
+
+    # FRAME TRAP (cost us a wrong answer 2026-09-01): the cloud's points are in
+    # NAV frame, which carries the 08-13 y-mirror F = diag(1,-1,1), but
+    # traj_positions is stored RAW from the poses npz. Comparing them directly
+    # measures distance to a path reflected across the corridor — which is why
+    # 10,895 grass points looked like none of them were near the walk. Mirror
+    # the trajectory, exactly as viz_scene_cloud.py does.
+    F = np.array([1.0, -1.0, 1.0])
+    if "traj_positions" in cloud:
+        path = np.asarray(cloud["traj_positions"], dtype=float) * F
+    else:
+        poses = np.load(Path(args.poses_dir) / f"{args.scene}_poses.npz")
+        key = "positions" if "positions" in poses else list(poses.keys())[0]
+        path = np.asarray(poses[key], dtype=float)
+        path = path[:, :3, 3] if path.ndim == 3 else path
+        path = path * F
+    path = path[:, :2]
 
     band = (pts[:, 2] > args.z_min) & (pts[:, 2] < args.z_max)
     sel = (labs == cid) & band
