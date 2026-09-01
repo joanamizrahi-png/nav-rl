@@ -40,6 +40,12 @@ from src.eval.palette import CLASS_COLORS_255
 COLOR_MODE = "rgb"
 MIN_OPACITY = 0.05
 HIDE_SKY = False
+# Episode overlay (--episodes N): draw N sampled J-spec spawns/goals in the
+# cloud. Defaults match the J-50 arms (cone 50, goals 5-10 m, lateral 0.4 m).
+EPISODES = 0
+CONE_DEG = 50.0
+GOAL_DIST = (5.0, 10.0)
+SPAWN_LAT = 0.4
 SIZE_BY_SCALE = False
 GROUND_PCT = 5.0
 
@@ -62,7 +68,12 @@ def local_ground_from_cloud(points: np.ndarray, xy: np.ndarray,
 def run(npz_path: Path):
     d = np.load(npz_path)
     pts, labels, colors = d["points"], d["labels"], d["colors"]
-    traj = d["traj_positions"]
+    # FRAME FIX (2026-09-01): dump_scene_cloud writes `points` through cal.A,
+    # which carries the 08-13 y-mirror (F = diag(1,-1,1)), but stores
+    # traj_positions RAW from the poses npz. Un-mirrored, every 3D view drew
+    # the trajectory reflected across the corridor. Apply F here so path and
+    # cloud share one frame (also what NavCalibration.positions returns).
+    traj = np.asarray(d["traj_positions"], dtype=float) * np.array([1.0, -1.0, 1.0])
     true_ground = d["traj_cam_z"] - float(d["camera_height_m"])
     scene = npz_path.stem.replace("_cloud", "")
     # Folder layout (option A): scene_clouds/{clouds,splats,html,ground}/.
@@ -135,6 +146,41 @@ def run(npz_path: Path):
         fig.add_trace(go.Scattergl(x=[traj[-1, 0]], y=[traj[-1, 1]], mode="markers",
                                    marker=dict(size=10, color="lime", symbol="star"),
                                    showlegend=False), row=1, col=2)
+        # EPISODE OVERLAY (2026-09-01, her ask): the J-50 training distribution
+        # drawn inside the world it samples from — spawns on the path (after
+        # yaw/lateral jitter) and their goals in the +-CONE_DEG/2 tangent cone.
+        if EPISODES > 0 and len(traj) > 12:
+            r = np.random.default_rng(0)
+            sp, gl = [], []
+            for _ in range(EPISODES):
+                f = int(r.integers(10, max(len(traj) - 6, 11)))
+                p = traj[f, :2].copy()
+                fw = traj[min(f + 1, len(traj) - 1), :2] - traj[max(f - 1, 0), :2]
+                base = float(np.arctan2(fw[1], fw[0]))
+                p = p + r.uniform(-1, 1) * SPAWN_LAT * np.array(
+                    [-np.sin(base), np.cos(base)])
+                th = base + np.deg2rad(r.uniform(-1, 1) * CONE_DEG / 2.0)
+                dd = r.uniform(*GOAL_DIST)
+                sp.append(p)
+                gl.append(p + dd * np.array([np.cos(th), np.sin(th)]))
+            sp, gl = np.array(sp), np.array(gl)
+            zf = float(np.median(true_ground))
+            for rc, kw in ((1, dict(row=1, col=1)), (2, dict(row=1, col=2))):
+                S3 = go.Scatter3d if rc == 1 else go.Scattergl
+                common = dict(x=sp[:, 0], y=sp[:, 1], mode="markers",
+                              marker=dict(size=4 if rc == 1 else 7,
+                                          color="orange"),
+                              name="spawns", showlegend=(rc == 1))
+                if rc == 1:
+                    common["z"] = np.full(len(sp), zf)
+                fig.add_trace(S3(**common), **kw)
+                commong = dict(x=gl[:, 0], y=gl[:, 1], mode="markers",
+                               marker=dict(size=4 if rc == 1 else 7,
+                                           color="lime", symbol="x"),
+                               name="goals", showlegend=(rc == 1))
+                if rc == 1:
+                    commong["z"] = np.full(len(gl), zf)
+                fig.add_trace(S3(**commong), **kw)
         fig.update_yaxes(scaleanchor="x", scaleratio=1, row=1, col=2)
         fig.update_layout(scene=dict(aspectmode="data", bgcolor="black"),
                           template="plotly_dark", title=scene)
@@ -184,6 +230,10 @@ if __name__ == "__main__":
         SIZE_BY_SCALE = True; argv.remove("--size_by_scale")
     if "--pct" in argv:
         i = argv.index("--pct"); GROUND_PCT = float(argv[i + 1]); del argv[i:i + 2]
+    if "--episodes" in argv:
+        i = argv.index("--episodes"); EPISODES = int(argv[i + 1]); del argv[i:i + 2]
+    if "--cone_deg" in argv:
+        i = argv.index("--cone_deg"); CONE_DEG = float(argv[i + 1]); del argv[i:i + 2]
     for p in argv:
         print(f"=== {p} ===")
         run(Path(p))
