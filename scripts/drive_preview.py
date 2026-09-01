@@ -86,6 +86,12 @@ def main():
                          "--start, uniform dist) then walk straight at it, "
                          "camera on it — a rendered J-episode. Spawn is the "
                          "recorded path pose at --start.")
+    ap.add_argument("--goal_at", default=None,
+                    help="'offset_deg,dist_m': place the goal at EXACTLY this "
+                         "angle off the path tangent at --start (goal-offset "
+                         "ladder; her ask 2026-08-31: +-10/15/20/25 to find "
+                         "the true cone edge). Same episode shape as "
+                         "goal_sample: spawn on recorded pose, turn, walk.")
     ap.add_argument("--spawn_yaw_deg", type=float, default=0.0,
                     help="with --goal_sample: rotate the SPAWN heading by "
                          "this many degrees — cold-start heading-jitter test "
@@ -152,7 +158,21 @@ def main():
 
     goal = None
     gs_seed = None
-    if args.goal_sample:
+    ga_tag = None
+    if args.goal_at:
+        off_deg, d = (float(v) for v in args.goal_at.split(","))
+        pos = np.asarray(cal.positions, dtype=float)[:, :2]
+        i0 = args.start
+        fwd = pos[min(i0 + 1, len(pos) - 1)] - pos[max(i0 - 1, 0)]
+        base = float(np.arctan2(fwd[1], fwd[0]))
+        th = base + float(np.deg2rad(off_deg))
+        goal = np.array([pos[i0, 0] + d * np.cos(th),
+                         pos[i0, 1] + d * np.sin(th), 0.0])
+        target = goal[:2].copy()
+        ga_tag = f"_ga{off_deg:g}_{d:g}"
+        print(f"[goal_at] offset {off_deg:+.1f}deg dist {d:.2f}m "
+              f"-> goal ({goal[0]:.2f},{goal[1]:.2f})", flush=True)
+    elif args.goal_sample:
         cone_deg, dmin, dmax, s = (float(v) for v in args.goal_sample.split(","))
         gs_seed = int(s)
         rng = np.random.default_rng(gs_seed)
@@ -243,6 +263,7 @@ def main():
            + ("" if (args.goal_frame is not None or not args.goal_xy) else
               "_g" + args.goal_xy.replace(",", "_"))
            + ("" if gs_seed is None else f"_gs{gs_seed}")
+           + (ga_tag or "")
            + (f"_sy{args.spawn_yaw_deg:g}" if args.spawn_yaw_deg else "")
            + (f"_sl{args.spawn_lat_m:g}" if args.spawn_lat_m else "")
            + (f"_strafe{args.strafe_m:g}" if args.strafe else "")
@@ -307,7 +328,7 @@ def main():
             d = target - origin
             dist = np.linalg.norm(d)
             u = d / max(dist, 1e-6)
-            if gs_seed is not None:
+            if gs_seed is not None or ga_tag is not None:
                 # Spawn realism (her spec 2026-08-31): open EXACTLY like a
                 # J-training episode — training spawns are robot_pose_nav
                 # (recorded pose, full gaussian support in view, video
