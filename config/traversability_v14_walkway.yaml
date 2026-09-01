@@ -1,0 +1,59 @@
+# WALKWAY traversability (2026-09-01, corrected from v14_strict after the
+# ground-patch audit). Same intent as Jing's spec — robot on walkways, grass
+# NON-traversable — but with the classes that actually name walkways.
+#
+# What the audit found on gnd_AUw240 (the robot demonstrably WALKED this path):
+#   SAM3 hint       -> road 96%          (strict: 0.15)
+#   v21 diffused    -> trail 92%         (strict: 0.0)  <- what the reward saw
+#   v24L diffused   -> grass 52%, trail 22%, pavement 26%
+# With trail at 0.0 the footprint was >35% non-traversable from step one, so
+# every episode on that scene crash-terminated at -1000 before moving. The
+# label wasn't wrong about the surface being a path; the TABLE was wrong to
+# call a paved/gravel campus path non-traversable.
+#
+# Changes vs v14_strict: trail 0.0 -> 0.85 (it IS a walkway), road 0.15 -> 0.5
+# (SAM3 routinely calls campus asphalt "road"; a campus robot may cross one,
+# it just shouldn't prefer it), rough 0.0 -> 0.35 (gravel/mulch shoulder of the
+# same paths). grass STAYS 0.0 — the edge-stopping curriculum depends on it.
+0:
+  name: void
+  score: 0.0
+1:
+  name: sky
+  score: 0.0
+2:
+  name: trail
+  score: 0.85
+3:
+  name: grass
+  score: 0.0
+4:
+  name: rough
+  score: 0.35
+5:
+  name: water
+  score: 0.0
+6:
+  name: sidewalk
+  score: 1.0
+7:
+  name: road
+  score: 0.5
+8:
+  name: pavement
+  score: 1.0
+9:
+  name: stairs
+  score: 0.3
+10:
+  name: obstacle
+  score: 0.0
+11:
+  name: vegetation
+  score: 0.0
+12:
+  name: person
+  score: 0.0
+13:
+  name: vehicle
+  score: 0.0
