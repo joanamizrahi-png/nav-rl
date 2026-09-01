@@ -157,6 +157,33 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
                   f"{tuple(tgt_rgb.shape)}: {e}", flush=True)
             self.last_raster = None
 
+        # Gaussian-label raster (her ask 2026-09-01): the semantic labels
+        # carried by the SPLATS themselves, before the diffusion rewrites
+        # them — the honest "what does the reconstruction actually know"
+        # semantic view, as opposed to the generated one.
+        try:
+            _sr = (tgt_sem.reshape(B, k, -1)[:, -1].detach().cpu().numpy()
+                   .reshape(B, self.H, self.W))
+            self.last_sem_raster = [_sr[i].astype(np.int16) for i in range(B)]
+        except Exception as e:
+            print(f"[raster] sem view failed on shape "
+                  f"{tuple(tgt_sem.shape)}: {e}", flush=True)
+            self.last_sem_raster = None
+
+        # Per-pixel SUPPORT map (2026-09-01, her ask): the raw alpha of the
+        # last history frame per item. This is the quantity the gate
+        # thresholds and the one the `cov` summary averages — exposing the map
+        # itself lets us SEE where the world model has evidence and where it
+        # is inventing, instead of arguing about a single number.
+        try:
+            _a = (tgt_alpha.reshape(B, k, -1)[:, -1].detach().float()
+                  .cpu().numpy().reshape(B, self.H, self.W))
+            self.last_alpha = [_a[i] for i in range(B)]
+        except Exception as e:
+            print(f"[raster] alpha view failed on shape "
+                  f"{tuple(tgt_alpha.shape)}: {e}", flush=True)
+            self.last_alpha = None
+
         sink: dict = {}
         orig_decode = pipe.vae.decode
         pipe.vae.decode = _make_dual_decode(orig_decode, sink)

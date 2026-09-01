@@ -411,11 +411,56 @@ def main():
                 ras = cv2.resize(ras, (rgb.shape[1], rgb.shape[0]),
                                  interpolation=cv2.INTER_NEAREST)
             panels.append(ras)
+            # 4th panel: the SPLATS' OWN semantic labels (pre-diffusion) —
+            # what the reconstruction knows vs what the generator invents.
+            sras = getattr(world, "last_sem_raster", None)
+            agree_txt = ""
+            if sras:
+                s0 = sras[0]
+                if s0.shape[:2] != rgb.shape[:2]:
+                    s0 = cv2.resize(s0.astype(np.int32),
+                                    (rgb.shape[1], rgb.shape[0]),
+                                    interpolation=cv2.INTER_NEAREST)
+                panels.append(pal[np.clip(s0, 0, 13).astype(int)])
+            else:
+                s0 = None
+                panels.append(np.zeros_like(rgb))
+            # 5th panel: the SUPPORT map (alpha), + the coherence number this
+            # whole thread has been arguing about: where the reconstruction
+            # HAS evidence, does the generated semantics agree with it?
+            alph = getattr(world, "last_alpha", None)
+            if alph is not None:
+                a0 = alph[0]
+                if a0.shape[:2] != rgb.shape[:2]:
+                    a0 = cv2.resize(a0, (rgb.shape[1], rgb.shape[0]),
+                                    interpolation=cv2.INTER_NEAREST)
+                amax = float(np.percentile(a0, 99)) or 1.0
+                a8 = np.clip(a0 / max(amax, 1e-6), 0, 1)
+                heat = cv2.applyColorMap((a8 * 255).astype(np.uint8),
+                                         cv2.COLORMAP_VIRIDIS)[:, :, ::-1]
+                panels.append(np.ascontiguousarray(heat))
+                sup = a0 > 0.5
+                if s0 is not None and sup.any():
+                    agree = float((lab[sup] == s0[sup]).mean())
+                    agree_txt = (f"  sup {100.0 * sup.mean():.0f}%"
+                                 f"  agree {100.0 * agree:.0f}%")
+                else:
+                    agree_txt = f"  sup {100.0 * sup.mean():.0f}%"
+            else:
+                panels.append(np.zeros_like(rgb))
         frame = np.hstack(panels)[:, :, ::-1]                 # to BGR
         frame = np.ascontiguousarray(frame)
         if args.raster:
             cv2.putText(frame, "SPLAT RASTER (pre-diffusion)",
                         (2 * args.width + 8, frame.shape[0] - 12),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1,
+                        cv2.LINE_AA)
+            cv2.putText(frame, "SPLAT SEMANTICS (gaussian labels)",
+                        (3 * args.width + 8, frame.shape[0] - 12),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1,
+                        cv2.LINE_AA)
+            cv2.putText(frame, "SUPPORT (alpha): bright = observed",
+                        (4 * args.width + 8, frame.shape[0] - 12),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1,
                         cv2.LINE_AA)
         if args.aerial:
@@ -492,7 +537,8 @@ def main():
             where = f"step {step} ({walked_m:.1f}m walked)"
         else:
             where = f"pose {i}"
-        hud = f"{tag}  {where}  {world.last_timings['total']:.2f}s"
+        hud = (f"{tag}  {where}  {world.last_timings['total']:.2f}s"
+               + (agree_txt if args.raster else ""))
         cov = getattr(world, "last_coverage", None)
         if cov is not None and cov == cov:
             hud += f"  cov {cov * 100:.0f}%"
