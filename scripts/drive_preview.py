@@ -276,8 +276,30 @@ def main():
             d = target - origin
             dist = np.linalg.norm(d)
             u = d / max(dist, 1e-6)
-            cur = origin + u * min(0.25 * step, max(dist - 0.4, 0.0))
-            pose = pose_at(cur, u)
+            if gs_seed is not None:
+                # Spawn realism (her spec 2026-08-31): open EXACTLY like a
+                # J-training episode — training spawns are robot_pose_nav
+                # (recorded pose, full gaussian support in view, video
+                # history warms up on it) and the policy must TURN toward
+                # the goal itself. Mirror that: face the tangent, rotate
+                # <=10deg/frame toward the goal, then walk.
+                bf = tangent_pose(args.start)[:2, 0]
+                a0 = float(np.arctan2(bf[1], bf[0]))
+                a1 = float(np.arctan2(u[1], u[0]))
+                dang = (a1 - a0 + np.pi) % (2.0 * np.pi) - np.pi
+                n_turn = max(int(np.ceil(abs(np.degrees(dang)) / 10.0)), 1)
+                if step <= n_turn:
+                    a = a0 + dang * step / n_turn
+                    pose = pose_at(origin, np.array([np.cos(a), np.sin(a)]))
+                    walked_m = 0.0
+                else:
+                    walked_m = 0.25 * (step - n_turn)
+                    cur = origin + u * min(walked_m, max(dist - 0.4, 0.0))
+                    pose = pose_at(cur, u)
+            else:
+                walked_m = 0.25 * step
+                cur = origin + u * min(walked_m, max(dist - 0.4, 0.0))
+                pose = pose_at(cur, u)
         else:
             pose = (tangent_pose(i) if args.heading == "tangent"
                     else cal.robot_pose_nav(i))
@@ -306,7 +328,7 @@ def main():
         elif args.spin:
             where = f"heading {int(360 * step / max(args.frames, 1)):3d}deg @pose {i}"
         elif target is not None:
-            where = f"step {step} ({0.25 * step:.1f}m walked)"
+            where = f"step {step} ({walked_m:.1f}m walked)"
         else:
             where = f"pose {i}"
         hud = f"{tag}  {where}  {world.last_timings['total']:.2f}s"
