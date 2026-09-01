@@ -14,9 +14,14 @@ Answers, with numbers:
                  so the 0.5 gate threshold stops being an inherited guess
   * SWEEP        for each tau: img void, footprint void, collision, crash-level
                  steps, and every reward term — the whole trade curve at once
-  * IMGVOID      whole-image void share (her measure) next to mean alpha (the
-                 `cov` number the spin certificates print) — different
-                 statistics that nobody had compared
+  * GEOVOID      the IMGVOIDTERM proper: share of the image with NO rasterizer
+                 support (alpha <= tau). Pure geometry, measured on the RENDER,
+                 no diffusion in it. Printed next to mean alpha (the `cov`
+                 number the spin certificates use) — different statistics that
+                 nobody had compared
+  * SEMVOID      the DIFFUSED semantics' own class-0 share, i.e. where the world
+                 model itself claims ignorance. Separate number, never conflated
+                 with GEOVOID
   * VOID         footprint void share, and proof it is EXCLUDED from
                  collision_frac when void_cost > 0
   * REWARD       every term at the real x0.01 scale, so we can see what
@@ -143,22 +148,28 @@ def render_episodes(args):
                 pos=pos, head=np.asarray(pose[:3, 0], dtype=float).copy(),
                 goal=np.array([goal[0], goal[1], 0.0], dtype=float),
                 prev=None if prev is None else prev.copy(),
-                rgb=rgb.copy() if ep == 0 else None,
-                ras=(_ras[0].copy() if (ep == 0 and _ras) else None),
-                sras=(_sr[0].copy() if (ep == 0 and _sr) else None)))
+                rgb=rgb.copy(),
+                ras=(_ras[0].copy() if _ras else None),
+                sras=(_sr[0].copy() if _sr else None)))
             prev = pos.copy()
         print(f"  rendered episode {ep + 1}/{args.episodes}", flush=True)
     return recs
 
 
-def footprint_mask(rec, look_ahead):
-    """The exact pixels compute_reward scores — so alpha can be measured THERE
-    and not just over the whole image."""
+def footprint_uv(rec, look_ahead):
+    """The projected footprint quad, or None if it straddles the camera."""
     corners = _footprint_corners_world(
         rec["pos"], rec["head"], look_ahead_dist=look_ahead,
         length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
     uv, in_front = _project_points(corners, rec["K"], rec["w2c"])
-    if not in_front.all():
+    return uv if in_front.all() else None
+
+
+def footprint_mask(rec, look_ahead):
+    """The exact pixels compute_reward scores — so alpha can be measured THERE
+    and not just over the whole image."""
+    uv = footprint_uv(rec, look_ahead)
+    if uv is None:
         return None
     h, w = rec["lab"].shape[:2]
     return _fill_polygon(h, w, uv)
@@ -179,14 +190,23 @@ def score(recs, tau, trav, non_trav, weights, args):
             body_length=GO2_BODY_LENGTH, body_width=GO2_BODY_WIDTH,
             weights=weights)
         cls, cnt = np.unique(lab, return_counts=True)
+        # TWO different "void" numbers, never to be conflated:
+        #   sem_void = the DIFFUSED semantics' own class-0 share (what the world
+        #              model says it doesn't know — measured at 0.000, it never
+        #              says it)
+        #   geo_void = the RASTERIZER's unsupported share, alpha <= tau. Pure
+        #              geometry, no diffusion involved. THIS is the IMGVOIDTERM.
+        sup = float((r["alpha"] > tau).mean()) if r["alpha"] is not None else float("nan")
         rows.append(dict(
             tau=tau, ep=r["ep"], step=r["step"],
+            sem_void=float((r["lab"] == 0).mean()),
+            geo_void=1.0 - sup,
             img_void=float((lab == 0).mean()),
             mean_alpha=float(r["alpha"].mean()) if r["alpha"] is not None else float("nan"),
             a10=float(np.percentile(r["alpha"], 10)) if r["alpha"] is not None else float("nan"),
             a50=float(np.percentile(r["alpha"], 50)) if r["alpha"] is not None else float("nan"),
             a90=float(np.percentile(r["alpha"], 90)) if r["alpha"] is not None else float("nan"),
-            sup=float((r["alpha"] > tau).mean()) if r["alpha"] is not None else float("nan"),
+            sup=sup,
             fp_void=float(b.void_frac),
             fp_coll=float(-b.collision / max(weights.collision, 1e-6)),
             fp_ok=float(max(0.0, 1.0 - b.void_frac
@@ -304,17 +324,18 @@ def main():
 
     s = args.reward_scale
     print(f"\n===== GATE THRESHOLD SWEEP ({n} steps, identical renders) =====")
-    print("   tau   sup   imgvoid  fp_void  fp_coll  CRASH   sem       void      "
-          "coll      total")
+    print("   tau   sup   GEOvoid  SEMvoid  fp_void  fp_coll  CRASH   sem       "
+          "void      coll      total")
     for t in taus:
         A = {k: np.array([r[k] for r in per_tau[t]], dtype=float)
              for k in per_tau[t][0] if k != "dom"}
         crash = int((A["fp_coll"] >= args.crash_frac).sum())
         mark = "  <- ungated" if t == 0.0 else (
             "  <- current gate" if t == args.gate_tau else "")
-        print(f"  {t:4.2f}  {A['sup'].mean():.3f}   {A['img_void'].mean():.3f}   "
-              f"{A['fp_void'].mean():.3f}    {A['fp_coll'].mean():.3f}   "
-              f"{crash:2d}/{n}  {A['sem'].mean()*s:+.4f}  {A['void_t'].mean()*s:+.4f}  "
+        print(f"  {t:4.2f}  {A['sup'].mean():.3f}   {A['geo_void'].mean():.3f}    "
+              f"{A['sem_void'].mean():.3f}    {A['fp_void'].mean():.3f}    "
+              f"{A['fp_coll'].mean():.3f}   {crash:2d}/{n}  "
+              f"{A['sem'].mean()*s:+.4f}  {A['void_t'].mean()*s:+.4f}  "
               f"{A['coll_t'].mean()*s:+.4f}  {A['total'].mean()*s:+.4f}{mark}")
 
     # ---- detail blocks for ungated and the chosen gate ----
@@ -325,8 +346,12 @@ def main():
         tag = "UNGATED" if t == 0.0 else f"GATED tau={t}"
         print(f"\n===== {tag} ({n} rendered steps) =====")
         print(f"  SUPPORT      frac(alpha>{t}) {A['sup'].mean():.3f}")
-        print(f"  IMGVOID      whole-image void {A['img_void'].mean():.3f}   "
-              f"(max over steps {A['img_void'].max():.3f})")
+        print(f"  GEOVOID      alpha<={t} share  {A['geo_void'].mean():.3f}   "
+              f"(max over steps {A['geo_void'].max():.3f})   <- IMGVOIDTERM: "
+              f"pure rasterizer support, no diffusion")
+        print(f"  SEMVOID      diffused class-0 {A['sem_void'].mean():.3f}   "
+              f"(max {A['sem_void'].max():.3f})   <- what the world model "
+              f"itself calls unknown")
         print(f"  VOID (fp)    footprint void  {A['fp_void'].mean():.3f}   "
               f"(max {A['fp_void'].max():.3f})")
         print(f"  COLLISION    footprint coll  {A['fp_coll'].mean():.3f}   "
@@ -362,10 +387,27 @@ def main():
         import cv2
         from diffsynth.utils.class_taxonomy import v14_palette
         pal = (v14_palette(args.sem_palette).numpy() * 255).astype(np.uint8)
-        ep0 = [r for r in recs if r["ep"] == 0]
         u_rows = {(r["ep"], r["step"]): r for r in per_tau[0.0]}
         g_rows = {(r["ep"], r["step"]): r for r in per_tau[args.gate_tau]}
-        for i, r in enumerate(ep0):
+        crash_u = {k for k, v in u_rows.items() if v["fp_coll"] >= args.crash_frac}
+        crash_g = {k for k, v in g_rows.items() if v["fp_coll"] >= args.crash_frac}
+
+        def verdict(key):
+            if key in crash_u and key in crash_g:
+                return "CRASH-BOTH"
+            if key in crash_u:
+                return "RESCUED"        # gate turned a crash into survivable void
+            if key in crash_g:
+                return "NEWCRASH"       # gate CREATED a crash — must be zero
+            return "ok"
+
+        # every episode-0 step (the walk-through), plus EVERY crash-level step
+        # wherever it happened — those are the frames the whole argument rests on
+        sel = [r for r in recs if r["ep"] == 0
+               or verdict((r["ep"], r["step"])) != "ok"]
+        for r in sel:
+            key = (r["ep"], r["step"])
+            vd_tag = verdict(key)
             rgb, lu, au = r["rgb"], r["lab"], r["alpha"]
             lg = lu if au is None else np.where(au > args.gate_tau, lu, 0)
             pu, pg = pal[np.clip(lu, 0, 13)], pal[np.clip(lg, 0, 13)]
@@ -379,26 +421,59 @@ def main():
                     cv2.COLORMAP_VIRIDIS)[:, :, ::-1]
             else:
                 heat = np.zeros_like(rgb)
-            panel = np.hstack([rgb, ras, pu, pg, psr, heat])[:, :, ::-1]
+
+            # ---- the verdict panel: WHY this footprint scored the way it did.
+            # Every pixel the reward reads, colour-coded by the two questions
+            # that decide it — is the class walkable, and is there geometry
+            # under it?  This is what "phantom obstacle" has to look like.
+            m = footprint_mask(r, args.look_ahead)
+            vd = (rgb * 0.30).astype(np.uint8)
+            if m is not None and m.any():
+                nt = m & non_trav[np.clip(lu, 0, len(non_trav) - 1)] & (lu != 0)
+                unsup = m & (au <= args.gate_tau) if au is not None else np.zeros_like(m)
+                vd[m & ~nt & ~unsup] = (0, 190, 0)        # walkable + observed
+                vd[m & nt & ~unsup] = (220, 0, 0)         # obstacle + OBSERVED
+                vd[m & nt & unsup] = (255, 140, 0)        # obstacle, NO support
+                vd[m & ~nt & unsup] = (0, 90, 255)        # walkable, NO support
+
+            panel = np.hstack([rgb, ras, pu, pg, psr, heat, vd])[:, :, ::-1]
             panel = np.ascontiguousarray(panel)
-            ru = u_rows[(r["ep"], r["step"])]; rg = g_rows[(r["ep"], r["step"])]
-            hud = (f"step {i}  UNGATED coll {ru['fp_coll']:.2f} void "
-                   f"{ru['fp_void']:.2f} | tau={args.gate_tau} coll "
-                   f"{rg['fp_coll']:.2f} void {rg['fp_void']:.2f} | imgvoid "
-                   f"{rg['img_void']:.2f} alpha_mean {rg['mean_alpha']:.2f}")
+
+            uv = footprint_uv(r, args.look_ahead)
+            if uv is not None:
+                poly = np.round(uv).astype(np.int32).reshape(-1, 1, 2)
+                for k in range(7):
+                    cv2.polylines(panel, [poly + np.array([[k * args.width, 0]])],
+                                  True, (0, 255, 255), 1, cv2.LINE_AA)
+
+            ru, rg = u_rows[key], g_rows[key]
+            hud = (f"ep{r['ep']} step{r['step']}  [{vd_tag}]  UNGATED coll "
+                   f"{ru['fp_coll']:.2f} void {ru['fp_void']:.2f} | "
+                   f"tau={args.gate_tau} coll {rg['fp_coll']:.2f} void "
+                   f"{rg['fp_void']:.2f} | imgvoid {rg['img_void']:.2f} "
+                   f"alpha_mean {rg['mean_alpha']:.2f}")
             cv2.putText(panel, hud, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                         (255, 255, 255), 1, cv2.LINE_AA)
+            cv2.putText(panel, "footprint: green=walkable+seen  RED=obstacle+SEEN"
+                               "  ORANGE=obstacle+unseen(phantom)  blue=walkable"
+                               "+unseen", (6 * args.width + 8, 44),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1,
+                        cv2.LINE_AA)
             for k, name in enumerate(["RGB diffused", "RGB raster (splats)",
                                       "SEM diffused ungated",
                                       f"SEM diffused gated tau={args.gate_tau}",
                                       "SEM raster (splat labels)",
-                                      "SUPPORT (alpha)"]):
+                                      "SUPPORT (alpha)",
+                                      "FOOTPRINT VERDICT"]):
                 cv2.putText(panel, name, (k * args.width + 8,
                                           panel.shape[0] - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1,
                             cv2.LINE_AA)
-            cv2.imwrite(str(od / f"{stem}_step{i:02d}.png"), panel)
-        print(f"==> visual frames: {od}/{stem}_step*.png", flush=True)
+            cv2.imwrite(str(od / f"{stem}_ep{r['ep']}_s{r['step']:02d}_"
+                               f"{vd_tag}.png"), panel)
+        print(f"==> visual frames ({len(sel)}): {od}/{stem}_ep*_s*.png", flush=True)
+        print(f"    crash-level steps ungated {sorted(crash_u)}", flush=True)
+        print(f"    crash-level steps gated   {sorted(crash_g)}", flush=True)
     except Exception as e:
         print(f"[viz] skipped: {e}", flush=True)
 
@@ -409,9 +484,9 @@ def main():
           f"{int((uc >= args.crash_frac).sum())}/{n}   ->  gated "
           f"{int((gc >= args.crash_frac).sum())}/{n}")
     print(f"  mean collision     ungated {uc.mean():.3f}  ->  gated {gc.mean():.3f}")
-    print(f"  mean img void      ungated "
-          f"{np.mean([r['img_void'] for r in per_tau[0.0]]):.3f}  ->  gated "
-          f"{np.mean([r['img_void'] for r in per_tau[args.gate_tau]]):.3f}")
+    print(f"  mean geo  void     ungated "
+          f"{np.mean([r['geo_void'] for r in per_tau[0.0]]):.3f}  ->  gated "
+          f"{np.mean([r['geo_void'] for r in per_tau[args.gate_tau]]):.3f}")
     print("\n  Crash-level steps collapsing to 0 under the gate means those "
           "crashes were\n  phantom terrain in unobserved regions. It does NOT "
           "prove the gate keeps REAL\n  obstacles — for that, run the obstacle "
