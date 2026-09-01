@@ -292,6 +292,14 @@ if [ -n "${SPAWNCLS:-}" ]; then
     BC_ARGS="$BC_ARGS --spawn_classes $SPAWNCLS"
     OUT="${OUT}_spcls"
 fi
+if [ -n "${SPAWNJYAW:-}" ]; then
+    BC_ARGS="$BC_ARGS --spawn_yaw_jitter $SPAWNJYAW"
+    OUT="${OUT}_sjy${SPAWNJYAW}"
+fi
+if [ -n "${SPAWNJLAT:-}" ]; then
+    BC_ARGS="$BC_ARGS --spawn_lat_jitter $SPAWNJLAT"
+    OUT="${OUT}_sjl${SPAWNJLAT}"
+fi
 # HEIGHT/WIDTH: native render+observation resolution (multiples of 112).
 # The policy CNN sizes itself to this — checkpoints do NOT warm-start across
 # resolutions. Speed rung measured 2026-08-28: 336x224 ~2.2x faster.

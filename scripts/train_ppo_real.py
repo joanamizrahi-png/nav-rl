@@ -174,6 +174,8 @@ def make_env(args):
                          if getattr(args, "goal_dist_range", None) else None),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
+        spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
+        spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
         render_mode="rasterizer_only",       # cheap per-step; diffusion later
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -277,6 +279,8 @@ def make_live_vec_env(args):
                          if getattr(args, "goal_dist_range", None) else None),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
+        spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
+        spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -664,6 +668,12 @@ def main():
     ap.add_argument("--spawn_classes", default=None,
                     help="comma class ids; only spawn on frames whose ground "
                          "patch is one of these (e.g. 6,8 = sidewalk/pavement)")
+    ap.add_argument("--spawn_yaw_jitter", type=float, default=0.0,
+                    help="rotate each spawn heading by U(-x,+x) degrees — "
+                         "anti-memorization: stop-at-grass, not stop-at-"
+                         "deviation (her J-v2 spec)")
+    ap.add_argument("--spawn_lat_jitter", type=float, default=0.0,
+                    help="slide each spawn laterally by U(-x,+x) meters")
     ap.add_argument("--goal_xy", default=None,
                     help="'x,y': FIX the goal at this nav-frame point every "
                          "episode — obstacle-encounter training (2026-08-31, "

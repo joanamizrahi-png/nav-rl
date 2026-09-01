@@ -187,6 +187,12 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # refinement and the pano experiment SEPARATE while pano is unproven —
     # auto-append on file presence would silently confound them).
     use_pano_views: bool = False
+    # Spawn jitter (her J-v2 spec 2026-08-31): rotate/offset the spawn pose so
+    # the policy can't equate "diverged from spawn axis" with "bad terrain" —
+    # it must learn to stop at GRASS, not at deviation. Values certified by
+    # the cold-start jitter walks (sy20/sl0.4) and the strafe cov sweep.
+    spawn_yaw_jitter_deg: float = 0.0
+    spawn_lat_jitter_m: float = 0.0
     # Every Nth pano side-view frame joins the reconstruction (243 full views
     # OOM the gs_head; 3 -> 81+27+27=135). Raise to 4-5 if OOM persists.
     pano_view_stride: int = 3
@@ -278,10 +284,35 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         if ok is not None:
             cand = [f for f in range(lo, hi) if ok[f]]
             if cand:
-                return cal.robot_pose_nav(int(cand[int(rng.integers(0, len(cand)))]))
+                return self._jitter_spawn(
+                    cal.robot_pose_nav(int(cand[int(rng.integers(0, len(cand)))])), rng)
             print(f"[spawn_label_classes] WARNING: no valid spawn frames in "
                   f"[{lo},{hi}) for {scene_id}; falling back to unfiltered")
-        return cal.robot_pose_nav(int(rng.integers(lo, hi)))
+        return self._jitter_spawn(
+            cal.robot_pose_nav(int(rng.integers(lo, hi))), rng)
+
+    def _jitter_spawn(self, pose: np.ndarray, rng) -> np.ndarray:
+        """Anti-memorization spawn jitter (her spec): rotate heading by
+        U(-yaw,+yaw) and slide laterally by U(-lat,+lat). Identity when both
+        knobs are 0 (every run before 2026-08-31)."""
+        jy = float(getattr(self.cfg, "spawn_yaw_jitter_deg", 0.0))
+        jl = float(getattr(self.cfg, "spawn_lat_jitter_m", 0.0))
+        if jy <= 0.0 and jl <= 0.0:
+            return pose
+        pose = pose.copy()
+        if jy > 0.0:
+            a = float(rng.uniform(-1.0, 1.0)) * float(np.deg2rad(jy))
+            c, s = np.cos(a), np.sin(a)
+            Rz = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]],
+                          dtype=pose.dtype)
+            pose[:3, :3] = Rz @ pose[:3, :3]
+        if jl > 0.0:
+            fwd = pose[:3, 0]
+            lat = np.array([-fwd[1], fwd[0], 0.0], dtype=pose.dtype)
+            n = float(np.linalg.norm(lat))
+            if n > 1e-6:
+                pose[:3, 3] += (float(rng.uniform(-1.0, 1.0)) * jl / n) * lat
+        return pose
 
     _spawn_ok_cache: "dict | None" = None
 
