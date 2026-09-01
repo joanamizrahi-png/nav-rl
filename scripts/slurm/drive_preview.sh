@@ -44,6 +44,8 @@ python scripts/drive_preview.py \
     ${GOALSAMPLE:+--goal_sample "$GOALSAMPLE"} \
     ${STRAFE:+--strafe} \
     ${STRAFEM:+--strafe_m "$STRAFEM"} \
+    ${SPAWNYAW:+--spawn_yaw_deg "$SPAWNYAW"} \
+    ${SPAWNLAT:+--spawn_lat_m "$SPAWNLAT"} \
     --live_ckpt "${LIVECKPT:-/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors}" \
     --out /scratch/m000204-pm06b/joana/outputs/drive_preview
 

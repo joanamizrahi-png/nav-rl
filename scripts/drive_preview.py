@@ -86,6 +86,14 @@ def main():
                          "--start, uniform dist) then walk straight at it, "
                          "camera on it — a rendered J-episode. Spawn is the "
                          "recorded path pose at --start.")
+    ap.add_argument("--spawn_yaw_deg", type=float, default=0.0,
+                    help="with --goal_sample: rotate the SPAWN heading by "
+                         "this many degrees — cold-start heading-jitter test "
+                         "(the video history resets to 5x this jittered view, "
+                         "exactly like a jittered training spawn would)")
+    ap.add_argument("--spawn_lat_m", type=float, default=0.0,
+                    help="with --goal_sample: offset the SPAWN laterally by "
+                         "this many meters — cold-start lateral-jitter test")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     if args.height % 112 or args.width % 112:
@@ -235,6 +243,8 @@ def main():
            + ("" if (args.goal_frame is not None or not args.goal_xy) else
               "_g" + args.goal_xy.replace(",", "_"))
            + ("" if gs_seed is None else f"_gs{gs_seed}")
+           + (f"_sy{args.spawn_yaw_deg:g}" if args.spawn_yaw_deg else "")
+           + (f"_sl{args.spawn_lat_m:g}" if args.spawn_lat_m else "")
            + (f"_strafe{args.strafe_m:g}" if args.strafe else "")
            + ("_ras" if args.raster else ""))
     if args.spin:
@@ -304,8 +314,18 @@ def main():
                 # history warms up on it) and the policy must TURN toward
                 # the goal itself. Mirror that: face the tangent, rotate
                 # <=10deg/frame toward the goal, then walk.
+                # spawn_yaw_deg / spawn_lat_m: COLD-START jitter tests —
+                # frame 0 (and thus the whole reset history) is the jittered
+                # pose, the honest simulation of a jittered training spawn.
                 bf = tangent_pose(args.start)[:2, 0]
                 a0 = float(np.arctan2(bf[1], bf[0]))
+                if args.spawn_lat_m:
+                    origin = origin + args.spawn_lat_m * np.array(
+                        [-np.sin(a0), np.cos(a0)])
+                    d = target - origin
+                    dist = np.linalg.norm(d)
+                    u = d / max(dist, 1e-6)
+                a0 += float(np.deg2rad(args.spawn_yaw_deg))
                 a1 = float(np.arctan2(u[1], u[0]))
                 dang = (a1 - a0 + np.pi) % (2.0 * np.pi) - np.pi
                 n_turn = max(int(np.ceil(abs(np.degrees(dang)) / 10.0)), 1)
