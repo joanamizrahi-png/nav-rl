@@ -73,6 +73,13 @@ def main():
                     help="append a third panel: the RAW Gaussian-splat raster "
                          "the diffusion is conditioned on — shows where the "
                          "splats end and hallucination begins")
+    ap.add_argument("--strafe", action="store_true",
+                    help="lateral-jitter certification: hold --start pose and "
+                         "heading, slide sideways 0 -> -strafe_m -> +strafe_m "
+                         "(monotonic, video-coherent); cov per offset says how "
+                         "far off-path spawns can wander before rendering lies")
+    ap.add_argument("--strafe_m", type=float, default=0.5,
+                    help="with --strafe: max lateral offset in meters each side")
     ap.add_argument("--goal_sample", default=None,
                     help="'cone_deg,dmin,dmax,seed': sample a goal EXACTLY "
                          "like J-training does (tangent-centered cone at "
@@ -228,6 +235,7 @@ def main():
            + ("" if (args.goal_frame is not None or not args.goal_xy) else
               "_g" + args.goal_xy.replace(",", "_"))
            + ("" if gs_seed is None else f"_gs{gs_seed}")
+           + (f"_strafe{args.strafe_m:g}" if args.strafe else "")
            + ("_ras" if args.raster else ""))
     if args.spin:
         # Recorded-heading sanity: angle between the recorded camera forward
@@ -271,6 +279,19 @@ def main():
                                 s * fwd[0] + c * fwd[1]])
             pose = pose_at(base[:2, 3], fwd_rot)
             spin_off_deg = float(np.degrees(ang))
+        elif args.strafe:
+            i = args.start
+            n = max(args.frames - 1, 3)
+            m = max(n // 3, 1)
+            if step <= m:
+                off = -args.strafe_m * step / m
+            else:
+                off = -args.strafe_m + 2.0 * args.strafe_m * (step - m) / (n - m)
+            base = tangent_pose(i)
+            fwd = base[:2, 0]
+            lat = np.array([-fwd[1], fwd[0]])
+            pose = pose_at(base[:2, 3] + off * lat, fwd)
+            strafe_off_m = float(off)
         elif target is not None:
             origin = np.asarray(cal.positions[args.start])[:2]
             d = target - origin
@@ -327,6 +348,8 @@ def main():
             where = f"rec{spin_off_deg:+.0f}deg @pose {i}"
         elif args.spin:
             where = f"heading {int(360 * step / max(args.frames, 1)):3d}deg @pose {i}"
+        elif args.strafe:
+            where = f"lat {strafe_off_m:+.2f}m @pose {i}"
         elif target is not None:
             where = f"step {step} ({walked_m:.1f}m walked)"
         else:
@@ -365,6 +388,8 @@ def main():
             cov_txt = f"  cov {cov * 100:5.1f}%"
         off_txt = (f"  off {spin_off_deg:+6.1f}deg"
                    if (args.spin and args.spin_deg < 360.0) else "")
+        if args.strafe:
+            off_txt = f"  lat {strafe_off_m:+6.2f}m"
         print(f"[{step + 1}/{args.frames}] pose {i} "
               f"{world.last_timings['total']:.2f}s{off_txt}{cov_txt}", flush=True)
     vw.release()
