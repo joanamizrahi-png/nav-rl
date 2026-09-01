@@ -115,6 +115,14 @@ class SceneEnvConfig:
     # exploit that alpha-gating would otherwise open. 0 = off.
     void_terminate_frac: float = 0.0
     void_terminate_penalty: float = 100.0     # ~1/10 of a crash at RW5 scale
+    # IMAGE-coverage version (her spec 2026-09-01): the footprint measure above
+    # asks "is the ground under me observed"; this asks "does the WHOLE VIEW
+    # have enough gaussian support for the world model to paint something
+    # coherent". With the alpha gate on, (semantic_image == 0).mean() IS
+    # 1 - alpha coverage — the same `cov` number the spin certificates print.
+    # Her reasoning: stepping onto locally-unsupported ground is fine as long
+    # as the view around it is well supported. 0 = off.
+    image_void_terminate_frac: float = 0.0
     # Proximity cost (2026-08-24, after Run A): charge for being NEAR obstacles,
     # measured against the STATIC reconstructed geometry (scene cloud from
     # dump_scene_cloud.py) — the diffusion cannot dream this away, unlike the
@@ -527,6 +535,16 @@ class SceneEnv(gym.Env if gym is not None else object):
             crash = -self.cfg.void_terminate_penalty
             truncated = True
             bonus = 0.0
+        # Whole-image coverage version (her spec): unsupported GROUND is fine
+        # if the VIEW is still well supported — the world model can paint a
+        # coherent scene and the robot can reasonably step there. Only end the
+        # episode when the view itself is mostly invention.
+        image_void_frac = float((semantic_image == 0).mean())
+        if (self.cfg.image_void_terminate_frac > 0.0 and crash == 0.0
+                and image_void_frac >= self.cfg.image_void_terminate_frac):
+            crash = -self.cfg.void_terminate_penalty
+            truncated = True
+            bonus = 0.0
         prox_term = self._proximity_term(self._robot_pose_world[:2, 3])
         timeout_term = 0.0
         if (truncated and not terminated and crash == 0.0
@@ -539,6 +557,9 @@ class SceneEnv(gym.Env if gym is not None else object):
         info["spin"] = spin_term
         info["backward"] = back_term
         info["smooth"] = smooth_term
+        # Always logged (even with both void terminations off) so the coverage
+        # the policy actually experiences is visible in wandb from day one.
+        info["image_void_frac"] = image_void_frac
         info["timeout"] = timeout_term
         info["crash"] = crash
         info["proximity"] = prox_term

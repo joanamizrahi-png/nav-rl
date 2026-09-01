@@ -232,6 +232,7 @@ def _scene_env_cfg(args):
         collision_terminate_penalty=getattr(args, "collision_terminate_penalty", 20.0),
         void_terminate_frac=getattr(args, "void_terminate_frac", 0.0),
         void_terminate_penalty=getattr(args, "void_terminate_penalty", 100.0),
+        image_void_terminate_frac=getattr(args, "image_void_terminate_frac", 0.0),
         proximity_weight=getattr(args, "proximity_weight", 0.0),
         proximity_margin=getattr(args, "proximity_margin", 1.0),
         clouds_dir=getattr(args, "clouds_dir", None),
@@ -598,6 +599,11 @@ def main():
                     help="end the episode when this fraction of the footprint "
                          "has no gaussian support (alpha-gated void) — stops "
                          "the policy exploiting the world model's blind spots")
+    ap.add_argument("--image_void_terminate_frac", type=float, default=0.0,
+                    help="end the episode when this fraction of the WHOLE "
+                         "IMAGE has no gaussian support (= 1 - alpha coverage "
+                         "with the gate on). Her measure: unsupported ground "
+                         "is fine while the view stays paintable")
     ap.add_argument("--void_terminate_penalty", type=float, default=100.0,
                     help="cost applied on void termination (RW5 scale: a real "
                          "crash is 1000)")

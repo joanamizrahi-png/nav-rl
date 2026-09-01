@@ -292,6 +292,10 @@ if [ -n "${SPAWNCLS:-}" ]; then
     BC_ARGS="$BC_ARGS --spawn_classes $SPAWNCLS"
     OUT="${OUT}_spcls"
 fi
+if [ -n "${IMGVOIDTERM:-}" ]; then
+    BC_ARGS="$BC_ARGS --image_void_terminate_frac $IMGVOIDTERM"
+    OUT="${OUT}_ivt${IMGVOIDTERM}"
+fi
 if [ -n "${VOIDTERM:-}" ]; then
     BC_ARGS="$BC_ARGS --void_terminate_frac $VOIDTERM"
     OUT="${OUT}_vt${VOIDTERM}"
