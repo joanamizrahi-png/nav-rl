@@ -170,6 +170,24 @@ def main():
                          "frames, or is it odometry-only? Videos still show "
                          "the real frames — only the policy goes blind.")
     args = ap.parse_args()
+
+    # The policy CNN is size-locked, so an eval at the wrong resolution dies
+    # with "Observation spaces do not match" — after queueing, waiting for a
+    # node, and loading the 14B pipeline. The checkpoint already KNOWS its
+    # resolution, so stop making a human retype it from the run name.
+    try:
+        from stable_baselines3.common.save_util import load_from_zip_file
+        _d, _, _ = load_from_zip_file(args.checkpoint, device="cpu",
+                                      print_system_info=False)
+        _rgb = _d["observation_space"]["rgb"]            # channels-first
+        _h, _w = int(_rgb.shape[1]), int(_rgb.shape[2])
+        if (_h, _w) != (args.obs_height, args.obs_width):
+            print(f"[eval] obs resolution from checkpoint: {_w}x{_h} "
+                  f"(overriding {args.obs_width}x{args.obs_height})", flush=True)
+        args.obs_height, args.obs_width = _h, _w
+    except Exception as e:
+        print(f"[eval] could not read obs resolution from checkpoint ({e}); "
+              f"using {args.obs_width}x{args.obs_height}", flush=True)
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     inner_env = build_env(args)
