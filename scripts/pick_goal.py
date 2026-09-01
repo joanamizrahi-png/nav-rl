@@ -45,6 +45,17 @@ def main():
     ap.add_argument("--grid", type=float, default=1.0,
                     help="snap candidates to this grid so they are not all the "
                          "same patch of grass")
+    ap.add_argument("--min_density", type=int, default=0,
+                    help="require this many same-class points within "
+                         "--density_r. The SAM3 labels are speckled, so a bare "
+                         "nearest-point search happily returns a goal sitting "
+                         "on three stray grass pixels in the middle of a "
+                         "sidewalk (seen on gnd_AUw360, 2026-09-01).")
+    ap.add_argument("--density_r", type=float, default=1.0)
+    ap.add_argument("--spawn_max", type=int, default=0,
+                    help="draw the spawn range on the PNG so it is obvious "
+                         "whether the robot even starts near the goal")
+    ap.add_argument("--spawn_min", type=int, default=0)
     ap.add_argument("--png", default="")
     args = ap.parse_args()
 
@@ -103,6 +114,28 @@ def main():
     xy, dmin = xy[near], dmin[near]
     nearest_frame = d[near].argmin(1)
 
+    if args.min_density > 0:
+        # count same-class neighbours on a coarse grid — no scipy needed
+        cell = args.density_r
+        from collections import Counter
+        allxy = pts[sel][:, :2]
+        occ = Counter((np.floor(allxy / cell)).astype(int).view(
+            [("x", int), ("y", int)]).ravel().tolist())
+        keys = (np.floor(xy / cell)).astype(int)
+        dens = np.array([
+            sum(occ.get((int(keys[i, 0]) + dx, int(keys[i, 1]) + dy), 0)
+                for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+            for i in range(len(xy))])
+        keep = dens >= args.min_density
+        print(f"  {int(keep.sum())} of {len(xy)} have >= {args.min_density} "
+              f"{args.class_name} neighbours within {cell} m "
+              f"(density p50 {np.median(dens):.0f}, p90 "
+              f"{np.percentile(dens, 90):.0f})")
+        if not keep.any():
+            raise SystemExit(f"none dense enough — try --min_density "
+                             f"{int(np.percentile(dens, 75))}")
+        xy, dmin, nearest_frame = xy[keep], dmin[keep], nearest_frame[keep]
+
     # snap to a grid so the shortlist spans different patches, not one blob
     keyed = {}
     for i in range(len(xy)):
@@ -131,6 +164,10 @@ def main():
         ax.scatter(gnd[m][::20, 0], gnd[m][::20, 1], s=1, c="tab:green",
                    linewidths=0, label=args.class_name)
         ax.plot(path[:, 0], path[:, 1], "-", c="tab:blue", lw=2, label="recorded walk")
+        if args.spawn_max:
+            lo, hi = max(args.spawn_min, 0), min(args.spawn_max, len(path) - 1)
+            ax.plot(path[lo:hi + 1, 0], path[lo:hi + 1, 1], "-", c="tab:orange",
+                    lw=5, alpha=0.6, label=f"spawn range (frames {lo}-{hi})")
         for i in idx:
             ax.plot(xy[i, 0], xy[i, 1], "*", c="tab:red", ms=14)
             ax.annotate(f"{xy[i, 0]:.1f},{xy[i, 1]:.1f}", (xy[i, 0], xy[i, 1]),

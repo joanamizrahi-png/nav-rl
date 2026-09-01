@@ -23,6 +23,12 @@ EXTRA_ARGS=()
 if [[ "${SPAWN_MAX:-}" != "" ]]; then
     EXTRA_ARGS+=(--spawn_max_frame "$SPAWN_MAX")   # match the training rung
 fi
+# SPAWN_MIN pins the near end of the spawn range. Essential with GOAL_XY: the
+# goal is a fixed world point, so without a floor the spawns spread back to the
+# start of the path and most episodes run out of steps before reaching it.
+if [[ "${SPAWN_MIN:-}" != "" ]]; then
+    EXTRA_ARGS+=(--spawn_min_frame "$SPAWN_MIN")
+fi
 OUT_SUFFIX=""
 if [[ "${GOAL_FRAME:-}" != "" ]]; then
     EXTRA_ARGS+=(--goal_frame "$GOAL_FRAME")       # generalization: goal the policy never trained on

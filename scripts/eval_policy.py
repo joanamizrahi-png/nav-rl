@@ -50,6 +50,7 @@ def build_env(args):
         goal_xy_override=(tuple(float(v) for v in args.goal_xy.split(","))
                           if args.goal_xy else None),
         spawn_max_frame=args.spawn_max_frame,
+        spawn_min_frame=args.spawn_min_frame,
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -113,6 +114,12 @@ def main():
                     help='designed obstacle test: pin the goal to "x,y" (nav-'
                          'frame meters, read off the top-down figure axes) — '
                          'e.g. just past a tree so the straight line crosses it')
+    ap.add_argument("--spawn_min_frame", type=int, default=0,
+                    help="lower bound on the spawn frame. Without it a GOAL_XY "
+                         "test spawns anywhere from the start of the path, so "
+                         "most episodes are 10-17 m from the goal and cannot "
+                         "reach it inside max_steps — the run measures reach, "
+                         "not the terrain behaviour it was launched for.")
     ap.add_argument("--spawn_max_frame", type=int, default=None,
                     help="match the training rung: 3 = full traverses (rung 5)")
     ap.add_argument("--clips_dir", required=True)
