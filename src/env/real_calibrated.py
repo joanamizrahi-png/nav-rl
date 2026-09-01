@@ -183,6 +183,10 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # sampled within +-goal_cone_deg/2 of the path tangent at the spawn.
     # 360 = unconstrained (the original J-spec; valid once pano scenes land).
     goal_cone_deg: float = 360.0
+    # Pano side views are OPT-IN (her rule 2026-08-31: keep the dense-data
+    # refinement and the pano experiment SEPARATE while pano is unproven —
+    # auto-append on file presence would silently confound them).
+    use_pano_views: bool = False
     # Every Nth pano side-view frame joins the reconstruction (243 full views
     # OOM the gs_head; 3 -> 81+27+27=135). Raise to 4-5 if OOM persists.
     pano_view_stride: int = 3
@@ -424,12 +428,13 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         # operator-followers live there. Inert when the files don't exist.
         from pathlib import Path as _P
         _vp, _lp = _P(video_path), _P(labels_path)
+        _pano_on = bool(getattr(cfg, "use_pano_views", False))
         # Stride: full 81+81+81 = 243 views OOMs WorldMirror's gs_head
         # (458356 maiden flight, 2026-08-31). Side views carry flank SUPPORT
         # not detail — every 3rd frame (81+27+27=135) keeps the coverage at a
         # memory cost the reconstructor survives.
         _stride = int(getattr(cfg, "pano_view_stride", 3))
-        for _yaw in (90, 270):
+        for _yaw in (90, 270) if _pano_on else ():
             side_mp4 = _vp.with_name(f"{_vp.stem}_pano_yaw{_yaw:03d}.mp4")
             side_lab = _lp.with_name(f"{_lp.stem}_pano_yaw{_yaw:03d}.npz")
             if not (side_mp4.exists() and side_lab.exists()):

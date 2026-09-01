@@ -86,6 +86,10 @@ def main():
                          "--start, uniform dist) then walk straight at it, "
                          "camera on it — a rendered J-episode. Spawn is the "
                          "recorded path pose at --start.")
+    ap.add_argument("--pano_views", action="store_true",
+                    help="OPT IN to fusing pano side views into the "
+                         "reconstruction (off by default so the dense-data "
+                         "and pano experiments stay separate)")
     ap.add_argument("--goal_at", default=None,
                     help="'offset_deg,dist_m': place the goal at EXACTLY this "
                          "angle off the path tangent at --start (goal-offset "
@@ -115,6 +119,7 @@ def main():
         scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
         render_mode="rasterizer_only",
+        use_pano_views=args.pano_views,
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
         H=args.height,
