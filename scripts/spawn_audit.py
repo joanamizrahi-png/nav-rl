@@ -41,16 +41,26 @@ V14 = ["void", "sky", "trail", "grass", "rough", "water", "sidewalk", "road",
 
 
 def in_quad(pts_xy: np.ndarray, quad: np.ndarray) -> np.ndarray:
-    """Point-in-convex-quad by consistent cross-product sign (quad ordered)."""
+    """Point-in-convex-quad: every edge cross-product agrees with the polygon's
+    own winding.
+
+    The winding MUST come from the quad (shoelace), not from a sample point.
+    Taking it from the extreme point of edge 0 tests which side of that one
+    edge the farthest point lies on, which is unrelated to orientation — and
+    for clockwise quads it inverts the whole test, returning the empty
+    exterior wedge. Caught 2026-09-01: it reported 79% of spawn footprints as
+    sitting over unreconstructed ground.
+    """
+    q = np.asarray(quad)[:, :2]
+    shoelace = float(sum(q[i, 0] * q[(i + 1) % 4, 1] - q[(i + 1) % 4, 0] * q[i, 1]
+                         for i in range(4)))
+    s = 1.0 if shoelace >= 0 else -1.0
     inside = np.ones(len(pts_xy), dtype=bool)
-    sign = None
     for i in range(4):
-        a, b = quad[i, :2], quad[(i + 1) % 4, :2]
+        a, b = q[i], q[(i + 1) % 4]
         cr = ((b[0] - a[0]) * (pts_xy[:, 1] - a[1])
               - (b[1] - a[1]) * (pts_xy[:, 0] - a[0]))
-        if sign is None:
-            sign = np.sign(cr[np.argmax(np.abs(cr))]) if len(cr) else 1.0
-        inside &= (cr * sign) >= 0
+        inside &= (cr * s) >= 0
     return inside
 
 
