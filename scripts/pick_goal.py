@@ -74,8 +74,18 @@ def main():
     dmin = d.min(1)
     near = (dmin >= args.min_off) & (dmin <= args.max_off)
     print(f"  {int(near.sum())} within {args.min_off}-{args.max_off} m of the path")
+    # Always show where this class actually LIVES relative to the walk. On
+    # gnd_AUw360 every grass point turned out to be under 1.5 m from the path —
+    # the boundary is at the walk's edge, which the bare "none in band" error
+    # hid. The distribution is the finding, not the failure.
+    print(f"  offset from path (m):  min {dmin.min():.2f}  p10 "
+          f"{np.percentile(dmin, 10):.2f}  p50 {np.percentile(dmin, 50):.2f}  "
+          f"p90 {np.percentile(dmin, 90):.2f}  max {dmin.max():.2f}")
     if not near.any():
-        raise SystemExit("none in that offset band — widen --min_off/--max_off")
+        lo, hi = float(np.percentile(dmin, 25)), float(np.percentile(dmin, 75))
+        raise SystemExit(f"none in that offset band — this class sits at "
+                         f"{lo:.2f}-{hi:.2f} m; try --min_off {lo:.1f} "
+                         f"--max_off {hi:.1f}")
 
     xy, dmin = xy[near], dmin[near]
     nearest_frame = d[near].argmin(1)
