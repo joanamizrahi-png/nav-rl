@@ -59,6 +59,9 @@ class RewardBreakdown:
     mean_class_score: float = 0.0
     dominant_class_id: int = -1
     off_frame_frac: float = 0.0     # fraction of footprint that projected outside the image
+    void_frac: float = 0.0          # fraction of footprint with NO gaussian support
+                                    # (alpha-gated to class 0) — the world model's
+                                    # own uncertainty signal; drives void-termination
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -229,4 +232,5 @@ def compute_reward(
         mean_class_score=mean_class_score,
         dominant_class_id=dominant_class_id,
         off_frame_frac=off_frame_frac,
+        void_frac=float(void_frac),
     )

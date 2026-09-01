@@ -230,6 +230,8 @@ def _scene_env_cfg(args):
         backward_cost=getattr(args, "backward_cost", 0.0),
         collision_terminate_frac=getattr(args, "collision_terminate_frac", 0.0),
         collision_terminate_penalty=getattr(args, "collision_terminate_penalty", 20.0),
+        void_terminate_frac=getattr(args, "void_terminate_frac", 0.0),
+        void_terminate_penalty=getattr(args, "void_terminate_penalty", 100.0),
         proximity_weight=getattr(args, "proximity_weight", 0.0),
         proximity_margin=getattr(args, "proximity_margin", 1.0),
         clouds_dir=getattr(args, "clouds_dir", None),
@@ -592,6 +594,13 @@ def main():
     ap.add_argument("--warmstart", type=Path, default=None,
                     help="PPO checkpoint .zip to continue training from "
                          "(num_timesteps preserved; total_steps counts the NEW steps)")
+    ap.add_argument("--void_terminate_frac", type=float, default=0.0,
+                    help="end the episode when this fraction of the footprint "
+                         "has no gaussian support (alpha-gated void) — stops "
+                         "the policy exploiting the world model's blind spots")
+    ap.add_argument("--void_terminate_penalty", type=float, default=100.0,
+                    help="cost applied on void termination (RW5 scale: a real "
+                         "crash is 1000)")
     ap.add_argument("--no_alpha_gate", action="store_true",
                     help="UNGATED reward: trust diffused labels in invented regions too "
                          "(coherence-justified; the gated run is the safety-anchored twin)")

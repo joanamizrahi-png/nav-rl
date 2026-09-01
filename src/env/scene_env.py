@@ -110,6 +110,11 @@ class SceneEnvConfig:
     collision_terminate_frac: float = 0.0    # >0: footprint overlap at/above this
                                         # ENDS the episode (no goal bonus) — see step().
     collision_terminate_penalty: float = 20.0  # subtracted on crash
+    # Void termination: >0 ends the episode when this fraction of the footprint
+    # has NO gaussian support (alpha-gated to class 0). Guards the blind-spot
+    # exploit that alpha-gating would otherwise open. 0 = off.
+    void_terminate_frac: float = 0.0
+    void_terminate_penalty: float = 100.0     # ~1/10 of a crash at RW5 scale
     # Proximity cost (2026-08-24, after Run A): charge for being NEAR obstacles,
     # measured against the STATIC reconstructed geometry (scene cloud from
     # dump_scene_cloud.py) — the diffusion cannot dream this away, unlike the
@@ -509,6 +514,19 @@ class SceneEnv(gym.Env if gym is not None else object):
                 crash = -self.cfg.collision_terminate_penalty
                 truncated = True          # ends the episode, and NOT a success
                 bonus = 0.0
+        # VOID TERMINATION (2026-09-01, her concern): with the alpha gate ON,
+        # unobserved regions become void and stop counting as collisions — but
+        # then "walk into the unobserved" becomes a way to dodge real terrain:
+        # the policy learns to exploit the world model's blind spots, and that
+        # behavior means nothing on the real robot. Pessimism under uncertainty
+        # (MOReL-style HALT): leaving the known world ENDS the episode at a
+        # moderate cost — clearly worse than walking correctly, far cheaper
+        # than a real crash. 0 = off (every run before this date).
+        if (self.cfg.void_terminate_frac > 0.0 and crash == 0.0
+                and float(breakdown.void_frac) >= self.cfg.void_terminate_frac):
+            crash = -self.cfg.void_terminate_penalty
+            truncated = True
+            bonus = 0.0
         prox_term = self._proximity_term(self._robot_pose_world[:2, 3])
         timeout_term = 0.0
         if (truncated and not terminated and crash == 0.0

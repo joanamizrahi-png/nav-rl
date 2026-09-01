@@ -95,7 +95,12 @@ fi
 # LIVE=1: serve live diffusion observations (evals of --live-trained policies).
 # ~1.4 s/step: submit with  sbatch --mem=96G --time=03:00:00
 if [[ "${LIVE:-0}" == "1" ]]; then
-    EXTRA_ARGS+=(--live --trav_path config/traversability_v14.yaml)
+    # TRAV: the traversability table the eval scores with. MUST match the
+    # checkpoint's TRAINING table or the eval measures a different task —
+    # the default v14 table scores grass 0.75 (walkable!), while the J-arms
+    # train with grass 0.0. Default kept for backwards compatibility.
+    EXTRA_ARGS+=(--live --trav_path "${TRAV:-config/traversability_v14.yaml}")
+    echo "==> eval traversability table: ${TRAV:-config/traversability_v14.yaml}"
     if [[ -n "${LIVECKPT:-}" ]]; then
         EXTRA_ARGS+=(--live_ckpt "$LIVECKPT")
     fi

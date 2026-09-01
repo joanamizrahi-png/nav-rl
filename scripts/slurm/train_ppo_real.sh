@@ -292,6 +292,10 @@ if [ -n "${SPAWNCLS:-}" ]; then
     BC_ARGS="$BC_ARGS --spawn_classes $SPAWNCLS"
     OUT="${OUT}_spcls"
 fi
+if [ -n "${VOIDTERM:-}" ]; then
+    BC_ARGS="$BC_ARGS --void_terminate_frac $VOIDTERM"
+    OUT="${OUT}_vt${VOIDTERM}"
+fi
 if [ -n "${SEMPAL:-}" ]; then
     BC_ARGS="$BC_ARGS --sem_palette $SEMPAL"
     OUT="${OUT}_pal${SEMPAL}"
