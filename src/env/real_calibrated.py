@@ -455,7 +455,11 @@ class CalibratedRealWorldBackend(RealWorldBackend):
                 [views["img"], torch.stack(
                     [F.to_tensor(simgs[j])[None] for j in keep],
                     dim=1).to(device)], dim=1)
-            for k2, fill in (("is_target", False), ("is_static", False)):
+            # is_static=True: side views carry static scene content, and the
+            # dynamic-gaussian builder asserts non-decreasing timestamps
+            # across views — appending a second 0..78 sequence after main's
+            # 0..80 violates it (458625). Static views skip that machinery.
+            for k2, fill in (("is_target", False), ("is_static", True)):
                 views[k2] = torch.cat(
                     [views[k2], torch.full((1, len(keep)), fill,
                                            dtype=torch.bool,
