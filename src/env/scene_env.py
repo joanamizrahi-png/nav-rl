@@ -126,6 +126,29 @@ class SceneEnvConfig:
     # Her reasoning: stepping onto locally-unsupported ground is fine as long
     # as the view around it is well supported. 0 = off.
     image_void_terminate_frac: float = 0.0
+    # ---- COHERENCE (2026-09-01, her design) --------------------------------
+    # `coverage` = MEAN ALPHA over the frame: how much of the diffusion's
+    # conditioning input has real gaussian support behind it. Pure rasterizer
+    # geometry, no diffusion in it, and NOT the same statistic as the void
+    # fraction the gate produces.
+    #
+    # Her claim, which the panels support: coherence is a WHOLE-FRAME property.
+    # A frame is either the world or it is not; there is no half-trustworthy
+    # frame. So the decision belongs at frame level, not per pixel.
+    #
+    # Two thresholds, two jobs:
+    #   coherence_tau (0.4, read off the ladder by eye)  -> GRADED COST. The
+    #     render is degrading; pull the policy back, do not kill it. Measured:
+    #     the wander regime averages 0.397, the corridor 0.645 — terminating
+    #     at 0.4 would end most exploratory episodes and teach path-hugging,
+    #     which is the failure the spawn jitter exists to prevent.
+    #   coherence_terminate_tau (~0.1)                   -> TERMINATE. Frames
+    #     with essentially no geometry anywhere (GEOvoid = 1.000 was observed).
+    #     Nothing there can be scored and nothing can be learned from it.
+    coherence_cost_weight: float = 0.0      # 0 = off (every run before today)
+    coherence_tau: float = 0.4
+    coherence_terminate_tau: float = 0.0    # 0 = off
+    coherence_terminate_penalty: float = 100.0
     # Proximity cost (2026-08-24, after Run A): charge for being NEAR obstacles,
     # measured against the STATIC reconstructed geometry (scene cloud from
     # dump_scene_cloud.py) — the diffusion cannot dream this away, unlike the
@@ -389,13 +412,17 @@ class SceneEnv(gym.Env if gym is not None else object):
             cfg.goal_dist_m = float(d)
 
     def inject_render(self, rgb: np.ndarray, K: np.ndarray, w2c: np.ndarray,
-                      labels: "np.ndarray | None" = None) -> None:
+                      labels: "np.ndarray | None" = None,
+                      coverage: "float | None" = None) -> None:
         """Batched-live path: the vec-env pushes this robot's frame in after
         the shared batched diffusion call. `labels` feeds the injected
-        semantic backend (reward source for the NEXT step)."""
+        semantic backend (reward source for the NEXT step); `coverage` is the
+        mean alpha of that frame, which only the backend can see."""
         self._last_rgb, self._last_K, self._last_w2c = rgb, K, w2c
         if labels is not None:
             self._injected_labels = labels
+        if coverage is not None:
+            self._last_coverage = float(coverage)
         self._needs_render = False
 
     def _load_obstacle_points(self, scene_id: str) -> None:
@@ -582,12 +609,39 @@ class SceneEnv(gym.Env if gym is not None else object):
             truncated = True
             bonus = 0.0
         prox_term = self._proximity_term(self._robot_pose_world[:2, 3])
+
+        # ---- coherence: is this frame still the world? ----
+        coverage = getattr(self, "_last_coverage", None)
+        coh_term, coh_crash = 0.0, 0.0
+        if coverage is None and (self.cfg.coherence_cost_weight > 0.0
+                                 or self.cfg.coherence_terminate_tau > 0.0):
+            # Only the BATCHED live backend reports per-frame alpha. Asking for
+            # coherence on a path that cannot supply it would silently train a
+            # run with the mechanism switched off and nobody the wiser — the
+            # exact failure shape as the SANPO length filter. Say so, loudly.
+            if not getattr(self, "_coh_warned", False):
+                print("[SceneEnv] WARNING: coherence requested but this backend "
+                      "reports no per-frame alpha — the term is INERT.", flush=True)
+                self._coh_warned = True
+        if coverage is not None:
+            if self.cfg.coherence_cost_weight > 0.0:
+                coh_term = -self.cfg.coherence_cost_weight * max(
+                    0.0, self.cfg.coherence_tau - coverage)
+            if (self.cfg.coherence_terminate_tau > 0.0 and crash == 0.0
+                    and coverage < self.cfg.coherence_terminate_tau):
+                coh_crash = -self.cfg.coherence_terminate_penalty
+                # truncated, NOT terminated — same convention as crash/void
+                # above. info["reached_goal"] mirrors `terminated`, so setting
+                # it here would score every coherence kill as a goal arrival.
+                truncated = True
+                bonus = 0.0
         timeout_term = 0.0
-        if (truncated and not terminated and crash == 0.0
+        if (truncated and not terminated and crash == 0.0 and coh_crash == 0.0
                 and self.cfg.timeout_penalty > 0.0):
             timeout_term = -self.cfg.timeout_penalty
         reward = (breakdown.total + spin_term + back_term + smooth_term
-                  + bonus + crash + prox_term + timeout_term)
+                  + bonus + crash + prox_term + timeout_term
+                  + coh_term + coh_crash)
 
         info = breakdown.to_dict()
         info["spin"] = spin_term
@@ -599,6 +653,11 @@ class SceneEnv(gym.Env if gym is not None else object):
         info["timeout"] = timeout_term
         info["crash"] = crash
         info["proximity"] = prox_term
+        # Always logged, on or off, so the coverage the policy actually
+        # experiences shows up in wandb from the first run.
+        info["coverage"] = float("nan") if coverage is None else coverage
+        info["coherence"] = coh_term
+        info["coherence_crash"] = coh_crash
         info["goal_bonus"] = bonus
         info["total"] = reward
         info["dist_to_goal"] = dist_to_goal

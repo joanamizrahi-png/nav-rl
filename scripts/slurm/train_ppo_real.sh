@@ -300,6 +300,18 @@ if [ -n "${VOIDTERM:-}" ]; then
     BC_ARGS="$BC_ARGS --void_terminate_frac $VOIDTERM"
     OUT="${OUT}_vt${VOIDTERM}"
 fi
+# COH: coherence cost weight — w*max(0, COHTAU - coverage), coverage = mean
+# alpha. Her design 2026-09-01: coherence is a WHOLE-FRAME property, so this
+# replaces the per-pixel void terms as the main uncertainty signal.
+# COHTERM: terminate below this coverage (frames with no geometry at all).
+if [ -n "${COH:-}" ]; then
+    BC_ARGS="$BC_ARGS --coherence_cost_weight $COH --coherence_tau ${COHTAU:-0.4}"
+    OUT="${OUT}_coh${COH}t${COHTAU:-0.4}"
+fi
+if [ -n "${COHTERM:-}" ]; then
+    BC_ARGS="$BC_ARGS --coherence_terminate_tau $COHTERM"
+    OUT="${OUT}_cohterm${COHTERM}"
+fi
 # GATETAU: alpha-gate threshold. Measured 2026-09-01 on gnd_AUw360 — alpha is
 # bimodal (24% <0.1, 48% >0.9) and every phantom crash is already gone at 0.1,
 # so 0.5 was paying 37% of total reward for zero extra protection.

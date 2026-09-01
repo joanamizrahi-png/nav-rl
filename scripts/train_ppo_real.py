@@ -242,6 +242,10 @@ def _scene_env_cfg(args):
         void_terminate_frac=getattr(args, "void_terminate_frac", 0.0),
         void_terminate_penalty=getattr(args, "void_terminate_penalty", 100.0),
         image_void_terminate_frac=getattr(args, "image_void_terminate_frac", 0.0),
+        coherence_cost_weight=getattr(args, "coherence_cost_weight", 0.0),
+        coherence_tau=getattr(args, "coherence_tau", 0.4),
+        coherence_terminate_tau=getattr(args, "coherence_terminate_tau", 0.0),
+        coherence_terminate_penalty=getattr(args, "coherence_terminate_penalty", 100.0),
         proximity_weight=getattr(args, "proximity_weight", 0.0),
         proximity_margin=getattr(args, "proximity_margin", 1.0),
         clouds_dir=getattr(args, "clouds_dir", None),
@@ -617,6 +621,16 @@ def main():
     ap.add_argument("--void_terminate_penalty", type=float, default=100.0,
                     help="cost applied on void termination (RW5 scale: a real "
                          "crash is 1000)")
+    ap.add_argument("--coherence_cost_weight", type=float, default=0.0,
+                    help="graded cost w*max(0, tau - coverage). Coverage is "
+                         "mean alpha: how much of the render has real geometry "
+                         "behind it. 0 = off")
+    ap.add_argument("--coherence_tau", type=float, default=0.4,
+                    help="read off the coverage ladder by eye, 2026-09-01")
+    ap.add_argument("--coherence_terminate_tau", type=float, default=0.0,
+                    help="end the episode below this coverage — frames with no "
+                         "geometry at all. 0 = off")
+    ap.add_argument("--coherence_terminate_penalty", type=float, default=100.0)
     ap.add_argument("--alpha_gate_tau", type=float, default=0.5,
                     help="alpha below this is relabelled void in the REWARD's "
                          "label map (never in the observation). Measured "

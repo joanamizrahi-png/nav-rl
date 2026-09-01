@@ -300,8 +300,14 @@ class LiveVecEnv(VecEnv):
             return
         items = [(i, self.envs[i]._robot_pose_world) for i in idxs]
         results = self.backend.render_batch(items)
-        for i, (rgb, K, w2c, lab) in zip(idxs, results):
-            self.envs[i].inject_render(rgb, K, w2c, labels=lab)
+        # last_alpha is indexed by POSITION IN THE BATCH, not by env id — the
+        # two coincide only when every env renders. Zip over both together.
+        alphas = getattr(self.backend, "last_alpha", None)
+        for j, (i, (rgb, K, w2c, lab)) in enumerate(zip(idxs, results)):
+            cov = None
+            if alphas is not None and j < len(alphas):
+                cov = float(np.asarray(alphas[j]).mean())
+            self.envs[i].inject_render(rgb, K, w2c, labels=lab, coverage=cov)
 
     def _stack_obs(self, obs_list: list) -> dict:
         return {key: np.stack([o[key] for o in obs_list])
