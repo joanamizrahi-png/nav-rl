@@ -86,6 +86,10 @@ def main():
     ap.add_argument("--ground_lo", type=float, default=-0.35)
     ap.add_argument("--ground_hi", type=float, default=0.45)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--rgb", action="store_true",
+                    help="paint the map with the gaussians' own COLORS "
+                         "(mean per cell) instead of semantic class — the "
+                         "label-independent view of the same ground")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -100,6 +104,7 @@ def main():
     pts, lab = z["points"], z["labels"].astype(int)
     ground = (pts[:, 2] > args.ground_lo) & (pts[:, 2] < args.ground_hi)
     gp, gl = pts[ground][:, :2], lab[ground]
+    gc = z["colors"][ground].astype(np.float64) if "colors" in z else None
     print(f"[cloud] {len(pts)} gaussians, {ground.sum()} at ground level "
           f"(z in [{args.ground_lo},{args.ground_hi}] m)", flush=True)
 
@@ -178,8 +183,16 @@ def main():
     # ---- picture ----
     img = np.zeros((nx, ny, 3), dtype=np.uint8)
     img[:] = (25, 25, 30)
-    for c in range(len(V14)):
-        img[cls == c] = V14[c][1]
+    if args.rgb and gc is not None:
+        csum = np.zeros((nx * ny, 3))
+        np.add.at(csum, ix * ny + iy, gc)
+        with np.errstate(invalid="ignore"):
+            mean = (csum / np.maximum(total, 1)[:, None]).reshape(nx, ny, 3)
+        occ = (total > 0).reshape(nx, ny)
+        img[occ] = np.clip(mean[occ], 0, 255).astype(np.uint8)
+    else:
+        for c in range(len(V14)):
+            img[cls == c] = V14[c][1]
     fig, ax = plt.subplots(figsize=(13, 13))
     ax.imshow(np.transpose(img, (1, 0, 2)), origin="lower",
               extent=[lo[0], lo[0] + nx * args.cell_m,
@@ -203,7 +216,7 @@ def main():
                  f"{args.spawn_lat_jitter:.1f} m  (gaussian ground labels)")
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    f = out / f"TOPDOWN_{args.scene}.png"
+    f = out / f"TOPDOWN_{args.scene}{'_rgb' if args.rgb else ''}.png"
     fig.savefig(f, dpi=140, bbox_inches="tight")
     print(f"\n==> {f}", flush=True)
 
