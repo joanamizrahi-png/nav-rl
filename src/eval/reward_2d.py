@@ -43,6 +43,12 @@ class RewardWeights:
     # Kills reward-farming (v3 policy paced walkable ground forever instead of
     # finishing). Default False preserves all older behavior/evals.
     terrain_as_cost: bool = False
+    # 2026-09-01: with void_cost > 0, void is already excluded from collision —
+    # but it was still averaged into the semantic terrain score at 0.0, i.e.
+    # charged twice and rated worse than a tree. True scores terrain only over
+    # KNOWN pixels and prices unknown-ness once, through void_cost. Kept as a
+    # flag so pre-2026-09-01 runs remain reproducible.
+    void_exclude_from_semantic: bool = True
 
 
 @dataclass
@@ -195,6 +201,20 @@ def compute_reward(
                 void_sel = classes == 0
                 collision_frac = float((non_traversable_mask[classes] & ~void_sel).mean())
                 void_frac = float(void_sel.mean())
+                # ...but until 2026-09-01 void was ALSO folded into the semantic
+                # mean at traversability 0.0 — excluded from collision and
+                # simultaneously charged as the worst terrain on Earth. Joana
+                # caught it: "void has a score of 0.0 on traversability, that
+                # needs to be fixed". Unknown ground is UNKNOWN, not lava. Score
+                # terrain only where terrain is known; void_cost is the single
+                # place unknown-ness is priced. An all-void footprint scores
+                # neutral (1.0 => zero semantic penalty under terrain_as_cost)
+                # and is charged purely through void_frac = 1.
+                if weights.void_exclude_from_semantic:
+                    known = ~void_sel
+                    sem_score = (float(scores[known].mean()) if known.any()
+                                 else 1.0)
+                    mean_class_score = sem_score
             else:
                 collision_frac = float(non_traversable_mask[classes].mean())
                 void_frac = 0.0
