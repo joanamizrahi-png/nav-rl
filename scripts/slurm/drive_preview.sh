@@ -42,7 +42,7 @@ python scripts/drive_preview.py \
     ${SPINDEG:+--spin_deg "$SPINDEG"} \
     ${RASTER:+--raster} \
     ${GOALSAMPLE:+--goal_sample "$GOALSAMPLE"} \
-    ${GOALAT:+--goal_at "$GOALAT"} \
+    ${GOALAT:+--goal_at="$GOALAT"} \
     ${STRAFE:+--strafe} \
     ${STRAFEM:+--strafe_m "$STRAFEM"} \
     ${SPAWNYAW:+--spawn_yaw_deg "$SPAWNYAW"} \
