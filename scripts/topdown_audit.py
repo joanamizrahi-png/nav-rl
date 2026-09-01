@@ -40,7 +40,27 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from src.env.real_calibrated import NavCalibration
-from diffsynth.utils.class_taxonomy import V14, V14_NAMES
+
+# v14 taxonomy inlined (name, RGB) — importing diffsynth.utils.class_taxonomy
+# drags in the whole diffusion stack (modelscope), which the login-node base
+# env lacks; this audit is pure numpy/matplotlib by design.
+V14 = [
+    ("void",       (  0,   0,   0)),
+    ("sky",        (200, 225, 245)),
+    ("trail",      (150, 100,  55)),
+    ("grass",      ( 75, 190,  80)),
+    ("rough",      ( 95,  65,  35)),
+    ("water",      ( 50, 120, 200)),
+    ("sidewalk",   (210, 210, 210)),
+    ("road",       ( 70,  70,  85)),
+    ("pavement",   (235, 205, 150)),
+    ("stairs",     (220, 140,  80)),
+    ("obstacle",   (185,  55,  50)),
+    ("vegetation", (170, 200,  55)),
+    ("person",     (205,  70, 145)),
+    ("vehicle",    (110, 130, 220)),
+]
+V14_NAMES = [n for n, _ in V14]
 
 # config/traversability_v14_strict.yaml (her J-spec table): only hard walkways
 # are properly traversable; grass and everything soft is 0.
