@@ -123,7 +123,14 @@ class RewardComponentsCallback(BaseCallback):
 
     KEYS = ("semantic", "goal", "collision", "step", "void", "spin",
             "backward", "smooth", "timeout", "crash", "proximity",
-            "goal_bonus", "total")
+            "goal_bonus", "total",
+            # 2026-09-01: the world model's own uncertainty, logged from day
+            # one so any void THRESHOLD gets chosen from the measured
+            # distribution instead of guessed. void_frac = footprint support;
+            # image_void_frac = whole-view support (her measure). The spin
+            # `cov` number is MEAN ALPHA, a different statistic — it cannot be
+            # converted into these without the alpha histogram.
+            "void_frac", "image_void_frac")
 
     def __init__(self):
         super().__init__()
