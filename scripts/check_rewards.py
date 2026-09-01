@@ -184,6 +184,55 @@ def render_episodes(args):
     return recs
 
 
+def build_ladder(recs, od, stem, args, cv2, cols=6, tw=240, th=144):
+    """The coverage ladder — every rendered pose sorted by mean alpha, best
+    first, each tile showing what the model was GIVEN (raster) beside what it
+    MADE (diffused), with the number on it.
+
+    Her call, 2026-09-01: a threshold is a perceptual judgment. Ground-truth
+    error curves are a paper experiment; picking the knob is a matter of
+    scrolling until the pictures stop looking like the world and reading the
+    number off that tile. No metric can do that better than eyes can.
+    """
+    order = sorted(range(len(recs)),
+                   key=lambda i: -(float(recs[i]["alpha"].mean())
+                                   if recs[i]["alpha"] is not None else 0.0))
+    tiles = []
+    for i in order:
+        r = recs[i]
+        dif = cv2.resize(r["rgb"], (tw, th))
+        ras = (np.zeros_like(dif) if r["ras"] is None
+               else cv2.resize(r["ras"], (tw, th)))
+        pair = np.hstack([ras, dif])
+        bar = np.zeros((24, pair.shape[1], 3), dtype=np.uint8)
+        if r["alpha"] is not None:
+            a = float(r["alpha"].mean())
+            v = float((r["alpha"] <= args.gate_tau).mean())
+            txt = f"alpha {a:.2f}   void@{args.gate_tau} {v:.2f}   ep{r['ep']}s{r['step']}"
+        else:
+            txt = f"ep{r['ep']}s{r['step']}"
+        cv2.putText(bar, txt, (5, 17), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                    (255, 255, 255), 1, cv2.LINE_AA)
+        tile = np.vstack([bar, pair])
+        cv2.rectangle(tile, (0, 0), (tile.shape[1] - 1, tile.shape[0] - 1),
+                      (60, 60, 60), 1)
+        tiles.append(tile)
+
+    while len(tiles) % cols:
+        tiles.append(np.zeros_like(tiles[0]))
+    grid = np.vstack([np.hstack(tiles[r:r + cols])
+                      for r in range(0, len(tiles), cols)])
+    head = np.zeros((30, grid.shape[1], 3), dtype=np.uint8)
+    cv2.putText(head, f"{stem}  COVERAGE LADDER  (left=raster given to the "
+                      f"model, right=what it generated)  sorted by mean alpha,"
+                      f" best first", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                (255, 255, 255), 1, cv2.LINE_AA)
+    out = np.vstack([head, grid])[:, :, ::-1]
+    p = od / f"LADDER_{stem}.png"
+    cv2.imwrite(str(p), np.ascontiguousarray(out))
+    print(f"==> coverage ladder: {p}", flush=True)
+
+
 def footprint_uv(rec, look_ahead):
     """The projected footprint quad, or None if it straddles the camera."""
     corners = _footprint_corners_world(
@@ -509,6 +558,7 @@ def main():
         import cv2
         from diffsynth.utils.class_taxonomy import v14_palette
         pal = (v14_palette(args.sem_palette).numpy() * 255).astype(np.uint8)
+        build_ladder(recs, od, stem, args, cv2)
         u_rows = {(r["ep"], r["step"]): r for r in per_tau[0.0]}
         g_rows = {(r["ep"], r["step"]): r for r in per_tau[args.gate_tau]}
         crash_u = {k for k, v in u_rows.items() if v["fp_coll"] >= args.crash_frac}
