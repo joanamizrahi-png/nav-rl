@@ -62,9 +62,25 @@ V14 = [
 ]
 V14_NAMES = [n for n, _ in V14]
 
-# config/traversability_v14_strict.yaml (her J-spec table): only hard walkways
-# are properly traversable; grass and everything soft is 0.
+# Fallback if --trav can't be read: the original J-spec strict table.
 STRICT = {6: 1.0, 8: 1.0, 7: 0.15, 9: 0.3}
+
+
+def load_trav(path):
+    """Read a traversability yaml (id -> {name, score}) so the audit reports
+    the SAME scores training uses. Falls back to STRICT on any problem."""
+    try:
+        import yaml
+        d = yaml.safe_load(open(path))
+        t = {int(k): float(v["score"]) for k, v in d.items()}
+        print(f"[trav] {path}: "
+              + ", ".join(f"{V14_NAMES[k]}={s:g}" for k, s in sorted(t.items())
+                          if s > 0), flush=True)
+        return t
+    except Exception as e:
+        print(f"[trav] could not read {path} ({e}); using strict fallback",
+              flush=True)
+        return STRICT
 
 
 def main():
@@ -86,6 +102,10 @@ def main():
     ap.add_argument("--ground_lo", type=float, default=-0.35)
     ap.add_argument("--ground_hi", type=float, default=0.45)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--trav",
+                    default=str(REPO_ROOT / "config/traversability_v14_walkway.yaml"),
+                    help="traversability yaml whose scores the report uses "
+                         "(default: the walkway table the J-arms now train on)")
     ap.add_argument("--rgb", action="store_true",
                     help="paint the map with the gaussians' own COLORS "
                          "(mean per cell) instead of semantic class — the "
@@ -95,6 +115,7 @@ def main():
 
     lo_d, hi_d = (float(v) for v in args.dist_range.split(","))
     allowed = set(int(c) for c in args.spawn_classes.split(","))
+    trav = load_trav(args.trav)
     rng = np.random.default_rng(args.seed)
 
     cal = NavCalibration.from_npz(f"{args.poses_dir}/{args.scene}_poses.npz")
@@ -167,7 +188,7 @@ def main():
         for c in np.unique(ids):
             n = int((ids == c).sum())
             nm = "UNOBSERVED-VOID" if c < 0 else V14_NAMES[c]
-            sc = 0.0 if c < 0 else STRICT.get(int(c), 0.0)
+            sc = 0.0 if c < 0 else trav.get(int(c), 0.0)
             if sc >= 0.5:
                 walk += n
             print(f"  {nm:>16}: {n:4d}  ({100.0*n/len(ids):5.1f}%)  "
