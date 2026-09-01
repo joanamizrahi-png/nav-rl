@@ -319,8 +319,53 @@ def main():
         print("  A GAP between two humps = a principled threshold. A smooth "
               "ramp = any threshold is a policy choice, not a fact.", flush=True)
 
+    # ---- does the diffusion degrade where the rasterizer has no support? ----
+    # Joana's hypothesis (2026-09-01): world-model coherence tracks how much of
+    # the view the UNDIFFUSED raster already covers. Operational version: bin
+    # every pixel by its alpha and ask what the model paints there, and whether
+    # it still agrees with the splat labels it was conditioned on.
+    if have_alpha and recs[0]["sras"] is not None:
+        nb = 10
+        tot = np.zeros(nb); obs = np.zeros(nb); wlk = np.zeros(nb)
+        agr = np.zeros(nb); agrd = np.zeros(nb)
+        for r in recs:
+            b = np.clip((r["alpha"] * nb).astype(int), 0, nb - 1).ravel()
+            lab = np.clip(r["lab"], 0, len(trav) - 1)
+            isobs = (non_trav[lab] & (lab != 0)).ravel().astype(float)
+            iswalk = (trav[lab] > 0.5).ravel().astype(float)
+            tot += np.bincount(b, minlength=nb)
+            obs += np.bincount(b, weights=isobs, minlength=nb)
+            wlk += np.bincount(b, weights=iswalk, minlength=nb)
+            sr = np.asarray(r["sras"]).astype(int)
+            v = (sr > 0).ravel()
+            if v.any():
+                agrd += np.bincount(b[v], minlength=nb)
+                agr += np.bincount(b[v], weights=(lab.ravel()[v] == sr.ravel()[v]
+                                                 ).astype(float), minlength=nb)
+        print("\n===== DIFFUSION vs RASTER SUPPORT (all pixels, all steps) =====")
+        print("  alpha bin   share    P(non-trav)  P(walkable)  agrees w/ splat lbl")
+        for i in range(nb):
+            if tot[i] == 0:
+                continue
+            ag = f"{agr[i]/agrd[i]:.3f}" if agrd[i] > 0 else "   -  "
+            print(f"   [{i/nb:.1f},{(i+1)/nb:.1f})   {tot[i]/tot.sum():.3f}    "
+                  f"{obs[i]/tot[i]:.3f}        {wlk[i]/tot[i]:.3f}        {ag}")
+        print("  If P(non-trav) climbs sharply as alpha falls, the model INVENTS\n"
+              "  obstacles exactly where it has no geometry — that is the phantom\n"
+              "  mechanism, quantified. If it stays flat, low alpha is not the\n"
+              "  problem and the gate is aimed at the wrong thing.", flush=True)
+
     # ---- the sweep ----
     per_tau = {t: score(recs, t, trav, non_trav, weights, args) for t in taus}
+
+    # are the crash steps the low-support steps?
+    u0 = per_tau[0.0]
+    ca = np.array([r["mean_alpha"] for r in u0 if r["fp_coll"] >= args.crash_frac])
+    na = np.array([r["mean_alpha"] for r in u0 if r["fp_coll"] < args.crash_frac])
+    if ca.size and na.size:
+        print(f"\n  mean alpha on CRASH steps    {ca.mean():.3f}  (n={ca.size})")
+        print(f"  mean alpha on non-crash steps {na.mean():.3f}  (n={na.size})",
+              flush=True)
 
     s = args.reward_scale
     print(f"\n===== GATE THRESHOLD SWEEP ({n} steps, identical renders) =====")
