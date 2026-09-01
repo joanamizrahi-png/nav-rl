@@ -48,6 +48,7 @@ python scripts/drive_preview.py \
     ${SPAWNYAW:+--spawn_yaw_deg "$SPAWNYAW"} \
     ${SPAWNLAT:+--spawn_lat_m "$SPAWNLAT"} \
     ${PANOVIEWS:+--pano_views} \
+    ${SEMPAL:+--sem_palette "$SEMPAL"} \
     --live_ckpt "${LIVECKPT:-/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors}" \
     --out /scratch/m000204-pm06b/joana/outputs/drive_preview
 

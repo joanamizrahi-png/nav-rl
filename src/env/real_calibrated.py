@@ -193,6 +193,11 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # the cold-start jitter walks (sy20/sl0.4) and the strafe cov sweep.
     spawn_yaw_jitter_deg: float = 0.0
     spawn_lat_jitter_m: float = 0.0
+    # v14 palette version for the semantic pipe's colorize/DECODE. MUST match
+    # the checkpoint's training palette: v21 and earlier = 1, v22b = 2,
+    # v23 = 3, v24/v25 line = 4. Wrong version decodes to wrong classes and
+    # silently poisons the reward (the live_backend gap, closed 2026-08-31).
+    sem_palette_version: int = 1
     # Every Nth pano side-view frame joins the reconstruction (243 full views
     # OOM the gs_head; 3 -> 81+27+27=135). Raise to 4-5 if OOM persists.
     pano_view_stride: int = 3

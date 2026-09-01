@@ -176,6 +176,7 @@ def make_env(args):
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
         spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
+        sem_palette_version=getattr(args, "sem_palette", 1),
         render_mode="rasterizer_only",       # cheap per-step; diffusion later
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -281,6 +282,7 @@ def make_live_vec_env(args):
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
         spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
+        sem_palette_version=getattr(args, "sem_palette", 1),
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -674,6 +676,10 @@ def main():
                          "deviation (her J-v2 spec)")
     ap.add_argument("--spawn_lat_jitter", type=float, default=0.0,
                     help="slide each spawn laterally by U(-x,+x) meters")
+    ap.add_argument("--sem_palette", type=int, default=1,
+                    help="v14 palette version for the live semantic decode — "
+                         "must match --live_ckpt's training palette "
+                         "(v21=1, v24/v25 line=4)")
     ap.add_argument("--goal_xy", default=None,
                     help="'x,y': FIX the goal at this nav-frame point every "
                          "episode — obstacle-encounter training (2026-08-31, "

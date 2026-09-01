@@ -292,6 +292,10 @@ if [ -n "${SPAWNCLS:-}" ]; then
     BC_ARGS="$BC_ARGS --spawn_classes $SPAWNCLS"
     OUT="${OUT}_spcls"
 fi
+if [ -n "${SEMPAL:-}" ]; then
+    BC_ARGS="$BC_ARGS --sem_palette $SEMPAL"
+    OUT="${OUT}_pal${SEMPAL}"
+fi
 if [ -n "${SPAWNJYAW:-}" ]; then
     BC_ARGS="$BC_ARGS --spawn_yaw_jitter $SPAWNJYAW"
     OUT="${OUT}_sjy${SPAWNJYAW}"

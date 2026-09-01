@@ -121,7 +121,10 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         )
         pipe.semantic_channels = 16
         pipe.semantic_x0_prediction = True
-        set_active_palette(self._num_classes)
+        _pal = int(getattr(self.cfg, "sem_palette_version", 1))
+        set_active_palette(self._num_classes, _pal)
+        print(f"[LiveDiffusedBackend] active palette: v{_pal} "
+              f"({self._num_classes} classes)", flush=True)
         expand_dit_for_semantics_v2(pipe.dit, extra=16)
         if pipe.control_branch is not None:
             expand_control_branch_for_semantics_v2(pipe.control_branch, extra=16)

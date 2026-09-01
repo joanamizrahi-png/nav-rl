@@ -86,6 +86,10 @@ def main():
                          "--start, uniform dist) then walk straight at it, "
                          "camera on it — a rendered J-episode. Spawn is the "
                          "recorded path pose at --start.")
+    ap.add_argument("--sem_palette", type=int, default=1,
+                    help="v14 palette version for semantic decode — must "
+                         "match the live_ckpt's training palette (v21=1, "
+                         "v24/v25 line=4)")
     ap.add_argument("--pano_views", action="store_true",
                     help="OPT IN to fusing pano side views into the "
                          "reconstruction (off by default so the dense-data "
@@ -120,6 +124,7 @@ def main():
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
         render_mode="rasterizer_only",
         use_pano_views=args.pano_views,
+        sem_palette_version=args.sem_palette,
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
         H=args.height,
@@ -130,7 +135,7 @@ def main():
     world.load_scene(args.scene)
     cal = world._calib[args.scene]
 
-    pal = (v14_palette().numpy() * 255).astype(np.uint8)      # [14,3] RGB
+    pal = (v14_palette(args.sem_palette).numpy() * 255).astype(np.uint8)  # [14,3] RGB
 
     def tangent_pose(i: int) -> np.ndarray:
         pos = np.asarray(cal.positions)
@@ -272,6 +277,7 @@ def main():
            + (f"_sy{args.spawn_yaw_deg:g}" if args.spawn_yaw_deg else "")
            + (f"_sl{args.spawn_lat_m:g}" if args.spawn_lat_m else "")
            + (f"_strafe{args.strafe_m:g}" if args.strafe else "")
+           + (f"_pal{args.sem_palette}" if args.sem_palette != 1 else "")
            + ("_ras" if args.raster else ""))
     if args.spin:
         # Recorded-heading sanity: angle between the recorded camera forward
