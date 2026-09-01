@@ -183,6 +183,9 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # sampled within +-goal_cone_deg/2 of the path tangent at the spawn.
     # 360 = unconstrained (the original J-spec; valid once pano scenes land).
     goal_cone_deg: float = 360.0
+    # Every Nth pano side-view frame joins the reconstruction (243 full views
+    # OOM the gs_head; 3 -> 81+27+27=135). Raise to 4-5 if OOM persists.
+    pano_view_stride: int = 3
     # Spawn validity (her check): only spawn on frames whose ground patch is
     # labeled with one of these class ids (e.g. (6, 8) = sidewalk/pavement).
     # None = no filtering (all runs before this).
@@ -421,6 +424,11 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         # operator-followers live there. Inert when the files don't exist.
         from pathlib import Path as _P
         _vp, _lp = _P(video_path), _P(labels_path)
+        # Stride: full 81+81+81 = 243 views OOMs WorldMirror's gs_head
+        # (458356 maiden flight, 2026-08-31). Side views carry flank SUPPORT
+        # not detail — every 3rd frame (81+27+27=135) keeps the coverage at a
+        # memory cost the reconstructor survives.
+        _stride = int(getattr(cfg, "pano_view_stride", 3))
         for _yaw in (90, 270):
             side_mp4 = _vp.with_name(f"{_vp.stem}_pano_yaw{_yaw:03d}.mp4")
             side_lab = _lp.with_name(f"{_lp.stem}_pano_yaw{_yaw:03d}.npz")
@@ -436,23 +444,25 @@ class CalibratedRealWorldBackend(RealWorldBackend):
                     lt, size=(cfg.H, cfg.W), mode="nearest"
                 )[:, 0].to(torch.int64).numpy()
             m = min(len(simgs), len(slab), n)
+            keep = list(range(0, m, _stride))
+            ts = torch.tensor(keep, dtype=torch.int64, device=device)
             views["img"] = torch.cat(
                 [views["img"], torch.stack(
-                    [F.to_tensor(im)[None] for im in simgs[:m]],
+                    [F.to_tensor(simgs[j])[None] for j in keep],
                     dim=1).to(device)], dim=1)
             for k2, fill in (("is_target", False), ("is_static", False)):
                 views[k2] = torch.cat(
-                    [views[k2], torch.full((1, m), fill, dtype=torch.bool,
+                    [views[k2], torch.full((1, len(keep)), fill,
+                                           dtype=torch.bool,
                                            device=device)], dim=1)
             views["timestamp"] = torch.cat(
-                [views["timestamp"], torch.arange(
-                    0, m, dtype=torch.int64, device=device).unsqueeze(0)], dim=1)
+                [views["timestamp"], ts.unsqueeze(0)], dim=1)
             views["labels"] = torch.cat(
                 [views["labels"], torch.as_tensor(
-                    slab[:m], dtype=torch.long,
+                    slab[keep], dtype=torch.long,
                     device=device).unsqueeze(0)], dim=1)
             print(f"[pano] {_vp.stem}: appended side view yaw{_yaw:03d} "
-                  f"({m} frames)", flush=True)
+                  f"({len(keep)}/{m} frames, stride {_stride})", flush=True)
         with torch.no_grad(), torch.amp.autocast("cuda", dtype=dtype):
             predictions = reconstructor(views, is_inference=True, use_motion=False)
         cache = {
