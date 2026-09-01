@@ -86,6 +86,13 @@ def main():
                          "--start, uniform dist) then walk straight at it, "
                          "camera on it — a rendered J-episode. Spawn is the "
                          "recorded path pose at --start.")
+    ap.add_argument("--aerial", default=None,
+                    help="'height_m,pitch_deg,samples': ONE bird's-eye frame "
+                         "of the scene — raster RGB | semantic gaussians from "
+                         "above — overlaid with the recorded path, `samples` "
+                         "REAL jittered spawn draws (orange, with heading "
+                         "ticks) and their sampled goals (green) using the "
+                         "J-50 training distribution. Saves OVERVIEW_*.png.")
     ap.add_argument("--sem_palette", type=int, default=1,
                     help="v14 palette version for semantic decode — must "
                          "match the live_ckpt's training palette (v21=1, "
@@ -321,6 +328,24 @@ def main():
                                 s * fwd[0] + c * fwd[1]])
             pose = pose_at(base[:2, 3], fwd_rot)
             spin_off_deg = float(np.degrees(ang))
+        elif args.aerial:
+            a_h, a_pitch, _ = (float(v) for v in args.aerial.split(","))
+            i = args.start
+            base = tangent_pose(i)
+            fwd = base[:3, 0].copy()
+            up = np.array([0.0, 0.0, 1.0])
+            thp = np.deg2rad(max(a_pitch, 15.0))
+            f2 = np.cos(thp) * fwd - np.sin(thp) * up
+            u2 = np.cos(thp) * up + np.sin(thp) * fwd
+            pose = np.eye(4, dtype=np.float32)
+            pose[:3, 0] = f2
+            pose[:3, 2] = u2
+            pose[:3, 1] = np.cross(u2, f2)
+            pmid = path_xy.mean(0)
+            back = a_h / np.tan(thp)
+            pose[:3, 3] = np.array([pmid[0] - fwd[0] * back,
+                                    pmid[1] - fwd[1] * back, a_h],
+                                   dtype=np.float32)
         elif args.strafe:
             i = args.start
             n = max(args.frames - 1, 3)
@@ -393,6 +418,67 @@ def main():
                         (2 * args.width + 8, frame.shape[0] - 12),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1,
                         cv2.LINE_AA)
+        if args.aerial:
+            # Bird's-eye training-distribution atlas (her ask 2026-08-31):
+            # overlay the recorded path + REAL sampled spawns/goals from the
+            # J-50 distribution onto every panel, save one PNG, done.
+            _, _, n_samp = (float(v) for v in args.aerial.split(","))
+            world.cfg.goal_dir_360 = True
+            world.cfg.goal_cone_deg = 50.0
+            world.cfg.goal_dist_range = (5.0, 10.0)
+            world.cfg.spawn_label_classes = (6, 8)
+            world.cfg.spawn_yaw_jitter_deg = 20.0
+            world.cfg.spawn_lat_jitter_m = 0.4
+            world.cfg.spawn_min_frame = 10
+            srng = np.random.default_rng(0)
+
+            def apt(pt_xy, dx):
+                K2 = np.asarray(K, dtype=float).reshape(3, 3)
+                M = np.asarray(w2c, dtype=float)
+                if M.shape == (3, 4):
+                    M = np.vstack([M, [0.0, 0.0, 0.0, 1.0]])
+                p = M @ np.array([pt_xy[0], pt_xy[1], 0.0, 1.0])
+                if p[2] <= 0.1:
+                    return None
+                u = K2[0, 0] * p[0] / p[2] + K2[0, 2]
+                v = K2[1, 1] * p[1] / p[2] + K2[1, 2]
+                if not (0 <= u < args.width and 0 <= v < args.height):
+                    return None
+                return int(u) + dx, int(v)
+
+            draws = []
+            for _s in range(int(n_samp)):
+                sp = world.sample_start_pose(args.scene, srng)
+                g = world.sample_goal_position(args.scene, srng, sp[:2, 3])
+                draws.append((sp, g))
+            for dx in (k * args.width for k in range(len(panels))):
+                prev = None
+                for p2 in path_xy:
+                    uv = apt(p2, dx)
+                    if uv is not None and prev is not None:
+                        cv2.line(frame, prev, uv, (255, 200, 0), 2,
+                                 cv2.LINE_AA)
+                    prev = uv
+                for sp, g in draws:
+                    suv = apt(sp[:2, 3], dx)
+                    tip = apt(sp[:2, 3] + sp[:2, 0] * 1.2, dx)
+                    guv = apt(g[:2], dx)
+                    if suv is not None and guv is not None:
+                        cv2.line(frame, suv, guv, (0, 255, 0), 1, cv2.LINE_AA)
+                    if suv is not None:
+                        cv2.circle(frame, suv, 5, (0, 140, 255), -1)
+                        if tip is not None:
+                            cv2.line(frame, suv, tip, (0, 140, 255), 2,
+                                     cv2.LINE_AA)
+                    if guv is not None:
+                        cv2.drawMarker(frame, guv, (0, 255, 0),
+                                       cv2.MARKER_CROSS, 12, 2)
+            png = out_dir / (f"OVERVIEW_{args.scene}_pal{args.sem_palette}"
+                             ".png")
+            cv2.imwrite(str(png), frame)
+            print(f"==> {png}", flush=True)
+            break
+
         # In totgt mode the walk leaves the recorded path, so "pose i" would be
         # a lie (found 2026-08-30: the off-path tree got mislocated to "pose 25")
         # — label by steps/meters walked instead.
@@ -444,8 +530,9 @@ def main():
             off_txt = f"  lat {strafe_off_m:+6.2f}m"
         print(f"[{step + 1}/{args.frames}] pose {i} "
               f"{world.last_timings['total']:.2f}s{off_txt}{cov_txt}", flush=True)
-    vw.release()
-    print(f"==> {out_dir / f'DRIVE_{tag}.mp4'}", flush=True)
+    if vw is not None:
+        vw.release()
+        print(f"==> {out_dir / f'DRIVE_{tag}.mp4'}", flush=True)
 
 
 if __name__ == "__main__":
