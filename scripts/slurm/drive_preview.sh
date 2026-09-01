@@ -51,6 +51,6 @@ python scripts/drive_preview.py \
     ${SEMPAL:+--sem_palette "$SEMPAL"} \
     ${AERIAL:+--aerial "$AERIAL"} \
     --live_ckpt "${LIVECKPT:-/scratch/m000204-pm06b/joana/runs/train_semantic_v10/checkpoint-epoch-30.safetensors}" \
-    --out /scratch/m000204-pm06b/joana/outputs/drive_preview
+    --out /scratch/m000204-pm06b/joana/outputs/drive_preview${OUTTAG:+_$OUTTAG}
 
 echo "==> drive preview done"
