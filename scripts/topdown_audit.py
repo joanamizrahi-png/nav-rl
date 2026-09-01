@@ -121,6 +121,26 @@ def main():
     cal = NavCalibration.from_npz(f"{args.poses_dir}/{args.scene}_poses.npz")
     path = np.asarray(cal.positions, dtype=float)[:, :2]
 
+    # Recorded-heading vs path-tangent, at EVERY pose (2026-09-01). The
+    # single-frame version of this check (drive_preview's [spin] line) reads
+    # a corner as a broken scene: at a turn the tangent swings ~90 deg over
+    # two frames while the camera lags. Systematic mis-registration shows up
+    # as a large MEDIAN; a corner shows up as a small median with a big p90.
+    angs = []
+    for i in range(2, len(path) - 2):
+        fw = path[i + 1] - path[i - 1]
+        if np.linalg.norm(fw) < 1e-6:
+            continue
+        rp = cal.robot_pose_nav(i)[:2, 0]
+        angs.append(np.degrees(np.arctan2(rp[0] * fw[1] - rp[1] * fw[0],
+                                          float(np.dot(rp, fw)))))
+    if angs:
+        a = np.abs(np.array(angs))
+        print(f"[heading] recorded-vs-tangent over {len(a)} poses: "
+              f"median {np.median(a):.1f}deg, p90 {np.percentile(a, 90):.1f}deg, "
+              f"{100.0 * (a > 30).mean():.0f}% of poses >30deg "
+              f"({'OK' if np.median(a) < 15 else 'SUSPECT'})", flush=True)
+
     z = np.load(args.cloud)
     pts, lab = z["points"], z["labels"].astype(int)
     ground = (pts[:, 2] > args.ground_lo) & (pts[:, 2] < args.ground_hi)
