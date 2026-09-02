@@ -75,6 +75,7 @@ def pose_at(xy, heading):
 def episode_poses(cal, rng, n_steps, cone_deg, dist_range, yaw_jit, lat_jit,
                   spawn_min=10, goal_xy=None, spawn_frame=None,
                   walk="straight", step_size_m=0.3, yaw_step_rad=0.5,
+                  yaw_span_deg=90.0,
                   wander_fwd_min=0.0):
     """One J-spec episode: jittered spawn on the recorded path, goal in the
     tangent cone, then a walk from there.
@@ -111,7 +112,21 @@ def episode_poses(cal, rng, n_steps, cone_deg, dist_range, yaw_jit, lat_jit,
         goal = p + rng.uniform(*dist_range) * np.array([np.cos(th), np.sin(th)])
 
     poses = [pose_at(p, yaw)]
-    if walk == "wander":
+    if walk == "yaw":
+        # YAW LADDER (2026-09-02). Two evals came back with
+        # ground_share {'none': 1.0} -- the reward footprint never projected
+        # into the image for 20 episodes -- while scripted walks on the same
+        # scenes projected fine. The difference was the driver: B pans hard
+        # left-right and never translates. So: hold the position and sweep the
+        # HEADING, and report at which turn angle the footprint leaves the
+        # frame. A box 1.5 m dead ahead of a camera pointing the same way
+        # should never leave it, so if it does, the footprint heading and the
+        # camera yaw disagree -- and the reward reads terrain the robot is not
+        # facing.
+        poses = [pose_at(p, yaw + np.deg2rad(d))
+                 for d in np.linspace(-yaw_span_deg, yaw_span_deg,
+                                      max(2, n_steps))]
+    elif walk == "wander":
         cur_p, cur_yaw = p.astype(float).copy(), float(yaw)
         for _ in range(1, n_steps):
             a_fwd = rng.uniform(wander_fwd_min, 1.0)
@@ -160,6 +175,7 @@ def render_episodes(args):
             args.spawn_yaw_jitter, args.spawn_lat_jitter,
             goal_xy=goal_xy, spawn_frame=args.spawn_frame,
             walk=args.walk, step_size_m=args.step_size_m,
+            yaw_span_deg=args.yaw_span,
             yaw_step_rad=args.yaw_step_rad,
             wander_fwd_min=args.wander_fwd_min)
         prev = None
@@ -250,6 +266,63 @@ def footprint_mask(rec, look_ahead):
         return None
     h, w = rec["lab"].shape[:2]
     return _fill_polygon(h, w, uv)
+
+
+def yaw_ladder(recs, non_trav, args):
+    """At which TURN ANGLE does the reward stop seeing the ground?
+
+    Position held fixed, heading swept. For each rung: does the footprint
+    project in front of the camera at all, does it cover any pixels, how many,
+    and what does it score. If pixel coverage collapses away from 0 deg, a
+    turning policy is being rewarded blind -- which makes turning free and
+    moving expensive, and is a far better explanation for a policy that pans
+    in place than anything in the reward weights.
+    """
+    n = len(recs)
+    mid = n // 2
+    base = float(np.arctan2(recs[mid]["head"][1], recs[mid]["head"][0]))
+    print("\n===== YAW LADDER (does the footprint survive a turn?) =====")
+    print(f"  position fixed, heading swept +-{args.yaw_span:.0f}deg over "
+          f"{n} rungs, footprint at {args.look_ahead} m\n")
+    print(f"  {'yaw':>7}{'in front':>10}{'HAS PIXELS':>12}{'px':>8}"
+          f"{'coll':>8}{'mean trav':>11}{'cov':>8}")
+    lost = []
+    for r in recs:
+        yaw = float(np.arctan2(r["head"][1], r["head"][0]))
+        d = np.degrees((yaw - base + np.pi) % (2 * np.pi) - np.pi)
+        uv = footprint_uv(r, args.look_ahead)
+        if uv is None:
+            print(f"  {d:+7.1f}{'NO':>10}{'-':>12}{'-':>8}{'-':>8}"
+                  f"{'-':>11}{'-':>8}   BEHIND CAMERA")
+            lost.append(d)
+            continue
+        h, w = r["lab"].shape[:2]
+        m = _fill_polygon(h, w, uv)
+        npx = int(m.sum())
+        cov = (float(r["alpha"].mean()) if r.get("alpha") is not None
+               else float("nan"))
+        if npx == 0:
+            print(f"  {d:+7.1f}{'yes':>10}{'0%':>12}{0:>8}{'-':>8}"
+                  f"{'-':>11}{cov:8.3f}   OFF FRAME -> reward is BLIND")
+            lost.append(d)
+            continue
+        cls = r["lab"][m]
+        idx = np.clip(cls, 0, len(non_trav) - 1)
+        coll = float(non_trav[idx].mean())
+        trav = float(1.0 - non_trav[idx].mean())
+        print(f"  {d:+7.1f}{'yes':>10}{'100%':>12}{npx:8d}{coll:8.3f}"
+              f"{trav:11.3f}{cov:8.3f}")
+    if lost:
+        print(f"\n  BLIND at {len(lost)}/{n} angles: "
+              f"{', '.join(f'{v:+.0f}' for v in lost)} deg")
+        print("  A footprint centred on the robot's own heading should never "
+              "leave a camera\n  pointing the same way. If it does, the "
+              "footprint heading and the camera yaw\n  disagree -- the reward "
+              "is scoring ground the robot is not facing.")
+    else:
+        print("\n  Footprint projects at every angle: turning does NOT blind "
+              "the reward,\n  so the off-frame evals came from position, not "
+              "heading.")
 
 
 def look_ahead_ladder(recs, non_trav, args):
@@ -388,6 +461,9 @@ def main():
     ap.add_argument("--goal_weight", type=float, default=10.0)
     ap.add_argument("--collision_threshold", type=float, default=0.1)
     ap.add_argument("--look_ahead", type=float, default=1.5)
+    ap.add_argument("--yaw_span", type=float, default=90.0,
+                    help="with --walk yaw: sweep the heading +-this many "
+                         "degrees from the path tangent, position held fixed")
     ap.add_argument("--ladder_dists", default="0.6,0.8,1.0,1.2,1.5,1.8",
                     help="collision look-ahead distances to test for visibility")
     ap.add_argument("--collision_look_ahead", type=float, default=1.0,
@@ -399,7 +475,8 @@ def main():
                     help="alpha-gate thresholds to score; 0 = ungated")
     ap.add_argument("--gate_tau", type=float, default=0.5,
                     help="the threshold shown in the panels and detail blocks")
-    ap.add_argument("--walk", default="straight", choices=["straight", "wander"],
+    ap.add_argument("--walk", default="straight",
+                    choices=["straight", "wander", "yaw"],
                     help="straight = drive at the goal (best case, coherent "
                          "corridor); wander = random actions through the real "
                          "kinematics (what an untrained policy does)")
@@ -443,6 +520,8 @@ def main():
                             collision=1.0, step_cost=0.05, void_cost=0.3,
                             terrain_as_cost=True)
 
+    if args.walk == "yaw":
+        yaw_ladder(recs, non_trav, args)
     look_ahead_ladder(recs, non_trav, args)
 
     # ---- the support distribution: whole image AND inside the footprint ----
