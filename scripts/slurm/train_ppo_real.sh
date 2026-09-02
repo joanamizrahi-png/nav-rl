@@ -285,6 +285,21 @@ if [ "${GOAL360:-0}" = "1" ]; then
     BC_ARGS="$BC_ARGS --goal_dir_360"
     OUT="${OUT}_g360"
 fi
+# CRASHPEN: override RW5's baked-in crash penalty of 1000. This block sits
+# AFTER the RW5 block so the last --collision_terminate_penalty wins (COLLPEN
+# at the top does NOT work with RW5 -- it is overridden silently).
+#
+# Why it matters: crash -1000 and goal bonus +1000 are symmetric, but only
+# ~51% of sampled goals are reachable (goal_audit.py) while crash fires on
+# 19-25% of steps. The expected value of driving at a goal is therefore
+# NEGATIVE, and the highest-return behaviour is to survive without committing
+# -- exactly what arm B learned (0% goal arrivals, longest episodes, lowest
+# crash). Lowering the crash side tilts that back.
+if [ -n "${CRASHPEN:-}" ]; then
+    BC_ARGS="$BC_ARGS --collision_terminate_penalty $CRASHPEN"
+    OUT="${OUT}_cp${CRASHPEN}"
+fi
+
 # MAXSTEPS: episode step budget (default 60). At 0.3 m/step a 10 m goal needs
 # 34 steps at FULL linear speed, so below ~57% mean speed the far half of
 # GOALRANGE=5,10 is unreachable on time no matter how good the policy is.
