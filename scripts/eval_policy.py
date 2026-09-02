@@ -122,6 +122,14 @@ def build_env(args):
                     scene_ids=[args.scene], cfg=env_cfg)
 
 
+# Every reward term SceneEnv puts on `info`. Summed per episode so the table
+# shows WHY a return is what it is -- a -1000 return from one crash and a -1000
+# return from a hundred bad steps are different diagnoses.
+EVAL_COMPONENTS = ("semantic", "goal", "collision", "step", "spin", "backward",
+                   "smooth", "timeout", "crash", "proximity", "goal_bonus",
+                   "coherence", "coherence_crash")
+
+
 def _pose_xyyaw(env) -> list:
     P = env.unwrapped._robot_pose_world
     return [round(float(P[0, 3]), 3), round(float(P[1, 3]), 3),
@@ -304,11 +312,32 @@ def main():
         traj = [_pose_xyyaw(env) + [0]]   # [x, y, yaw, collision_this_step]
         done, steps, collided, total_r = False, 0, 0, 0.0
         ground_counts: dict = {}
+        # 2026-09-02: a bare success=False conflated "crashed at step 8",
+        # "walked to the boundary and held" and "never moved" -- three
+        # completely different policies with identical summaries. Everything
+        # below exists to separate them.
+        d_start = float(getattr(env.unwrapped, "_initial_goal_dist", 0.0) or 0.0)
+        comps = {k: 0.0 for k in EVAL_COMPONENTS}
+        cov_sum, cov_n, trespass, min_dist = 0.0, 0, 0, float("inf")
         while not done:
             action, _ = model.predict(obs, deterministic=True)
             obs, r, term, trunc, info = env.step(action)
             total_r += float(r)
             steps += 1
+            for k in EVAL_COMPONENTS:
+                v = float(info.get(k, 0.0))
+                if v == v:
+                    comps[k] += v
+            _c = float(info.get("coverage", float("nan")))
+            if _c == _c:
+                cov_sum += _c
+                cov_n += 1
+            min_dist = min(min_dist, float(info.get("dist_to_goal", min_dist)))
+            # trespass = the footprint's dominant class is grass. This is the
+            # number that says whether "did not reach the goal" means restraint
+            # or failure, when the goal itself sits on grass.
+            if int(info.get("dominant_class_id", -1)) == 3:
+                trespass += 1
             # collision magnitude = footprint fraction on non-traversable
             # classes (eval reward weight is 1.0, so |term| = the fraction).
             frac = round(float(max(0.0, -info.get("collision", 0.0))), 3)
@@ -320,15 +349,36 @@ def main():
             ground_counts[gc] = ground_counts.get(gc, 0) + 1
             traj.append(_pose_xyyaw(env) + [frac, gc])
             done = term or trunc
+        d_final = float(info.get("dist_to_goal", -1))
+        if term:
+            outcome = "GOAL"
+        elif float(info.get("crash", 0.0)) != 0.0:
+            outcome = "CRASH"
+        elif float(info.get("coherence_crash", 0.0)) != 0.0:
+            outcome = "INCOHERENT"
+        else:
+            outcome = "TIMEOUT"
         results.append({"episode": ep, "success": bool(term),
+                        "outcome": outcome,
                         "steps": steps, "return": round(total_r, 2),
                         "collision_steps": collided,
-                        "final_dist": round(float(info.get("dist_to_goal", -1)), 2),
+                        "d_start": round(d_start, 2),
+                        "closed_frac": (round(1.0 - d_final / d_start, 3)
+                                        if d_start > 1e-6 else None),
+                        "min_dist": round(min_dist, 2),
+                        "trespass_steps": trespass,
+                        "mean_coverage": (round(cov_sum / cov_n, 3)
+                                          if cov_n else None),
+                        "reward_components": {k: round(v, 2)
+                                              for k, v in comps.items()},
+                        "final_dist": round(d_final, 2),
                         "goal_xy": [round(float(goal[0]), 3), round(float(goal[1]), 3)],
                         "ground_class_counts": {str(k): v for k, v
                                                 in sorted(ground_counts.items())},
                         "traj": traj})
-        print(f"ep {ep:2d}: success={term} steps={steps} return={total_r:+.1f}", flush=True)
+        print(f"ep {ep:2d}: {outcome:<10} steps={steps:3d} "
+              f"d {d_start:5.1f} -> {d_final:5.1f} m  closest {min_dist:5.1f}  "
+              f"grass {trespass:3d}  return={total_r:+.1f}", flush=True)
 
     succ = [r for r in results if r["success"]]
     # aggregate terrain occupancy across all episodes (share of ALL steps)
@@ -344,13 +394,33 @@ def main():
         "13": "vehicle", "-1": "none"}
     ground_share = {class_names.get(k, k): round(v / n_all, 3)
                     for k, v in sorted(agg.items(), key=lambda kv: -kv[1])}
+    outcomes: dict = {}
+    for rr in results:
+        outcomes[rr["outcome"]] = outcomes.get(rr["outcome"], 0) + 1
+    closed = [r["closed_frac"] for r in results if r["closed_frac"] is not None]
+    covs = [r["mean_coverage"] for r in results if r["mean_coverage"] is not None]
+    comp_mean = {k: round(float(np.mean([r["reward_components"][k]
+                                         for r in results])), 2)
+                 for k in EVAL_COMPONENTS}
     summary = {
         "checkpoint": str(args.checkpoint),
+        "scene": args.scene,
         "episodes": args.episodes,
+        "outcomes": outcomes,
         "success_rate": round(len(succ) / args.episodes, 3),
+        "mean_d_start": round(float(np.mean([r["d_start"] for r in results])), 2),
+        "mean_d_final": round(float(np.mean([r["final_dist"] for r in results])), 2),
+        "mean_closed_frac": round(float(np.mean(closed)), 3) if closed else None,
+        "mean_min_dist": round(float(np.mean([r["min_dist"] for r in results])), 2),
+        "trespass_rate": round(float(np.mean(
+            [1.0 if r["trespass_steps"] > 0 else 0.0 for r in results])), 3),
+        "mean_trespass_steps": round(float(np.mean(
+            [r["trespass_steps"] for r in results])), 2),
+        "mean_coverage": round(float(np.mean(covs)), 3) if covs else None,
         "mean_steps_to_goal": round(float(np.mean([r["steps"] for r in succ])), 1) if succ else None,
         "mean_return": round(float(np.mean([r["return"] for r in results])), 2),
         "mean_collision_steps": round(float(np.mean([r["collision_steps"] for r in results])), 2),
+        "reward_components_mean": comp_mean,
         "ground_share": ground_share,
     }
     with open(args.out_dir / "metrics.json", "w") as f:
