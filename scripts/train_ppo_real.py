@@ -130,29 +130,42 @@ class RewardComponentsCallback(BaseCallback):
             # image_void_frac = whole-view support (her measure). The spin
             # `cov` number is MEAN ALPHA, a different statistic — it cannot be
             # converted into these without the alpha histogram.
-            "void_frac", "image_void_frac")
+            "void_frac", "image_void_frac",
+            # 2026-09-02: these were set on `info` by SceneEnv but MISSING from
+            # this list, so 460539/460540 ran 17 h with the coherence term
+            # inside `total` and invisible everywhere else. The only way to
+            # recover its size was to subtract the other components from the
+            # total by hand. `coverage` is the quantity the whole mechanism is
+            # about -- log it whether or not the term is switched on, so the
+            # thresholds get set from the distribution the policy ACTUALLY
+            # visits rather than from a spin sweep.
+            "coherence", "coherence_crash", "coverage")
 
     def __init__(self):
         super().__init__()
         self._sums = {k: 0.0 for k in self.KEYS}
-        self._n = 0
+        self._cnt = {k: 0 for k in self.KEYS}
 
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
             if "total" not in info:
                 continue
             for k in self.KEYS:
-                self._sums[k] += float(info.get(k, 0.0))
-            self._n += 1
+                v = float(info.get(k, 0.0))
+                # coverage is nan when the backend reports no per-frame alpha;
+                # one nan would poison the running mean for the whole rollout.
+                if v != v:
+                    continue
+                self._sums[k] += v
+                self._cnt[k] += 1
         return True
 
     def _on_rollout_end(self) -> None:
-        if self._n == 0:
-            return
         for k in self.KEYS:
-            self.logger.record(f"reward/{k}", self._sums[k] / self._n)
+            if self._cnt[k]:
+                self.logger.record(f"reward/{k}", self._sums[k] / self._cnt[k])
         self._sums = {k: 0.0 for k in self.KEYS}
-        self._n = 0
+        self._cnt = {k: 0 for k in self.KEYS}
 
 from src.env.scene_env import SceneEnv, SceneEnvConfig
 from src.env.real_calibrated import (
