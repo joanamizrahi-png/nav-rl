@@ -791,10 +791,11 @@ def main():
     ap.add_argument("--action_smooth_cost", type=float, default=0.0,
                     help="penalty * mean|a_t - a_{t-1}|; charges action "
                          "CHANGES (flip-flops), not turning itself")
-    ap.add_argument("--ent_coef", type=float, default=0.0,
-                    help="PPO entropy bonus. 0 = SB3 default (no bonus). "
-                         "~0.01 keeps a from-scratch policy exploring long "
-                         "enough to ever reach a goal.")
+    ap.add_argument("--ent_coef", type=float, default=0.01,
+                    help="PPO entropy bonus. 0.01 is what every run to date "
+                         "used (it was hardcoded, not the SB3 default of 0). "
+                         "Raise for a from-scratch arm that stops exploring "
+                         "before it ever reaches a goal.")
     ap.add_argument("--goal_support_radius", type=float, default=0.0,
                     help="metres; >0 rejects sampled goals with no ground "
                          "points within this radius and draws again. 14.5%% of "
@@ -965,22 +966,17 @@ def main():
         # 4x in v6b (harmless) yet caps the exact mechanism behind 3/3 observed
         # peak-then-collapse runs.
         learning_rate=1e-4,
-        # ent_coef was SB3's default 0.0 until 2026-09-02, i.e. entropy was
-        # never bonused and exploration relied entirely on the action std
-        # shrinking on its own. That is survivable warm (the prior already
-        # moves) and dangerous COLD: the only positive signal in this reward is
-        # a +1000 bonus inside a 0.5 m radius that a random policy essentially
-        # never hits, so the fastest way for a fresh policy to improve is to
-        # stop moving and avoid crashing -- and commit to that before ever
-        # discovering the bonus exists. Arm B reached exactly that behaviour
-        # from the warm side. Pair with the capture-radius curriculum.
-        ent_coef=args.ent_coef,
         # target_kl: 0 disables. Single-scene: 0.02 harmless (4-110 triggers).
         # Multi-scene v7: 0.02 fired on 77% of update rounds (4837x) and
         # strangled learning -> rung 7b runs unleashed.
         target_kl=(args.target_kl if args.target_kl > 0 else None),
         gamma=0.99, gae_lambda=0.95,
-        clip_range=0.2, ent_coef=0.01,
+        clip_range=0.2,
+        # ent_coef has been 0.01 since this file was written -- NOT the SB3
+        # default of 0.0, as I claimed on 2026-09-02 before reading this far
+        # down the constructor. It is now a knob with the same default, so
+        # every existing run is unchanged and a from-scratch arm can raise it.
+        ent_coef=args.ent_coef,
     )
 
     if args.bc_demos is not None:
