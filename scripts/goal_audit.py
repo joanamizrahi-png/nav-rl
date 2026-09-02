@@ -1,0 +1,252 @@
+"""Are the goals we train on actually reachable, or is the task unwinnable?
+
+`spawn_audit.py` answered the same question for the START of an episode. This
+answers it for the END, and the motivation is a number: at 285k steps, arm A
+(460539) reaches its goal in ~9.5% of episodes and arm B (460540) in 0%. Before
+concluding anything about either policy, we have to know what fraction of goals
+COULD be reached at all.
+
+The goal sampler with `--goal_dir_360` (real_calibrated.py:376-393) is pure
+geometry:
+
+    d  ~ U(goal_dist_range)                       e.g. U(5, 10) m
+    th = path tangent at the nearest frame + U(-cone/2, +cone/2)
+    goal = spawn_xy + d * (cos th, sin th)
+
+Nothing consults the cloud, the SAM3 labels, or the reconstruction extent. So a
+goal can legitimately land:
+
+  * on grass, where the traversability table scores 0.0 and the correct
+    behaviour is to STOP at the boundary and never arrive;
+  * inside a building or a hedge;
+  * past the edge of the reconstruction, where there is no world to walk
+    through -- the drive_preview sweep measured 0% coverage beyond +-105deg and
+    the reconstructed wedge is only so deep.
+
+This is pure GEOMETRY against the scene cloud -- no diffusion, no rendering, no
+GPU. It reports, per scene, the share of sampled episodes whose goal is
+off-cloud, on non-traversable terrain, or behind a non-traversable corridor,
+and draws every one of them on a top-down map.
+
+Frame convention follows spawn_audit/pick_goal: cloud points are nav-frame,
+`traj_positions` is stored RAW, so the path is y-mirrored into nav frame and
+spawn/goal/tangent are all computed there. Everything stays in one frame.
+
+Usage (login node, no GPU):
+    python scripts/goal_audit.py
+    python scripts/goal_audit.py --goal_dist_range 3,10 --png_dir /scratch/.../goal_audit
+    python scripts/goal_audit.py --scenes gnd_AUw360 --goal_cone_deg 50 --n 4000
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+import numpy as np
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from src.eval.reward_2d import (
+    _footprint_corners_world, GO2_BODY_LENGTH, GO2_BODY_WIDTH,
+)
+from src.eval.traversability import load_traversability
+from scripts.spawn_audit import in_quad, V14
+
+TRAIN_SCENES = ("gnd_AUw240", "gnd_AUw360", "sitex_w135", "sitex_w180",
+                "gtown2c1_w150", "gtown2c1_w210")
+
+# Verdicts, most-fatal first. An episode gets the FIRST one that applies, so the
+# columns partition the sample rather than double-counting.
+OFF_CLOUD = "off-cloud"          # no reconstruction under the goal at all
+ON_BAD = "on-non-trav"           # goal sits on grass/obstacle/water
+BLOCKED = "corridor-blocked"     # straight line crosses non-traversable ground
+REACHABLE = "reachable"
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--scenes", nargs="+", default=list(TRAIN_SCENES))
+    ap.add_argument("--clouds_dir",
+                    default="/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds")
+    ap.add_argument("--trav_path", default="config/traversability_v14_walkway.yaml")
+    ap.add_argument("--goal_dist_range", default="5,10",
+                    help="matches --goal_dist_range in training (A/B/G use 5,10; H uses 3,10)")
+    ap.add_argument("--goal_cone_deg", type=float, default=50.0)
+    ap.add_argument("--goal_radius", type=float, default=0.5,
+                    help="arrival radius; terrain under the goal is judged inside it")
+    ap.add_argument("--lat_jitter", type=float, default=0.4)
+    ap.add_argument("--yaw_jitter", type=float, default=20.0)
+    ap.add_argument("--spawn_min", type=int, default=10)
+    ap.add_argument("--look_ahead", type=float, default=1.5)
+    ap.add_argument("--crash_frac", type=float, default=0.35)
+    ap.add_argument("--collision_threshold", type=float, default=0.1)
+    ap.add_argument("--step_m", type=float, default=0.3,
+                    help="corridor sampling interval; matches training's step_size_m")
+    ap.add_argument("--z_max", type=float, default=0.15)
+    ap.add_argument("--n", type=int, default=2000)
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--png_dir", default="")
+    args = ap.parse_args()
+
+    lo_d, hi_d = (float(v) for v in args.goal_dist_range.split(","))
+    trav = load_traversability(Path(args.trav_path))
+    nontrav = trav <= args.collision_threshold
+
+    print(f"goal sampler: d ~ U({lo_d}, {hi_d}) m, "
+          f"theta = tangent +- {args.goal_cone_deg / 2.0:.0f}deg, "
+          f"arrival radius {args.goal_radius} m")
+    print(f"trav table: {args.trav_path}  "
+          f"(non-traversable = score <= {args.collision_threshold})")
+    print(f"{args.n} sampled episodes per scene, seed {args.seed}\n")
+
+    hdr = (f"{'scene':<16}{'off-cloud':>11}{'on-non-trav':>13}"
+           f"{'blocked':>10}{'REACHABLE':>11}   dominant class under bad goals")
+    print(hdr)
+    print("-" * len(hdr))
+
+    totals = {k: 0 for k in (OFF_CLOUD, ON_BAD, BLOCKED, REACHABLE)}
+    for scene in args.scenes:
+        cloud_path = Path(args.clouds_dir) / f"{scene}_cloud.npz"
+        if not cloud_path.exists():
+            print(f"{scene:<16}  no cloud at {cloud_path}")
+            continue
+        cloud = np.load(cloud_path)
+        pts, labs = cloud["points"], cloud["labels"].astype(int)
+        path = (np.asarray(cloud["traj_positions"], dtype=float)
+                * np.array([1.0, -1.0, 1.0]))[:, :2]
+
+        ground = pts[:, 2] < args.z_max
+        gxy, glab = pts[ground][:, :2], labs[ground]
+        valid = (glab >= 0) & (glab < len(trav))
+        gxy, glab = gxy[valid], glab[valid]
+        if len(gxy) == 0:
+            print(f"{scene:<16}  no ground-level labelled points")
+            continue
+
+        rng = np.random.default_rng(args.seed)
+        counts = {k: 0 for k in (OFF_CLOUD, ON_BAD, BLOCKED, REACHABLE)}
+        doms: dict[str, int] = {}
+        drawn = []
+
+        for _ in range(args.n):
+            f = int(rng.integers(args.spawn_min,
+                                 max(len(path) - 6, args.spawn_min + 1)))
+            fw = path[min(f + 1, len(path) - 1)] - path[max(f - 1, 0)]
+            base = float(np.arctan2(fw[1], fw[0]))
+            spawn = path[f] + rng.uniform(-1, 1) * args.lat_jitter * np.array(
+                [-np.sin(base), np.cos(base)])
+
+            # --- goal, sampled exactly as real_calibrated.sample_goal_position.
+            # The tangent is taken at the path frame NEAREST THE SPAWN, not at
+            # the spawn frame -- with lateral jitter those can differ.
+            i = int(np.argmin(np.linalg.norm(path - spawn, axis=1)))
+            gfw = path[min(i + 1, len(path) - 1)] - path[max(i - 1, 0)]
+            gbase = float(np.arctan2(gfw[1], gfw[0]))
+            half = np.deg2rad(args.goal_cone_deg) / 2.0
+            th = gbase + float(rng.uniform(-half, half))
+            d = float(rng.uniform(lo_d, hi_d))
+            goal = spawn + d * np.array([np.cos(th), np.sin(th)])
+
+            near = np.linalg.norm(gxy - goal, axis=1) <= args.goal_radius
+            if not near.any():
+                counts[OFF_CLOUD] += 1
+                drawn.append((goal[0], goal[1], OFF_CLOUD))
+                continue
+            gcls = glab[near]
+            if float(nontrav[gcls].mean()) >= args.crash_frac:
+                counts[ON_BAD] += 1
+                worst = V14[int(np.bincount(gcls[nontrav[gcls]],
+                                            minlength=len(V14)).argmax())]
+                doms[worst] = doms.get(worst, 0) + 1
+                drawn.append((goal[0], goal[1], ON_BAD))
+                continue
+
+            # --- corridor: walk the straight line, footprint at each step.
+            # This is the OPTIMISTIC test -- a real policy may need to detour,
+            # so a blocked straight line means unreachable-by-the-simplest-route,
+            # not strictly unreachable.
+            hd_ang = np.arctan2(goal[1] - spawn[1], goal[0] - spawn[0])
+            hd = np.array([np.cos(hd_ang), np.sin(hd_ang), 0.0])
+            blocked = False
+            for t in np.arange(0.0, d, args.step_m):
+                p = spawn + t * hd[:2]
+                quad = _footprint_corners_world(
+                    np.array([p[0], p[1], 0.0]), hd,
+                    look_ahead_dist=args.look_ahead,
+                    length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
+                m = in_quad(gxy, quad)
+                if m.any() and float(nontrav[glab[m]].mean()) >= args.crash_frac:
+                    blocked = True
+                    break
+            key = BLOCKED if blocked else REACHABLE
+            counts[key] += 1
+            drawn.append((goal[0], goal[1], key))
+
+        tot = sum(counts.values())
+        for k in counts:
+            totals[k] += counts[k]
+        top = ", ".join(f"{k} {v}" for k, v in
+                        sorted(doms.items(), key=lambda kv: -kv[1])[:3])
+        print(f"{scene:<16}{100.0 * counts[OFF_CLOUD] / tot:10.1f}%"
+              f"{100.0 * counts[ON_BAD] / tot:12.1f}%"
+              f"{100.0 * counts[BLOCKED] / tot:9.1f}%"
+              f"{100.0 * counts[REACHABLE] / tot:10.1f}%   {top}")
+
+        if args.png_dir:
+            draw_scene(args, scene, gxy, glab, path, drawn)
+
+    tot = sum(totals.values())
+    if tot:
+        print("-" * len(hdr))
+        print(f"{'ALL SCENES':<16}{100.0 * totals[OFF_CLOUD] / tot:10.1f}%"
+              f"{100.0 * totals[ON_BAD] / tot:12.1f}%"
+              f"{100.0 * totals[BLOCKED] / tot:9.1f}%"
+              f"{100.0 * totals[REACHABLE] / tot:10.1f}%")
+        print(f"\nREACHABLE is a CEILING on the goal-reaching rate, not a "
+              f"target: it assumes\na straight run with no detour and perfect "
+              f"perception. A policy scoring well below\nit may still be fine; "
+              f"a policy cannot score above it.")
+
+
+def draw_scene(args, scene, gxy, glab, path, drawn):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    od = Path(args.png_dir)
+    od.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(10, 10))
+    for cid, col, name in ((6, "0.8", "sidewalk"), (8, "0.8", None),
+                           (7, "0.65", "road"), (3, "tab:green", "grass"),
+                           (10, "tab:brown", "obstacle")):
+        m = glab == cid
+        if m.any():
+            ax.scatter(gxy[m][::15, 0], gxy[m][::15, 1], s=1, c=col,
+                       linewidths=0, label=name)
+    ax.plot(path[:, 0], path[:, 1], "-", c="tab:blue", lw=2.5,
+            label="recorded walk")
+
+    style = {REACHABLE: ("k", 4, 0.25), BLOCKED: ("tab:orange", 10, 0.7),
+             ON_BAD: ("tab:red", 12, 0.8), OFF_CLOUD: ("tab:purple", 10, 0.6)}
+    arr = np.array([(x, y) for x, y, _ in drawn], dtype=float)
+    kinds = np.array([k for _, _, k in drawn])
+    for k, (col, size, alpha) in style.items():
+        m = kinds == k
+        if m.any():
+            ax.scatter(arr[m, 0], arr[m, 1], s=size, c=col, alpha=alpha,
+                       linewidths=0, label=f"goal {k} ({int(m.sum())})")
+    ax.set_aspect("equal")
+    ax.legend(loc="best", fontsize=8)
+    ax.set_title(f"{scene}: sampled GOALS vs terrain\n"
+                 f"d ~ U({args.goal_dist_range}) m, cone {args.goal_cone_deg:.0f}deg, "
+                 f"arrival radius {args.goal_radius} m")
+    out = od / f"goals_{scene}.png"
+    fig.savefig(out, dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    print(f"    ==> {out}")
+
+
+if __name__ == "__main__":
+    main()
