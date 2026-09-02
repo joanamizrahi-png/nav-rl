@@ -170,6 +170,22 @@ class SceneEnvConfig:
     # strictly worse than trying — the missing counterweight to termination
     # penalties (the -20 crash penalty froze the policy when standing was free).
     timeout_penalty: float = 0.0
+    # PROPORTIONAL TIMEOUT (2026-09-02, her call: "proportional timeout seems
+    # genius"). A flat timeout penalty charges the same for stopping 1 m short
+    # as for stopping 10 m short, so there is NO gradient toward "as close as
+    # the terrain legally allows" — and when the goal sits on grass, stopping
+    # short is the CORRECT behaviour being punished at full price.
+    #
+    # Scaling it by remaining/initial distance makes the reward's optimum
+    # "approach as close as legally possible and hold", without anyone having
+    # to define where the boundary is — which is unanswerable anyway, since
+    # any definition rests on cloud labels that are ~17% wrong.
+    #
+    # Note the goal term already telescopes to goal_weight*(d_start - d_final),
+    # so only the ENDING distance matters; this fixes the counterweight that
+    # was flat. It also prices drifting back out after approaching (warm went
+    # 1.14 m -> 1.89 m and paid nothing for it).
+    timeout_distance_scaled: bool = False
     # uniform reward multiplier applied at the very end of step() — tames the
     # critic's value targets under +-1000-scale terminals; 1.0 = off.
     reward_scale: float = 1.0
@@ -386,6 +402,8 @@ class SceneEnv(gym.Env if gym is not None else object):
             self._goal_world = self.world_backend.goal_position(self._scene_id).copy()
         self._prev_position = None
         self._steps = 0
+        self._initial_goal_dist = float(np.linalg.norm(
+            self._robot_pose_world[:3, 3] - self._goal_world))
 
         if self.cfg.defer_render:
             self._needs_render = True
@@ -639,6 +657,10 @@ class SceneEnv(gym.Env if gym is not None else object):
         if (truncated and not terminated and crash == 0.0 and coh_crash == 0.0
                 and self.cfg.timeout_penalty > 0.0):
             timeout_term = -self.cfg.timeout_penalty
+            if self.cfg.timeout_distance_scaled:
+                d0 = float(getattr(self, "_initial_goal_dist", 0.0) or 0.0)
+                frac = 1.0 if d0 <= 1e-6 else min(1.0, max(0.0, dist_to_goal / d0))
+                timeout_term *= frac
         reward = (breakdown.total + spin_term + back_term + smooth_term
                   + bonus + crash + prox_term + timeout_term
                   + coh_term + coh_crash)
@@ -651,6 +673,9 @@ class SceneEnv(gym.Env if gym is not None else object):
         # the policy actually experiences is visible in wandb from day one.
         info["image_void_frac"] = image_void_frac
         info["timeout"] = timeout_term
+        info["goal_dist_frac"] = (
+            dist_to_goal / self._initial_goal_dist
+            if getattr(self, "_initial_goal_dist", 0.0) else float("nan"))
         info["crash"] = crash
         info["proximity"] = prox_term
         # Always logged, on or off, so the coverage the policy actually

@@ -300,6 +300,11 @@ if [ -n "${VOIDTERM:-}" ]; then
     BC_ARGS="$BC_ARGS --void_terminate_frac $VOIDTERM"
     OUT="${OUT}_vt${VOIDTERM}"
 fi
+# TIMEOUTDIST=1: timeout penalty scales with remaining/initial distance.
+if [ "${TIMEOUTDIST:-0}" = "1" ]; then
+    BC_ARGS="$BC_ARGS --timeout_distance_scaled"
+    OUT="${OUT}_todist"
+fi
 # COH: coherence cost weight — w*max(0, COHTAU - coverage), coverage = mean
 # alpha. Her design 2026-09-01: coherence is a WHOLE-FRAME property, so this
 # replaces the per-pixel void terms as the main uncertainty signal.

@@ -259,6 +259,7 @@ def _dump_env_config(args, cfg):
             "action_smooth_cost": getattr(cfg, "action_smooth_cost", 0.0),
             "goal_bonus": cfg.goal_bonus,
             "timeout_penalty": getattr(cfg, "timeout_penalty", 0.0),
+            "timeout_distance_scaled": bool(getattr(cfg, "timeout_distance_scaled", False)),
             "proximity_weight": getattr(cfg, "proximity_weight", 0.0),
             "proximity_margin": getattr(cfg, "proximity_margin", 1.0),
             "proximity_delta": bool(getattr(cfg, "proximity_delta", False)),
@@ -314,6 +315,7 @@ def _scene_env_cfg(args):
         goal_noise_std=getattr(args, "goal_noise_std", 0.0),
         proximity_delta=getattr(args, "proximity_delta", False),
         timeout_penalty=getattr(args, "timeout_penalty", 0.0),
+        timeout_distance_scaled=getattr(args, "timeout_distance_scaled", False),
         reward_scale=getattr(args, "reward_scale", 1.0),
         random_spawn=True,
         trav_path=getattr(args, "trav_path", None),
@@ -675,6 +677,12 @@ def main():
     ap.add_argument("--void_terminate_penalty", type=float, default=100.0,
                     help="cost applied on void termination (RW5 scale: a real "
                          "crash is 1000)")
+    ap.add_argument("--timeout_distance_scaled", action="store_true",
+                    help="scale the timeout penalty by remaining/initial "
+                         "distance, so stopping close is cheap and stopping "
+                         "far is not — makes 'approach as close as legally "
+                         "possible and hold' the optimum without defining a "
+                         "boundary")
     ap.add_argument("--coherence_cost_weight", type=float, default=0.0,
                     help="graded cost w*max(0, tau - coverage). Coverage is "
                          "mean alpha: how much of the render has real geometry "
