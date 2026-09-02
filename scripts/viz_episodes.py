@@ -70,9 +70,16 @@ def main():
         goal = None
         n_cr = 0
         for i, e in enumerate(eps):
-            t = np.asarray(e["traj"], dtype=float)
-            if t.ndim != 2 or len(t) < 2:
+            # eval_policy seeds traj with a 4-element row (x,y,yaw,0) then
+            # appends 5-element rows (x,y,yaw,frac,ground_class), so the list
+            # is RAGGED and np.asarray refuses it. Read the columns we need
+            # defensively instead of assuming a rectangle.
+            raw = e.get("traj") or []
+            if len(raw) < 2:
                 continue
+            t = np.array([[r[0], r[1], r[2] if len(r) > 2 else 0.0,
+                           r[3] if len(r) > 3 else 0.0] for r in raw],
+                         dtype=float)
             ax.plot(t[:, 0], t[:, 1], "-", c=c, lw=1.2, alpha=0.65, zorder=4,
                     label=label if i == 0 else None)
             ax.plot(t[0, 0], t[0, 1], "o", c=c, ms=4, mec="k", mew=0.4, zorder=5)
