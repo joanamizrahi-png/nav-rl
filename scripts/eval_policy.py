@@ -49,6 +49,19 @@ def build_env(args):
         goal_frame=args.goal_frame,
         goal_xy_override=(tuple(float(v) for v in args.goal_xy.split(","))
                           if args.goal_xy else None),
+        # 2026-09-02: eval could ONLY use a fixed goal_xy or the default goal
+        # frame, while every J arm trains on goals sampled in a cone at a
+        # random distance from the spawn. So the eval had never once
+        # reproduced the goal distribution the policy learned -- with a fixed
+        # goal and a wide spawn range, d_start varied uncontrolled and some
+        # episodes were unreachable inside the step budget before the policy
+        # acted. Pass --goal_dir_360 to sample goals exactly as training does.
+        goal_dir_360=args.goal_dir_360,
+        goal_dist_range=(tuple(float(v) for v in args.goal_dist_range.split(","))
+                         if args.goal_dist_range else None),
+        goal_cone_deg=args.goal_cone_deg,
+        goal_frame_range=(tuple(int(v) for v in args.goal_frame_range.split(","))
+                          if args.goal_frame_range else None),
         spawn_max_frame=args.spawn_max_frame,
         spawn_min_frame=args.spawn_min_frame,
         render_mode="rasterizer_only",
@@ -149,6 +162,14 @@ def main():
                     help='designed obstacle test: pin the goal to "x,y" (nav-'
                          'frame meters, read off the top-down figure axes) — '
                          'e.g. just past a tree so the straight line crosses it')
+    ap.add_argument("--goal_dir_360", action="store_true",
+                    help="sample goals the way training does (cone at a random "
+                         "distance from the spawn) instead of a fixed goal")
+    ap.add_argument("--goal_dist_range", default="",
+                    help="e.g. 5,10 — must match training's --goal_dist_range")
+    ap.add_argument("--goal_cone_deg", type=float, default=360.0)
+    ap.add_argument("--goal_frame_range", default="",
+                    help="e.g. 15,70 — must match training")
     ap.add_argument("--spawn_min_frame", type=int, default=0,
                     help="lower bound on the spawn frame. Without it a GOAL_XY "
                          "test spawns anywhere from the start of the path, so "
