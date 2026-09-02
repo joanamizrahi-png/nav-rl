@@ -43,6 +43,22 @@ fi
 OUT_SUFFIX=""
 if [[ "${GOAL_FRAME:-}" != "" ]]; then
     EXTRA_ARGS+=(--goal_frame "$GOAL_FRAME")       # generalization: goal the policy never trained on
+fi
+# GOAL360 / GOALRANGE / GOALCONE / GOALFRAMERANGE: sample goals the way TRAINING
+# does instead of pinning one goal_xy. Eval could previously only use a fixed
+# goal or the default goal frame, so it never reproduced the distribution the
+# policy learned, and with a wide spawn range d_start varied uncontrolled.
+if [ "${GOAL360:-0}" = "1" ]; then
+    EXTRA_ARGS+=(--goal_dir_360)
+fi
+if [ -n "${GOALRANGE:-}" ]; then
+    EXTRA_ARGS+=(--goal_dist_range "${GOALRANGE}")
+fi
+if [ -n "${GOALCONE:-}" ]; then
+    EXTRA_ARGS+=(--goal_cone_deg "${GOALCONE}")
+fi
+if [ -n "${GOALFRAMERANGE:-}" ]; then
+    EXTRA_ARGS+=(--goal_frame_range "${GOALFRAMERANGE}")
     OUT_SUFFIX="_goal${GOAL_FRAME}"
 fi
 # BLIND=1: zero the rgb observation (goal vector intact) — the does-the-policy-
