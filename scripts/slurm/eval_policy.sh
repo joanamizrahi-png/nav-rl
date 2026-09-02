@@ -43,6 +43,7 @@ fi
 OUT_SUFFIX=""
 if [[ "${GOAL_FRAME:-}" != "" ]]; then
     EXTRA_ARGS+=(--goal_frame "$GOAL_FRAME")       # generalization: goal the policy never trained on
+    OUT_SUFFIX="_goal${GOAL_FRAME}"
 fi
 # GOAL360 / GOALRANGE / GOALCONE / GOALFRAMERANGE: sample goals the way TRAINING
 # does instead of pinning one goal_xy. Eval could previously only use a fixed
@@ -59,7 +60,7 @@ if [ -n "${GOALCONE:-}" ]; then
 fi
 if [ -n "${GOALFRAMERANGE:-}" ]; then
     EXTRA_ARGS+=(--goal_frame_range "${GOALFRAMERANGE}")
-    OUT_SUFFIX="_goal${GOAL_FRAME}"
+    OUT_SUFFIX="${OUT_SUFFIX}_gfr${GOALFRAMERANGE/,/-}"
 fi
 # BLIND=1: zero the rgb observation (goal vector intact) — the does-the-policy-
 # actually-look ablation. Videos still record the real frames.
