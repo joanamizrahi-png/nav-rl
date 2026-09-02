@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -36,6 +37,10 @@ def main():
                     default="/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds")
     ap.add_argument("--z_max", type=float, default=0.15)
     ap.add_argument("--crash_frac", type=float, default=0.35)
+    ap.add_argument("--goal_xy", default="",
+                    help="'x,y'. If omitted it is parsed from the eval "
+                         "directory name, which carries gxy<X>_<Y>.")
+    ap.add_argument("--goal_radius", type=float, default=0.5)
     ap.add_argument("--out", default="episodes.png")
     ap.add_argument("--per_episode_dir", default="",
                     help="also write one plot PER EPISODE here — 20 overlaid "
@@ -50,6 +55,20 @@ def main():
     path = path[:, :2]
     gnd = pts[:, 2] < args.z_max
     gxy, glab = pts[gnd][:, :2], labs[gnd]
+
+    # The goal is the entire question ("did it stop SHORT of the grass?") so
+    # it has to be on the picture. eval_policy encodes it in the output dir
+    # name: ..._gxy10.75_-16.00_gnd_AUw360_live
+    goal = None
+    if args.goal_xy:
+        goal = [float(v) for v in args.goal_xy.split(",")]
+    else:
+        for spec in args.runs:
+            m = re.search(r"gxy(-?[\d.]+)_(-?[\d.]+)", spec)
+            if m:
+                goal = [float(m.group(1)), float(m.group(2))]
+                break
+    print(f"goal: {goal if goal else 'UNKNOWN — pass --goal_xy'}")
 
     import matplotlib
     matplotlib.use("Agg")
@@ -101,6 +120,11 @@ def main():
         print(f"{label:<8} eps {len(eps):2d}  success {s.get('success_rate')}  "
               f"return {s.get('mean_return')}  crash-steps drawn {n_cr}  [{top}]")
 
+    if goal is not None:
+        ax.plot(goal[0], goal[1], "*", c="gold", ms=26, mec="k", mew=1.0,
+                zorder=8, label="goal (on grass)")
+        ax.add_patch(plt.Circle(tuple(goal), args.goal_radius, fill=False,
+                                ec="gold", ls="--", lw=1.5, zorder=8))
     ax.plot([], [], "x", c="red", ms=7, mew=1.6,
             label=f"footprint >= {args.crash_frac} non-traversable")
     ax.plot([], [], "o", c="0.3", ms=4, label="spawn")
@@ -137,6 +161,12 @@ def main():
                         a2.scatter(gxy[m][::12, 0], gxy[m][::12, 1], s=1, c=col,
                                    linewidths=0)
                 a2.plot(path[:, 0], path[:, 1], "-", c="tab:blue", lw=2)
+                if goal is not None:
+                    a2.plot(goal[0], goal[1], "*", c="gold", ms=22, mec="k",
+                            mew=1.0, zorder=8)
+                    a2.add_patch(plt.Circle(tuple(goal), args.goal_radius,
+                                            fill=False, ec="gold", ls="--",
+                                            lw=1.4, zorder=8))
                 a2.plot(tt[:, 0], tt[:, 1], "-o", c=colors[k % len(colors)],
                         ms=2.5, lw=1.4)
                 a2.plot(tt[0, 0], tt[0, 1], "o", c="k", ms=7)
@@ -145,9 +175,12 @@ def main():
                     a2.plot(bad[:, 0], bad[:, 1], "x", c="red", ms=9, mew=2)
                 a2.set_xlim(xl); a2.set_ylim(yl); a2.set_aspect("equal")
                 a2.grid(alpha=0.25)
+                dist = (float(np.hypot(tt[-1, 0] - goal[0], tt[-1, 1] - goal[1]))
+                        if goal is not None else float("nan"))
                 a2.set_title(f"{label} ep{i}  steps {e.get('steps')}  "
                              f"return {e.get('return'):.2f}  "
-                             f"crash-steps {len(bad)}", fontsize=9)
+                             f"crash-steps {len(bad)}  "
+                             f"final dist to goal {dist:.2f} m", fontsize=9)
                 f2.savefig(od / f"{label}_ep{i:02d}.png", dpi=110,
                            bbox_inches="tight")
                 plt.close(f2)
