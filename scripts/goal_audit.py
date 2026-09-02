@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -56,6 +57,59 @@ from scripts.spawn_audit import in_quad, V14
 
 TRAIN_SCENES = ("gnd_AUw240", "gnd_AUw360", "sitex_w135", "sitex_w180",
                 "gtown2c1_w150", "gtown2c1_w210")
+
+
+class GroundGrid:
+    """Uniform-cell spatial index over the ground points, pure numpy.
+
+    The first version of this script tested every footprint against the WHOLE
+    ground cloud -- a few million points -- once per 0.3 m of corridor, i.e.
+    ~300k full scans. That is hours. The footprint is under a metre across, so
+    all but a handful of those points can never be inside it.
+
+    Points are bucketed into `cell`-metre squares and sorted by flat cell id
+    (`i * ny + j`), so for a fixed column i the cells j0..j1 are CONTIGUOUS in
+    the sorted order and a whole column of the query box is one slice. A query
+    then gathers a few thousand candidates instead of millions, and the exact
+    in_quad test runs on those. Same answer, ~100x less work.
+    """
+
+    def __init__(self, xy: np.ndarray, cell: float = 1.0):
+        self.cell = float(cell)
+        self._xy = xy
+        self.min = xy.min(axis=0) - 1e-6
+        ij = np.floor((xy - self.min) / self.cell).astype(np.int64)
+        self.nx = int(ij[:, 0].max()) + 1
+        self.ny = int(ij[:, 1].max()) + 1
+        flat = ij[:, 0] * self.ny + ij[:, 1]
+        self.order = np.argsort(flat, kind="stable")
+        self.starts = np.searchsorted(flat[self.order],
+                                      np.arange(self.nx * self.ny + 1))
+
+    def candidates(self, lo_xy, hi_xy) -> np.ndarray:
+        """Indices of every point whose cell overlaps the box. A superset of
+        the true hits -- the caller still runs the exact test."""
+        i0, j0 = np.floor((np.asarray(lo_xy) - self.min) / self.cell).astype(int)
+        i1, j1 = np.floor((np.asarray(hi_xy) - self.min) / self.cell).astype(int)
+        i0, i1 = max(i0, 0), min(i1, self.nx - 1)
+        j0, j1 = max(j0, 0), min(j1, self.ny - 1)
+        if i0 > i1 or j0 > j1:
+            return np.empty(0, dtype=np.int64)
+        chunks = []
+        for i in range(i0, i1 + 1):
+            a = self.starts[i * self.ny + j0]
+            b = self.starts[i * self.ny + j1 + 1]
+            if b > a:
+                chunks.append(self.order[a:b])
+        return np.concatenate(chunks) if chunks else np.empty(0, dtype=np.int64)
+
+    def within(self, centre, radius: float) -> np.ndarray:
+        """Exact radius query, box-prefiltered."""
+        c = np.asarray(centre, dtype=float)
+        cand = self.candidates(c - radius, c + radius)
+        if len(cand) == 0:
+            return cand
+        return cand[np.linalg.norm(self._xy[cand] - c, axis=1) <= radius]
 
 # Verdicts, most-fatal first. An episode gets the FIRST one that applies, so the
 # columns partition the sample rather than double-counting.
@@ -125,6 +179,11 @@ def main():
             print(f"{scene:<16}  no ground-level labelled points")
             continue
 
+        # Progress goes to stderr so the table on stdout stays pasteable.
+        print(f"  [{scene}] {len(gxy)} ground pts, indexing...",
+              file=sys.stderr, flush=True)
+        t0 = time.time()
+        grid = GroundGrid(gxy, cell=1.0)
         rng = np.random.default_rng(args.seed)
         counts = {k: 0 for k in (OFF_CLOUD, ON_BAD, BLOCKED, REACHABLE)}
         doms: dict[str, int] = {}
@@ -149,8 +208,8 @@ def main():
             d = float(rng.uniform(lo_d, hi_d))
             goal = spawn + d * np.array([np.cos(th), np.sin(th)])
 
-            near = np.linalg.norm(gxy - goal, axis=1) <= args.goal_radius
-            if not near.any():
+            near = grid.within(goal, args.goal_radius)
+            if len(near) == 0:
                 counts[OFF_CLOUD] += 1
                 drawn.append((goal[0], goal[1], OFF_CLOUD))
                 continue
@@ -176,14 +235,21 @@ def main():
                     np.array([p[0], p[1], 0.0]), hd,
                     look_ahead_dist=args.look_ahead,
                     length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
-                m = in_quad(gxy, quad)
-                if m.any() and float(nontrav[glab[m]].mean()) >= args.crash_frac:
+                q = np.asarray(quad)[:, :2]
+                cand = grid.candidates(q.min(axis=0), q.max(axis=0))
+                if len(cand) == 0:
+                    continue
+                m = in_quad(gxy[cand], quad)
+                if m.any() and float(
+                        nontrav[glab[cand][m]].mean()) >= args.crash_frac:
                     blocked = True
                     break
             key = BLOCKED if blocked else REACHABLE
             counts[key] += 1
             drawn.append((goal[0], goal[1], key))
 
+        print(f"  [{scene}] {args.n} episodes in {time.time() - t0:.1f}s",
+              file=sys.stderr, flush=True)
         tot = sum(counts.values())
         for k in counts:
             totals[k] += counts[k]
