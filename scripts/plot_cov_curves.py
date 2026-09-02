@@ -53,6 +53,7 @@ def main():
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(9, 5))
+    plotted = 0
     for spec in args.runs:
         label, _, p = spec.partition("=")
         off, cov = curve(Path(p))
@@ -60,6 +61,7 @@ def main():
             print(f"[skip] {label}: no 'off ... cov ...' lines in {p}")
             continue
         ax.plot(off, cov, "-o", ms=3, label=label)
+        plotted += 1
         half = args.cone_deg / 2.0
         at_cone = float(np.interp(half, off, cov))
         # the CONTIGUOUS band around 0 that stays above tau_coh — "how far can
@@ -80,8 +82,14 @@ def main():
               f"cov@+-{half:.0f}deg {at_cone:5.1f}%   "
               f"coherent band (cov >= {args.tau_coh}): {band}")
 
+    if not plotted:
+        raise SystemExit("nothing to plot — no run produced 'off ... cov ...' "
+                         "lines yet (a spin job still loading prints nothing)")
+
     ax.axhline(args.tau_coh * 100, ls="--", lw=1, c="0.4")
-    ax.text(off.min(), args.tau_coh * 100 + 1.5,
+    # anchor to the AXIS, not to the last curve's array — a skipped run used to
+    # leave `off` as None here and crash after the useful output had printed.
+    ax.text(ax.get_xlim()[0], args.tau_coh * 100 + 1.5,
             f"tau_coh = {args.tau_coh}", fontsize=8, c="0.3")
     for s in (-1, 1):
         ax.axvline(s * args.cone_deg / 2.0, ls=":", lw=1, c="tab:red")
