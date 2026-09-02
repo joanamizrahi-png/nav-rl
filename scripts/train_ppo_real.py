@@ -288,6 +288,23 @@ def _dump_env_config(args, cfg):
             "collision_terminate_frac": cfg.collision_terminate_frac,
             "collision_terminate_penalty": cfg.collision_terminate_penalty,
             "trav_path": cfg.trav_path,
+            # 2026-09-02, her question: "for eval, why not do the same spawns
+            # and goals method as in training?" -- because these live on the
+            # BACKEND config, not SceneEnvConfig, so they were never dumped and
+            # eval could not reproduce them at all. It could only pin one
+            # goal_xy or use the default goal frame, which is how an eval ended
+            # up with d_start varying uncontrolled and some episodes
+            # unreachable before the policy acted. Dumped here so eval rebuilds
+            # the training distribution from the file instead of from knobs
+            # somebody has to remember.
+            "goal_dir_360": bool(getattr(args, "goal_dir_360", False)),
+            "goal_dist_range": getattr(args, "goal_dist_range", None),
+            "goal_cone_deg": getattr(args, "goal_cone_deg", None),
+            "goal_frame_range": getattr(args, "goal_frame_range", None),
+            "spawn_classes": getattr(args, "spawn_classes", None),
+            "spawn_yaw_jitter": getattr(args, "spawn_yaw_jitter", None),
+            "spawn_lat_jitter": getattr(args, "spawn_lat_jitter", None),
+            "spawn_min": getattr(args, "spawn_min", None),
             "action_chunk": getattr(cfg, "action_chunk", 1),
             "max_steps": cfg.max_steps,
             # Reward too, not just kinematics. Eval built its own weights

@@ -250,6 +250,23 @@ def main():
             # and let the policy keep walking through terrain that would have
             # killed it — every episode then reports TIMEOUT and the crash
             # behaviour is invisible (2026-09-02).
+            # Sampling first: rebuild the training goal/spawn distribution
+            # unless the caller deliberately pinned a goal with --goal_xy.
+            if not args.goal_xy:
+                _gr = _tr.get("goal_dist_range")
+                _fr = _tr.get("goal_frame_range")
+                if _tr.get("goal_dir_360"):
+                    args.goal_dir_360 = True
+                if _gr and not args.goal_dist_range:
+                    args.goal_dist_range = ",".join(str(v) for v in _gr)
+                if _tr.get("goal_cone_deg") and args.goal_cone_deg >= 360.0:
+                    args.goal_cone_deg = float(_tr["goal_cone_deg"])
+                if _fr and not args.goal_frame_range:
+                    args.goal_frame_range = ",".join(str(v) for v in _fr)
+                print(f"[eval] goal sampling from training: dir360="
+                      f"{args.goal_dir_360} range={args.goal_dist_range} "
+                      f"cone={args.goal_cone_deg} frames={args.goal_frame_range}",
+                      flush=True)
             for _k in ("step_size_m", "yaw_step_rad", "forward_only",
                        "look_ahead_dist", "goal_radius", "collision_threshold",
                        "collision_terminate_frac", "collision_terminate_penalty",
