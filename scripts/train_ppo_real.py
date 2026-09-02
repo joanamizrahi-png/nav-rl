@@ -242,6 +242,30 @@ def _dump_env_config(args, cfg):
             "trav_path": cfg.trav_path,
             "action_chunk": getattr(cfg, "action_chunk", 1),
             "max_steps": cfg.max_steps,
+            # Reward too, not just kinematics. Eval built its own weights
+            # (semantic 1.0 / goal 1.5 / bonus 50, no reward_scale, no
+            # proximity) against training's 5 / 10 / 1000 / 0.01 — so an eval
+            # "return" was never on the same scale as anything in training and
+            # could not be compared to it. Behaviour is unaffected (the policy
+            # does not see the eval reward) but every reported number was.
+            "semantic_weight": cfg.reward.semantic,
+            "goal_weight": cfg.reward.goal,
+            "collision_weight": cfg.reward.collision,
+            "step_cost": cfg.reward.step_cost,
+            "void_cost": cfg.reward.void_cost,
+            "terrain_as_cost": bool(cfg.reward.terrain_as_cost),
+            "spin_cost": cfg.spin_cost,
+            "backward_cost": cfg.backward_cost,
+            "action_smooth_cost": getattr(cfg, "action_smooth_cost", 0.0),
+            "goal_bonus": cfg.goal_bonus,
+            "timeout_penalty": getattr(cfg, "timeout_penalty", 0.0),
+            "proximity_weight": getattr(cfg, "proximity_weight", 0.0),
+            "proximity_margin": getattr(cfg, "proximity_margin", 1.0),
+            "proximity_delta": bool(getattr(cfg, "proximity_delta", False)),
+            "reward_scale": getattr(cfg, "reward_scale", 1.0),
+            "coherence_cost_weight": getattr(cfg, "coherence_cost_weight", 0.0),
+            "coherence_tau": getattr(cfg, "coherence_tau", 0.4),
+            "coherence_terminate_tau": getattr(cfg, "coherence_terminate_tau", 0.0),
         }, indent=2))
         print(f"[train] env recorded for eval: {out}", flush=True)
     except Exception as e:

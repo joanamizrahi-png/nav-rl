@@ -83,14 +83,31 @@ def build_env(args):
         # backwards in eval, which it never could while learning.
         max_steps=args.max_steps,
         step_size_m=args.step_size_m, yaw_step_rad=args.yaw_step_rad,
-        reward=RewardWeights(semantic=1.0, goal=1.5, collision=1.0,
-                             step_cost=0.05, void_cost=0.3,
-                             terrain_as_cost=True),
+        reward=RewardWeights(
+            semantic=getattr(args, "semantic_weight", 1.0),
+            goal=getattr(args, "goal_weight", 1.5),
+            collision=getattr(args, "collision_weight", 1.0),
+            step_cost=getattr(args, "step_cost", 0.05),
+            void_cost=getattr(args, "void_cost", 0.3),
+            terrain_as_cost=bool(getattr(args, "terrain_as_cost", True))),
         # read from args so the adoption above actually takes effect
         look_ahead_dist=getattr(args, "look_ahead_dist", 1.5),
         goal_radius=getattr(args, "goal_radius", 0.75),
         collision_threshold=getattr(args, "collision_threshold", 0.1),
-        spin_cost=0.05, goal_bonus=50.0, random_spawn=True,
+        spin_cost=getattr(args, "spin_cost", 0.05),
+        backward_cost=getattr(args, "backward_cost", 0.0),
+        action_smooth_cost=getattr(args, "action_smooth_cost", 0.0),
+        goal_bonus=getattr(args, "goal_bonus", 50.0),
+        timeout_penalty=getattr(args, "timeout_penalty", 0.0),
+        proximity_weight=getattr(args, "proximity_weight", 0.0),
+        proximity_margin=getattr(args, "proximity_margin", 1.0),
+        proximity_delta=bool(getattr(args, "proximity_delta", False)),
+        clouds_dir=getattr(args, "clouds_dir", None),
+        reward_scale=getattr(args, "reward_scale", 1.0),
+        coherence_cost_weight=getattr(args, "coherence_cost_weight", 0.0),
+        coherence_tau=getattr(args, "coherence_tau", 0.4),
+        coherence_terminate_tau=getattr(args, "coherence_terminate_tau", 0.0),
+        random_spawn=True,
         trav_path=args.trav_path,
         collision_terminate_frac=args.collision_terminate_frac,
         collision_terminate_penalty=args.collision_terminate_penalty,
@@ -152,6 +169,10 @@ def main():
     ap.add_argument("--footprint_along_motion", action="store_true",
                     help="match the policy's training rule: footprint follows "
                          "the commanded motion direction")
+    ap.add_argument("--clouds_dir",
+                    default="/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds",
+                    help="proximity needs the scene clouds; without it that "
+                         "term is silently zero in eval while active in training")
     ap.add_argument("--step_size_m", type=float, default=0.3,
                     help="metres per unit forward action — MUST match the "
                          "checkpoint's training value (J arms: 0.3)")
@@ -203,7 +224,17 @@ def main():
             for _k in ("step_size_m", "yaw_step_rad", "forward_only",
                        "look_ahead_dist", "goal_radius", "collision_threshold",
                        "collision_terminate_frac", "collision_terminate_penalty",
-                       "action_chunk"):
+                       "action_chunk",
+                       # reward, so a reported return means the same thing in
+                       # both places (her ask 2026-09-02: "make eval like
+                       # training please")
+                       "semantic_weight", "goal_weight", "collision_weight",
+                       "step_cost", "void_cost", "terrain_as_cost",
+                       "spin_cost", "backward_cost", "action_smooth_cost",
+                       "goal_bonus", "timeout_penalty", "proximity_weight",
+                       "proximity_margin", "proximity_delta", "reward_scale",
+                       "coherence_cost_weight", "coherence_tau",
+                       "coherence_terminate_tau"):
                 if _k not in _tr:
                     continue
                 _have = getattr(args, _k, None)
