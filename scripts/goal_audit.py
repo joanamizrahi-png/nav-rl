@@ -211,7 +211,7 @@ def main():
             near = grid.within(goal, args.goal_radius)
             if len(near) == 0:
                 counts[OFF_CLOUD] += 1
-                drawn.append((goal[0], goal[1], OFF_CLOUD))
+                drawn.append((spawn[0], spawn[1], goal[0], goal[1], OFF_CLOUD))
                 continue
             gcls = glab[near]
             if float(nontrav[gcls].mean()) >= args.crash_frac:
@@ -219,7 +219,7 @@ def main():
                 worst = V14[int(np.bincount(gcls[nontrav[gcls]],
                                             minlength=len(V14)).argmax())]
                 doms[worst] = doms.get(worst, 0) + 1
-                drawn.append((goal[0], goal[1], ON_BAD))
+                drawn.append((spawn[0], spawn[1], goal[0], goal[1], ON_BAD))
                 continue
 
             # --- corridor: walk the straight line, footprint at each step.
@@ -246,7 +246,7 @@ def main():
                     break
             key = BLOCKED if blocked else REACHABLE
             counts[key] += 1
-            drawn.append((goal[0], goal[1], key))
+            drawn.append((spawn[0], spawn[1], goal[0], goal[1], key))
 
         print(f"  [{scene}] {args.n} episodes in {time.time() - t0:.1f}s",
               file=sys.stderr, flush=True)
@@ -296,12 +296,13 @@ def draw_scene(args, scene, gxy, glab, path, drawn):
 
     style = {REACHABLE: ("k", 4, 0.25), BLOCKED: ("tab:orange", 10, 0.7),
              ON_BAD: ("tab:red", 12, 0.8), OFF_CLOUD: ("tab:purple", 10, 0.6)}
-    arr = np.array([(x, y) for x, y, _ in drawn], dtype=float)
-    kinds = np.array([k for _, _, k in drawn])
+    arr = np.array([(sx, sy, gx, gy) for sx, sy, gx, gy, _ in drawn],
+                   dtype=float)
+    kinds = np.array([k for *_, k in drawn])
     for k, (col, size, alpha) in style.items():
         m = kinds == k
         if m.any():
-            ax.scatter(arr[m, 0], arr[m, 1], s=size, c=col, alpha=alpha,
+            ax.scatter(arr[m, 2], arr[m, 3], s=size, c=col, alpha=alpha,
                        linewidths=0, label=f"goal {k} ({int(m.sum())})")
     ax.set_aspect("equal")
     ax.legend(loc="best", fontsize=8)
@@ -309,6 +310,80 @@ def draw_scene(args, scene, gxy, glab, path, drawn):
                  f"d ~ U({args.goal_dist_range}) m, cone {args.goal_cone_deg:.0f}deg, "
                  f"arrival radius {args.goal_radius} m")
     out = od / f"goals_{scene}.png"
+    fig.savefig(out, dpi=130, bbox_inches="tight")
+    plt.close(fig)
+    print(f"    ==> {out}")
+
+    draw_cones(args, scene, gxy, glab, path, drawn, od)
+
+
+def draw_cones(args, scene, gxy, glab, path, drawn, od, k_spawns=6):
+    """The pooled scatter hides the structure: goals are NOT one cloud, they are
+    one fan per spawn (Joana, 2026-09-02 -- "goals on cone shouldn't mix between
+    spawn points"). Each episode draws its goal within +-cone/2 of the tangent
+    at ITS OWN spawn, so the honest picture is a handful of spawns with their
+    individual fans and a line from each spawn to each of its goals.
+
+    Spawns are grouped by nearest of `k_spawns` evenly spaced path frames, and
+    only those groups are drawn -- a subsample of the same episodes the table
+    counted, not a re-sampling.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    arr = np.array([(sx, sy, gx, gy) for sx, sy, gx, gy, _ in drawn], dtype=float)
+    kinds = np.array([k for *_, k in drawn])
+    if len(arr) == 0:
+        return
+
+    anchors_i = np.linspace(args.spawn_min, len(path) - 7, k_spawns).astype(int)
+    anchors = path[anchors_i]
+    # nearest anchor per episode, and keep only episodes whose spawn is close to
+    # one -- otherwise every episode joins some anchor and the fans overlap again
+    d_anchor = np.linalg.norm(arr[:, None, :2] - anchors[None, :, :], axis=2)
+    which = d_anchor.argmin(axis=1)
+    close = d_anchor.min(axis=1) <= 1.0
+
+    fig, ax = plt.subplots(figsize=(11, 11))
+    for cid, col, name in ((6, "0.85", "sidewalk"), (8, "0.85", None),
+                           (7, "0.72", "road"), (3, "tab:green", "grass"),
+                           (10, "tab:brown", "obstacle")):
+        m = glab == cid
+        if m.any():
+            ax.scatter(gxy[m][::15, 0], gxy[m][::15, 1], s=1, c=col,
+                       linewidths=0, label=name)
+    ax.plot(path[:, 0], path[:, 1], "-", c="tab:blue", lw=2.5,
+            label="recorded walk")
+
+    seg_col = {REACHABLE: "k", BLOCKED: "tab:orange",
+               ON_BAD: "tab:red", OFF_CLOUD: "tab:purple"}
+    shown = 0
+    for a in range(k_spawns):
+        m = close & (which == a)
+        if not m.any():
+            continue
+        sub = np.flatnonzero(m)
+        # cap the fan so the lines stay readable
+        if len(sub) > 40:
+            sub = sub[np.linspace(0, len(sub) - 1, 40).astype(int)]
+        for i in sub:
+            ax.plot([arr[i, 0], arr[i, 2]], [arr[i, 1], arr[i, 3]],
+                    "-", c=seg_col[kinds[i]], lw=0.6, alpha=0.55)
+        ax.scatter(anchors[a, 0], anchors[a, 1], s=90, marker="*",
+                   c="tab:cyan", edgecolors="k", linewidths=0.6, zorder=5)
+        ax.annotate(f"spawn {anchors_i[a]}", anchors[a], fontsize=8,
+                    xytext=(4, 4), textcoords="offset points", zorder=6)
+        shown += len(sub)
+
+    for k, c in seg_col.items():
+        ax.plot([], [], "-", c=c, lw=1.4, label=f"goal {k}")
+    ax.set_aspect("equal")
+    ax.legend(loc="best", fontsize=8)
+    ax.set_title(f"{scene}: goal cones, {k_spawns} spawns, {shown} episodes drawn\n"
+                 f"each line is one episode: spawn -> its goal, "
+                 f"cone {args.goal_cone_deg:.0f}deg about the tangent AT THAT SPAWN")
+    out = od / f"cones_{scene}.png"
     fig.savefig(out, dpi=130, bbox_inches="tight")
     plt.close(fig)
     print(f"    ==> {out}")
