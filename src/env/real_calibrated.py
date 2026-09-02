@@ -477,6 +477,17 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         # not detail — every 3rd frame (81+27+27=135) keeps the coverage at a
         # memory cost the reconstructor survives.
         _stride = int(getattr(cfg, "pano_view_stride", 3))
+        # Timestamps must be NON-DECREASING across the whole concatenated view
+        # list. is_static=True marks which gaussians are dynamic, but it does
+        # NOT stop the dynamic builder's forward-pair lookup from reading the
+        # NEXT INDEX in the list — so a side view restarting at 0 right after
+        # the main sequence's 0..80 trips
+        #   rasterization.py:53  assert forward_timestamp >= timestamp
+        # (458625, and again 460610). Continue the counter instead of
+        # restarting it: yaw090 -> 81..107, yaw270 -> 108..134. The values are
+        # bookkeeping only here (use_motion=False); all that matters is that
+        # they never go backwards.
+        _ts_base = int(n)
         for _yaw in (90, 270) if _pano_on else ():
             side_mp4 = _vp.with_name(f"{_vp.stem}_pano_yaw{_yaw:03d}.mp4")
             side_lab = _lp.with_name(f"{_lp.stem}_pano_yaw{_yaw:03d}.npz")
@@ -493,7 +504,9 @@ class CalibratedRealWorldBackend(RealWorldBackend):
                 )[:, 0].to(torch.int64).numpy()
             m = min(len(simgs), len(slab), n)
             keep = list(range(0, m, _stride))
-            ts = torch.tensor(keep, dtype=torch.int64, device=device)
+            ts = torch.arange(_ts_base, _ts_base + len(keep),
+                              dtype=torch.int64, device=device)
+            _ts_base += len(keep)
             views["img"] = torch.cat(
                 [views["img"], torch.stack(
                     [F.to_tensor(simgs[j])[None] for j in keep],
