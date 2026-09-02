@@ -94,6 +94,13 @@ class SceneEnvConfig:
     yaw_step_rad: float = 0.5           # radians per unit yaw action
     reward: RewardWeights = field(default_factory=RewardWeights)
     look_ahead_dist: float = 1.5        # meters; passed to the reward
+    # 2026-09-02: separate the LETHAL test from the GRADED one. 0.0 = keep the
+    # old single-box behaviour (collision judged at look_ahead_dist), so the
+    # control arm is bit-identical to every run before today. Set ~0.8-1.0 to
+    # move only crash/collision in to the body while the graded semantic score
+    # keeps its 1.5 m of warning. Watch reward/collision_off_frame: if the near
+    # box misses the frame it falls back and the split is not in effect.
+    collision_look_ahead_m: float = 0.0
     goal_radius: float = 0.5            # meters; within this counts as "reached goal"
     collision_threshold: float = 0.1    # class score at/below which counts as collision
     spin_cost: float = 0.0              # shaping v2: penalty * |yaw action| (taxes circling)
@@ -550,6 +557,9 @@ class SceneEnv(gym.Env if gym is not None else object):
             non_traversable_mask=self._non_trav,
             previous_position=self._prev_position,
             look_ahead_dist=self.cfg.look_ahead_dist,
+            collision_look_ahead_dist=(self.cfg.collision_look_ahead_m
+                                       if self.cfg.collision_look_ahead_m > 0.0
+                                       else None),
             body_length=GO2_BODY_LENGTH,
             body_width=GO2_BODY_WIDTH,
             weights=self.cfg.reward,

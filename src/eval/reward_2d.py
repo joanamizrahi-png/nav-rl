@@ -68,6 +68,11 @@ class RewardBreakdown:
     void_frac: float = 0.0          # fraction of footprint with NO gaussian support
                                     # (alpha-gated to class 0) — the world model's
                                     # own uncertainty signal; drives void-termination
+    collision_off_frame: float = 0.0  # 1.0 when the NEAR collision footprint did
+                                      # not project into the image and collision
+                                      # fell back to the shaping footprint. Must
+                                      # be watched: a near box that is always
+                                      # off-frame would silently disable crashes.
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -146,6 +151,7 @@ def compute_reward(
     non_traversable_mask: np.ndarray,  # (num_classes,) bool — True = non-traversable (collision)
     previous_position: Optional[np.ndarray] = None,
     look_ahead_dist: float = 0.5,
+    collision_look_ahead_dist: Optional[float] = None,
     body_length: float = GO2_BODY_LENGTH,
     body_width: float = GO2_BODY_WIDTH,
     weights: RewardWeights = RewardWeights(),
@@ -223,6 +229,47 @@ def compute_reward(
             dominant_class_id = int(np.argmax(counts))
             off_frame_frac = 0.0
 
+    # --- 1b. Collision on its OWN, closer footprint -------------------------
+    # Until 2026-09-02 collision and the graded semantic score came from the
+    # SAME box, centred `look_ahead_dist` (1.5 m) ahead. With a 0.7 m body that
+    # box spans 1.15-1.85 m out, so the episode terminated while the robot was
+    # still more than a metre from the grass it never touched -- "walk up to
+    # the boundary and stop" was not a policy that could exist, because
+    # approaching the boundary WAS the terminating event.
+    #
+    # Splitting them keeps the graded score far (early warning, room to turn)
+    # and moves only the lethal test in to the body.
+    #
+    # The catch: the reward is scored on PIXELS, so a near box can fall below
+    # the bottom edge of the frame. If that happened silently, collision_frac
+    # would read 0 and crashes would stop firing altogether -- a far worse bug
+    # than the one being fixed. So an off-frame near box FALLS BACK to the
+    # shaping box (current behaviour) and sets collision_off_frame, which is
+    # logged. If that rate is not near zero, the near distance is too close.
+    collision_off_frame = 0.0
+    if (collision_look_ahead_dist is not None
+            and abs(collision_look_ahead_dist - look_ahead_dist) > 1e-6):
+        c_corners = _footprint_corners_world(
+            robot_position, robot_heading,
+            look_ahead_dist=collision_look_ahead_dist,
+            length=body_length, width=body_width,
+        )
+        c_uv, c_in_front = _project_points(c_corners, K, w2c)
+        c_ok = False
+        if c_in_front.all():
+            c_mask = _fill_polygon(H, W, c_uv)
+            if int(c_mask.sum()) > 0:
+                c_classes = semantic_image[c_mask]
+                if weights.void_cost > 0:
+                    c_void = c_classes == 0
+                    collision_frac = float(
+                        (non_traversable_mask[c_classes] & ~c_void).mean())
+                else:
+                    collision_frac = float(non_traversable_mask[c_classes].mean())
+                c_ok = True
+        if not c_ok:
+            collision_off_frame = 1.0
+
     # --- 2. Goal progress ---
     if previous_position is None:
         goal_score = 0.0
@@ -250,6 +297,7 @@ def compute_reward(
         n_footprint_pixels=n_footprint_pixels,
         n_traversable_pixels=n_traversable_pixels,
         mean_class_score=mean_class_score,
+        collision_off_frame=float(collision_off_frame),
         dominant_class_id=dominant_class_id,
         off_frame_frac=off_frame_frac,
         void_frac=float(void_frac),

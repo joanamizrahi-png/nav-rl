@@ -21,9 +21,16 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import numpy as np
+
+from src.eval.reward_2d import (
+    _footprint_corners_world, GO2_BODY_LENGTH, GO2_BODY_WIDTH,
+)
 
 V14 = ["void", "sky", "trail", "grass", "rough", "water", "sidewalk", "road",
        "pavement", "stairs", "obstacle", "vegetation", "person", "vehicle"]
@@ -41,6 +48,12 @@ def main():
                     help="'x,y'. If omitted it is parsed from the eval "
                          "directory name, which carries gxy<X>_<Y>.")
     ap.add_argument("--goal_radius", type=float, default=0.5)
+    ap.add_argument("--look_ahead", type=float, default=1.5,
+                    help="the reward scores a box this far AHEAD of the robot, "
+                         "so the robot can stand on sidewalk while the graded "
+                         "box is over grass. Drawing both is the only way to "
+                         "tell which one a 'collision' actually came from.")
+    ap.add_argument("--no_footprints", action="store_true")
     ap.add_argument("--out", default="episodes.png")
     ap.add_argument("--per_episode_dir", default="",
                     help="also write one plot PER EPISODE here — 20 overlaid "
@@ -177,6 +190,20 @@ def main():
                 bad = tt[tt[:, 2] >= args.crash_frac]
                 if len(bad):
                     a2.plot(bad[:, 0], bad[:, 1], "x", c="red", ms=9, mew=2)
+                if not args.no_footprints:
+                    # the ROBOT is the x; the QUAD is what the reward graded.
+                    # If the quad sits on grass while the x sits on sidewalk,
+                    # the "collision" is the look-ahead, not the robot.
+                    for r_ in raw:
+                        if len(r_) > 3 and r_[3] >= args.crash_frac:
+                            hd = np.array([np.cos(r_[2]), np.sin(r_[2]), 0.0])
+                            q = _footprint_corners_world(
+                                np.array([r_[0], r_[1], 0.0]), hd,
+                                look_ahead_dist=args.look_ahead,
+                                length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
+                            a2.plot(list(q[:, 0]) + [q[0, 0]],
+                                    list(q[:, 1]) + [q[0, 1]],
+                                    "-", c="red", lw=1.2, alpha=0.8, zorder=7)
                 a2.set_xlim(xl); a2.set_ylim(yl); a2.set_aspect("equal")
                 a2.grid(alpha=0.25)
                 dist = (float(np.hypot(tt[-1, 0] - goal[0], tt[-1, 1] - goal[1]))

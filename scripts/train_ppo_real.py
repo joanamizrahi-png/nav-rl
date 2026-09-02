@@ -144,7 +144,12 @@ class RewardComponentsCallback(BaseCallback):
             # drop in reward/timeout is ambiguous: FEWER timeouts and CHEAPER
             # timeouts look identical, and those are opposite conclusions about
             # `--timeout_distance_scaled`. Needed to read H (461357) at all.
-            "goal_dist_frac")
+            "goal_dist_frac",
+            # 1.0 whenever the near collision box missed the frame and fell
+            # back to the shaping box. MUST sit near 0 for the split to be in
+            # effect; a high rate means the near distance is inside the blind
+            # zone and crashes are being judged at 1.5 m after all.
+            "collision_off_frame")
 
     # Per-step means blur the terminal quantities -- what matters for the
     # proportional timeout is how close the robot was WHEN THE EPISODE ENDED,
@@ -276,6 +281,7 @@ def _dump_env_config(args, cfg):
             "yaw_step_rad": cfg.yaw_step_rad,
             "forward_only": bool(getattr(cfg, "forward_only", False)),
             "look_ahead_dist": cfg.look_ahead_dist,
+            "collision_look_ahead_m": cfg.collision_look_ahead_m,
             "goal_radius": cfg.goal_radius,
             "collision_threshold": cfg.collision_threshold,
             "collision_terminate_frac": cfg.collision_terminate_frac,
@@ -329,6 +335,11 @@ def _scene_env_cfg(args):
                              step_cost=0.05, void_cost=0.3,
                              terrain_as_cost=True),          # v4
         look_ahead_dist=1.5,
+        # 0.0 = old single-box behaviour. The camera sits at 0.25 m and the
+        # blind zone starts ~0.6 m (see above), so with a 0.7 m body the
+        # closest FULLY VISIBLE collision box is centred at 0.95 m -- 1.0 is
+        # the practical floor, not the 0.4 m the geometry alone would suggest.
+        collision_look_ahead_m=getattr(args, "collision_look_ahead", 0.0),
         goal_radius=getattr(args, "goal_radius", 0.75),
         collision_threshold=0.1,
         spin_cost=getattr(args, "spin_cost", 0.05),
@@ -761,6 +772,12 @@ def main():
     ap.add_argument("--action_smooth_cost", type=float, default=0.0,
                     help="penalty * mean|a_t - a_{t-1}|; charges action "
                          "CHANGES (flip-flops), not turning itself")
+    ap.add_argument("--collision_look_ahead", type=float, default=0.0,
+                    help="metres; 0 = judge collision on the same 1.5 m box as "
+                         "the graded semantic score (behaviour before "
+                         "2026-09-02). ~1.0 moves only the lethal test in to "
+                         "the body while shaping keeps its warning distance. "
+                         "Below ~0.95 the box enters the camera blind zone.")
     ap.add_argument("--goal_bonus", type=float, default=50.0)
     ap.add_argument("--goal_radius", type=float, default=0.75)
     ap.add_argument("--goal_radius_start", type=float, default=None,

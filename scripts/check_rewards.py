@@ -252,6 +252,62 @@ def footprint_mask(rec, look_ahead):
     return _fill_polygon(h, w, uv)
 
 
+def look_ahead_ladder(recs, non_trav, args):
+    """Which collision look-ahead distances are actually VISIBLE in the frame?
+
+    Splitting the lethal collision test from the graded semantic score only
+    works if the near box lands in the image. The camera sits low (0.25 m by
+    default, but `camera_height_m` is PER SCENE) and the ground within roughly
+    the first 0.6 m falls below the bottom edge -- a box there projects to zero
+    pixels, `collision_frac` reads 0, and crashes stop firing altogether. That
+    failure is silent, so it gets measured on real diffused frames before any
+    training run rather than argued from a comment.
+
+    For each distance: how often the quad is in front of the camera at all, how
+    often it covers any pixels, how big it is, and what it scores.
+    """
+    dists = [float(v) for v in args.ladder_dists.split(",")]
+    print("\n===== LOOK-AHEAD LADDER (is the near collision box visible?) =====")
+    print(f"  body {GO2_BODY_LENGTH:.2f} m long, so a box centred at d spans "
+          f"d+-{GO2_BODY_LENGTH / 2:.2f} m")
+    print(f"  {len(recs)} rendered steps, labels are the DIFFUSED semantics "
+          f"(what the reward reads)\n")
+    print(f"  {'centre':>7}{'near edge':>11}{'in front':>10}{'HAS PIXELS':>12}"
+          f"{'med px':>9}{'coll':>8}{'>=crash':>9}")
+    for la in dists:
+        n_front = n_px = 0
+        pix, coll = [], []
+        for r in recs:
+            uv = footprint_uv(r, la)
+            if uv is None:
+                continue
+            n_front += 1
+            h, w = r["lab"].shape[:2]
+            m = _fill_polygon(h, w, uv)
+            npx = int(m.sum())
+            if npx == 0:
+                continue
+            n_px += 1
+            pix.append(npx)
+            cls = r["lab"][m]
+            idx = np.clip(cls, 0, len(non_trav) - 1)
+            coll.append(float((non_trav[idx] & (cls != 0)).mean()))
+        n = max(len(recs), 1)
+        if not pix:
+            print(f"  {la:7.2f}{la - GO2_BODY_LENGTH / 2:11.2f}"
+                  f"{100.0 * n_front / n:9.0f}%{0.0:11.0f}%"
+                  f"{'-':>9}{'-':>8}{'-':>9}   NEVER VISIBLE")
+            continue
+        cr = float(np.mean(np.array(coll) >= args.crash_frac))
+        print(f"  {la:7.2f}{la - GO2_BODY_LENGTH / 2:11.2f}"
+              f"{100.0 * n_front / n:9.0f}%{100.0 * n_px / n:11.0f}%"
+              f"{int(np.median(pix)):9d}{np.mean(coll):8.3f}{100.0 * cr:8.0f}%")
+    print(f"\n  Pick the SMALLEST centre whose HAS PIXELS is ~100%. Below that "
+          f"the box is in the\n  camera blind zone and collision silently "
+          f"reads 0. `coll` and `>=crash` are what the\n  reward would see at "
+          f"that distance on these frames.")
+
+
 def score(recs, tau, trav, non_trav, weights, args):
     """Apply the gate at threshold tau and re-score every rendered step."""
     rows = []
@@ -332,6 +388,11 @@ def main():
     ap.add_argument("--goal_weight", type=float, default=10.0)
     ap.add_argument("--collision_threshold", type=float, default=0.1)
     ap.add_argument("--look_ahead", type=float, default=1.5)
+    ap.add_argument("--ladder_dists", default="0.6,0.8,1.0,1.2,1.5,1.8",
+                    help="collision look-ahead distances to test for visibility")
+    ap.add_argument("--collision_look_ahead", type=float, default=1.0,
+                    help="second footprint drawn on the panels in MAGENTA: the "
+                         "proposed lethal box, next to the yellow shaping box")
     ap.add_argument("--reward_scale", type=float, default=0.01)
     ap.add_argument("--crash_frac", type=float, default=0.35)
     ap.add_argument("--sweep", default="0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8",
@@ -381,6 +442,8 @@ def main():
     weights = RewardWeights(semantic=args.semantic_weight, goal=args.goal_weight,
                             collision=1.0, step_cost=0.05, void_cost=0.3,
                             terrain_as_cost=True)
+
+    look_ahead_ladder(recs, non_trav, args)
 
     # ---- the support distribution: whole image AND inside the footprint ----
     have_alpha = recs[0]["alpha"] is not None
@@ -620,6 +683,17 @@ def main():
                 for k in range(7):
                     cv2.polylines(panel, [poly + np.array([[k * args.width, 0]])],
                                   True, (0, 255, 255), 1, cv2.LINE_AA)
+            # The proposed SPLIT: yellow = graded semantic score (far, warning),
+            # magenta = the lethal collision test (near, at the body). Seeing
+            # both on the same frame is the only way to judge whether the near
+            # box is inside the image and over the terrain it claims to judge.
+            uvc = (footprint_uv(r, args.collision_look_ahead)
+                   if args.collision_look_ahead > 0 else None)
+            if uvc is not None:
+                polyc = np.round(uvc).astype(np.int32).reshape(-1, 1, 2)
+                for k in range(7):
+                    cv2.polylines(panel, [polyc + np.array([[k * args.width, 0]])],
+                                  True, (255, 0, 255), 1, cv2.LINE_AA)
 
             ru, rg = u_rows[key], g_rows[key]
             hud = (f"ep{r['ep']} step{r['step']}  [{vd_tag}]  UNGATED coll "
