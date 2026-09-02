@@ -300,6 +300,12 @@ if [ -n "${CRASHPEN:-}" ]; then
     OUT="${OUT}_cp${CRASHPEN}"
 fi
 
+# ENT: PPO entropy bonus (default 0 = SB3 default, no bonus). ~0.01 for cold.
+if [ -n "${ENT:-}" ]; then
+    BC_ARGS="$BC_ARGS --ent_coef $ENT"
+    OUT="${OUT}_ent${ENT}"
+fi
+
 # MAXSTEPS: episode step budget (default 60). At 0.3 m/step a 10 m goal needs
 # 34 steps at FULL linear speed, so below ~57% mean speed the far half of
 # GOALRANGE=5,10 is unreachable on time no matter how good the policy is.
