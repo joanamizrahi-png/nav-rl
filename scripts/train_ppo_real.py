@@ -139,33 +139,61 @@ class RewardComponentsCallback(BaseCallback):
             # about -- log it whether or not the term is switched on, so the
             # thresholds get set from the distribution the policy ACTUALLY
             # visits rather than from a spin sweep.
-            "coherence", "coherence_crash", "coverage")
+            "coherence", "coherence_crash", "coverage",
+            # goal_dist_frac = final distance / starting distance. Without it a
+            # drop in reward/timeout is ambiguous: FEWER timeouts and CHEAPER
+            # timeouts look identical, and those are opposite conclusions about
+            # `--timeout_distance_scaled`. Needed to read H (461357) at all.
+            "goal_dist_frac")
+
+    # Per-step means blur the terminal quantities -- what matters for the
+    # proportional timeout is how close the robot was WHEN THE EPISODE ENDED,
+    # not averaged over every step it took getting there. Logged separately as
+    # reward/end_*.
+    TERMINAL_KEYS = ("goal_dist_frac", "coverage")
 
     def __init__(self):
         super().__init__()
         self._sums = {k: 0.0 for k in self.KEYS}
         self._cnt = {k: 0 for k in self.KEYS}
+        self._end_sums = {k: 0.0 for k in self.TERMINAL_KEYS}
+        self._end_cnt = {k: 0 for k in self.TERMINAL_KEYS}
 
     def _on_step(self) -> bool:
-        for info in self.locals.get("infos", []):
+        infos = self.locals.get("infos", [])
+        dones = self.locals.get("dones", [])
+        for i, info in enumerate(infos):
             if "total" not in info:
                 continue
             for k in self.KEYS:
                 v = float(info.get(k, 0.0))
-                # coverage is nan when the backend reports no per-frame alpha;
-                # one nan would poison the running mean for the whole rollout.
+                # coverage and goal_dist_frac are nan when unavailable; one nan
+                # would poison the running mean for the whole rollout.
                 if v != v:
                     continue
                 self._sums[k] += v
                 self._cnt[k] += 1
+            if i < len(dones) and dones[i]:
+                for k in self.TERMINAL_KEYS:
+                    v = float(info.get(k, float("nan")))
+                    if v != v:
+                        continue
+                    self._end_sums[k] += v
+                    self._end_cnt[k] += 1
         return True
 
     def _on_rollout_end(self) -> None:
         for k in self.KEYS:
             if self._cnt[k]:
                 self.logger.record(f"reward/{k}", self._sums[k] / self._cnt[k])
+        for k in self.TERMINAL_KEYS:
+            if self._end_cnt[k]:
+                self.logger.record(f"reward/end_{k}",
+                                   self._end_sums[k] / self._end_cnt[k])
         self._sums = {k: 0.0 for k in self.KEYS}
         self._cnt = {k: 0 for k in self.KEYS}
+        self._end_sums = {k: 0.0 for k in self.TERMINAL_KEYS}
+        self._end_cnt = {k: 0 for k in self.TERMINAL_KEYS}
 
 from src.env.scene_env import SceneEnv, SceneEnvConfig
 from src.env.real_calibrated import (
