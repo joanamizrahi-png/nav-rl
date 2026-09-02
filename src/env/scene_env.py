@@ -101,6 +101,15 @@ class SceneEnvConfig:
     # keeps its 1.5 m of warning. Watch reward/collision_off_frame: if the near
     # box misses the frame it falls back and the split is not in effect.
     collision_look_ahead_m: float = 0.0
+    # 2026-09-02, measured: 14.5% of sampled goals have NO reconstruction under
+    # them at all (scripts/goal_audit.py, 2000 episodes x 6 scenes). The goal
+    # sampler is pure geometry -- spawn + d*(cos th, sin th) -- and never
+    # consults the cloud, so the robot is regularly sent to a place that does
+    # not exist in the world model: it cannot see the goal, cannot reach it,
+    # and eats the timeout. Those episodes are pure noise in the return.
+    # > 0 = resample until the goal has ground points within this radius.
+    goal_support_radius_m: float = 0.0
+    goal_support_tries: int = 12
     goal_radius: float = 0.5            # meters; within this counts as "reached goal"
     collision_threshold: float = 0.1    # class score at/below which counts as collision
     spin_cost: float = 0.0              # shaping v2: penalty * |yaw action| (taxes circling)
@@ -405,6 +414,23 @@ class SceneEnv(gym.Env if gym is not None else object):
             self._goal_world = self.world_backend.sample_goal_position(
                 self._scene_id, self.np_random,
                 self._robot_pose_world[:2, 3]).copy()
+            # Reject goals with no reconstruction under them and draw again.
+            # Keeps the LAST draw if every try fails, so a scene whose goals
+            # are mostly off-cloud degrades to the old behaviour instead of
+            # looping forever or crashing.
+            r = self.cfg.goal_support_radius_m
+            if r > 0.0:
+                gp = getattr(self, "_ground_pts", {}).get(self._scene_id)
+                if gp is not None and len(gp):
+                    for _try in range(max(1, self.cfg.goal_support_tries)):
+                        d2 = np.abs(gp - self._goal_world[:2]).max(axis=1)
+                        near = gp[d2 <= r]
+                        if len(near) and float(np.linalg.norm(
+                                near - self._goal_world[:2], axis=1).min()) <= r:
+                            break
+                        self._goal_world = self.world_backend.sample_goal_position(
+                            self._scene_id, self.np_random,
+                            self._robot_pose_world[:2, 3]).copy()
         else:
             self._goal_world = self.world_backend.goal_position(self._scene_id).copy()
         self._prev_position = None
@@ -455,6 +481,8 @@ class SceneEnv(gym.Env if gym is not None else object):
         scene. Serves the proximity cost; silently absent -> cost is 0."""
         if not hasattr(self, "_obstacle_pts"):
             self._obstacle_pts = {}
+        if not hasattr(self, "_ground_pts"):
+            self._ground_pts = {}
         if self.cfg.clouds_dir is None or scene_id in self._obstacle_pts:
             return
         from pathlib import Path
@@ -472,6 +500,11 @@ class SceneEnv(gym.Env if gym is not None else object):
         ob = pts[np.isin(labs, list(self.cfg.proximity_classes))
                  & (pts[:, 2] > 0.15) & (pts[:, 2] < 1.2)][:, :2]
         self._obstacle_pts[scene_id] = ob[::4].astype(np.float32) if len(ob) else None
+        # GROUND points, separately: `_obstacle_pts` is an obstacle-class slice
+        # in a height band and says nothing about whether a patch of ground was
+        # reconstructed at all. Goal support needs the latter.
+        gr = pts[(pts[:, 2] < 0.15) & (labs >= 0)][:, :2]
+        self._ground_pts[scene_id] = gr[::4].astype(np.float32) if len(gr) else None
 
     def _proximity_term(self, robot_xy: np.ndarray) -> float:
         if self.cfg.proximity_weight <= 0.0:

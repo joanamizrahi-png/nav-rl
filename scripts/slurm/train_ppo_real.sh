@@ -280,6 +280,20 @@ if [ "${GOAL360:-0}" = "1" ]; then
     BC_ARGS="$BC_ARGS --goal_dir_360"
     OUT="${OUT}_g360"
 fi
+# MAXSTEPS: episode step budget (default 60). At 0.3 m/step a 10 m goal needs
+# 34 steps at FULL linear speed, so below ~57% mean speed the far half of
+# GOALRANGE=5,10 is unreachable on time no matter how good the policy is.
+if [ -n "${MAXSTEPS:-}" ]; then
+    BC_ARGS="$BC_ARGS --max_steps $MAXSTEPS"
+    OUT="${OUT}_ms${MAXSTEPS}"
+fi
+
+# GOALSUPPORT: resample goals that have no reconstruction under them.
+if [ -n "${GOALSUPPORT:-}" ]; then
+    BC_ARGS="$BC_ARGS --goal_support_radius $GOALSUPPORT"
+    OUT="${OUT}_gsup${GOALSUPPORT}"
+fi
+
 # COLLAHEAD: judge COLLISION (and crash termination) on its own footprint this
 # many metres ahead, while the graded semantic score keeps looking 1.5 m out.
 # Unset = both share the 1.5 m box, the behaviour of every run before
