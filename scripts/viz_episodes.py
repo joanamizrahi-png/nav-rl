@@ -147,6 +147,9 @@ def main():
         for k, spec in enumerate(args.runs):
             label, _, p2 = spec.partition("=")
             d = json.loads(Path(p2).read_text())
+            # max_steps is not stored; the longest episode is the cap in
+            # practice, since only a timeout runs the clock out.
+            max_steps = max(int(e.get("steps", 0)) for e in d["episodes"])
             for i, e in enumerate(d["episodes"]):
                 raw = e.get("traj") or []
                 if len(raw) < 2:
@@ -177,7 +180,17 @@ def main():
                 a2.grid(alpha=0.25)
                 dist = (float(np.hypot(tt[-1, 0] - goal[0], tt[-1, 1] - goal[1]))
                         if goal is not None else float("nan"))
-                a2.set_title(f"{label} ep{i}  steps {e.get('steps')}  "
+                # WHY did it end? The video HUD does not say, and "success:
+                # false" covers three completely different outcomes. Infer it:
+                # reached the goal / ended early (crash or a void-coherence
+                # kill) / ran out of steps.
+                if e.get("success"):
+                    why = "GOAL"
+                elif int(e.get("steps", 0)) >= max_steps:
+                    why = "TIMEOUT"
+                else:
+                    why = "ENDED EARLY (crash/void)"
+                a2.set_title(f"{label} ep{i}  [{why}]  steps {e.get('steps')}  "
                              f"return {e.get('return'):.2f}  "
                              f"crash-steps {len(bad)}  "
                              f"final dist to goal {dist:.2f} m", fontsize=9)
