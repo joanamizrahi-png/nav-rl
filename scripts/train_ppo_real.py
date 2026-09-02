@@ -130,7 +130,7 @@ class RewardComponentsCallback(BaseCallback):
             # image_void_frac = whole-view support (her measure). The spin
             # `cov` number is MEAN ALPHA, a different statistic — it cannot be
             # converted into these without the alpha histogram.
-            "void_frac", "image_void_frac",
+            "void_frac",
             # 2026-09-02: these were set on `info` by SceneEnv but MISSING from
             # this list, so 460539/460540 ran 17 h with the coherence term
             # inside `total` and invisible everywhere else. The only way to
@@ -139,17 +139,12 @@ class RewardComponentsCallback(BaseCallback):
             # about -- log it whether or not the term is switched on, so the
             # thresholds get set from the distribution the policy ACTUALLY
             # visits rather than from a spin sweep.
-            "coherence", "coherence_crash", "coverage",
+            "coherence", "coherence_crash",
             # goal_dist_frac = final distance / starting distance. Without it a
             # drop in reward/timeout is ambiguous: FEWER timeouts and CHEAPER
             # timeouts look identical, and those are opposite conclusions about
             # `--timeout_distance_scaled`. Needed to read H (461357) at all.
-            "goal_dist_frac",
-            # 1.0 whenever the near collision box missed the frame and fell
-            # back to the shaping box. MUST sit near 0 for the split to be in
-            # effect; a high rate means the near distance is inside the blind
-            # zone and crashes are being judged at 1.5 m after all.
-            "collision_off_frame")
+            )
 
     # Per-step means blur the terminal quantities -- what matters for the
     # proportional timeout is how close the robot was WHEN THE EPISODE ENDED,
@@ -157,10 +152,18 @@ class RewardComponentsCallback(BaseCallback):
     # reward/end_*.
     TERMINAL_KEYS = ("goal_dist_frac", "coverage")
 
+    # These are NOT reward terms and logging them under reward/ made the panel
+    # unreadable -- `coverage` is mean alpha, `collision_off_frame` is a
+    # did-the-mechanism-fire flag, `goal_dist_frac` is a distance ratio. They
+    # go under diag/ so reward/ contains only things that are summed into the
+    # return (her ask 2026-09-02).
+    DIAG_KEYS = ("coverage", "collision_off_frame", "goal_dist_frac",
+                 "image_void_frac", "scene_idx")
+
     def __init__(self):
         super().__init__()
-        self._sums = {k: 0.0 for k in self.KEYS}
-        self._cnt = {k: 0 for k in self.KEYS}
+        self._sums = {k: 0.0 for k in self.KEYS + self.DIAG_KEYS}
+        self._cnt = {k: 0 for k in self.KEYS + self.DIAG_KEYS}
         self._end_sums = {k: 0.0 for k in self.TERMINAL_KEYS}
         self._end_cnt = {k: 0 for k in self.TERMINAL_KEYS}
 
@@ -170,7 +173,7 @@ class RewardComponentsCallback(BaseCallback):
         for i, info in enumerate(infos):
             if "total" not in info:
                 continue
-            for k in self.KEYS:
+            for k in self.KEYS + self.DIAG_KEYS:
                 v = float(info.get(k, 0.0))
                 # coverage and goal_dist_frac are nan when unavailable; one nan
                 # would poison the running mean for the whole rollout.
@@ -188,15 +191,36 @@ class RewardComponentsCallback(BaseCallback):
         return True
 
     def _on_rollout_end(self) -> None:
+        # The FIRST rollout goes to stdout as well as wandb: it is the earliest
+        # moment the run can tell you whether moving pays, and it sits directly
+        # under the frozen probe in the log for comparison. Waiting eight hours
+        # to discover the budget is wrong is how today went.
+        if not getattr(self, "_printed_first", False) and self._cnt.get("total"):
+            self._printed_first = True
+            line = "-" * 78
+            print(f"\n{line}\nFIRST ROLLOUT -- reward per step for the POLICY "
+                  f"({self._cnt['total']} steps)\n{line}")
+            for k in self.KEYS:
+                if self._cnt[k]:
+                    print(f"  {k:<16} {self._sums[k] / self._cnt[k]:+9.4f}")
+            for k in self.DIAG_KEYS:
+                if self._cnt[k]:
+                    print(f"  [diag] {k:<10} {self._sums[k] / self._cnt[k]:+9.4f}")
+            print(f"{line}\n  Compare `total` with the frozen probe above: if "
+                  f"moving is not clearly better,\n  the policy's best strategy "
+                  f"is to stand still and it will find that.\n{line}", flush=True)
         for k in self.KEYS:
             if self._cnt[k]:
                 self.logger.record(f"reward/{k}", self._sums[k] / self._cnt[k])
+        for k in self.DIAG_KEYS:
+            if self._cnt[k]:
+                self.logger.record(f"diag/{k}", self._sums[k] / self._cnt[k])
         for k in self.TERMINAL_KEYS:
             if self._end_cnt[k]:
                 self.logger.record(f"reward/end_{k}",
                                    self._end_sums[k] / self._end_cnt[k])
-        self._sums = {k: 0.0 for k in self.KEYS}
-        self._cnt = {k: 0 for k in self.KEYS}
+        self._sums = {k: 0.0 for k in self.KEYS + self.DIAG_KEYS}
+        self._cnt = {k: 0 for k in self.KEYS + self.DIAG_KEYS}
         self._end_sums = {k: 0.0 for k in self.TERMINAL_KEYS}
         self._end_cnt = {k: 0 for k in self.TERMINAL_KEYS}
 
@@ -336,6 +360,116 @@ def _dump_env_config(args, cfg):
         print(f"[train] env recorded for eval: {out}", flush=True)
     except Exception as e:
         print(f"[train] could not write env_config.json: {e}", flush=True)
+
+
+
+def _reward_banner(args, cfg, env) -> None:
+    """Print what the run is ACTUALLY configured with, and what freezing costs.
+
+    Six of the eleven things this run depends on had no log at all on
+    2026-09-02 -- the loaded traversability values, whether the curricula move,
+    whether goal-support rejects anything, whether the near collision box is in
+    frame. Two mechanisms (the coherence term and the distance curriculum) had
+    already been silently inert for weeks before anyone noticed. A banner is
+    cheap; discovering after eight hours that road was still 0.5 is not.
+    """
+    try:
+        _reward_banner_body(args, cfg, env)
+    except Exception as e:
+        print(f"[banner] could not print reward configuration: {e}", flush=True)
+
+
+def _reward_banner_body(args, cfg, env) -> None:
+    from src.eval.traversability import load_traversability
+    V14 = ["void", "sky", "trail", "grass", "rough", "water", "sidewalk",
+           "road", "pavement", "stairs", "obstacle", "vegetation", "person",
+           "vehicle"]
+    line = "=" * 78
+    print(f"\n{line}\nREWARD CONFIGURATION -- what this run is actually "
+          f"running\n{line}", flush=True)
+    try:
+        trav = load_traversability(Path(cfg.trav_path))
+        pairs = "  ".join(f"{V14[i]}={trav[i]:.2f}" for i in range(min(14, len(trav))))
+        print(f"traversability [{cfg.trav_path}]\n  {pairs}", flush=True)
+    except Exception as e:
+        print(f"traversability: COULD NOT LOAD {cfg.trav_path} ({e})", flush=True)
+    r = cfg.reward
+    print(f"reward weights   semantic={r.semantic} goal={r.goal} "
+          f"collision={r.collision} step={r.step_cost} void={r.void_cost} "
+          f"terrain_as_cost={r.terrain_as_cost} scale={cfg.reward_scale}")
+    print(f"terminals        goal_bonus={cfg.goal_bonus} @ r={cfg.goal_radius}m | "
+          f"crash={cfg.collision_terminate_penalty} @ "
+          f"{cfg.collision_terminate_frac} | timeout={cfg.timeout_penalty} "
+          f"scaled={cfg.timeout_distance_scaled}")
+    print(f"per-step costs   smooth={cfg.action_smooth_cost} "
+          f"spin={cfg.spin_cost} proximity={cfg.proximity_weight} "
+          f"margin={cfg.proximity_margin}")
+    ca = cfg.collision_look_ahead_m
+    print(f"footprints       shaping={cfg.look_ahead_dist}m  collision="
+          f"{ca if ca > 0 else cfg.look_ahead_dist}m"
+          f"{'  (SPLIT)' if ca > 0 else '  (shared -- stop-at-edge is NOT learnable)'}")
+    print(f"coherence        weight={cfg.coherence_cost_weight} "
+          f"tau={cfg.coherence_tau} terminate_tau={cfg.coherence_terminate_tau}"
+          f"{'' if cfg.coherence_cost_weight > 0 else '   (OFF)'}")
+    print(f"episode          max_steps={cfg.max_steps} step={cfg.step_size_m}m "
+          f"yaw={cfg.yaw_step_rad}rad forward_only={cfg.forward_only}  "
+          f"-> max reach {cfg.max_steps * cfg.step_size_m:.1f} m")
+    gsr = cfg.goal_support_radius_m
+    print(f"goal support     {gsr}m" + ("" if gsr > 0 else
+          "   (OFF -- ~14.5% of goals have no reconstruction under them)"))
+    rc = args.goal_radius_start
+    dc = args.goal_dist_start
+    print(f"curricula        radius={rc if rc else 'OFF'} -> {cfg.goal_radius} | "
+          f"distance={dc if dc else 'OFF'} -> {args.goal_dist}")
+    print(f"entropy          ent_coef={args.ent_coef}   scenes={args.scenes} "
+          f"rotate_every={args.scene_rotate}")
+    print(line, flush=True)
+
+
+def _frozen_probe(env, steps: int = 120) -> None:
+    """What does the reward pay a robot that does NOTHING?
+
+    Every claim about the policy freezing rested on my arithmetic for a
+    "frozen on clean sidewalk" baseline that no policy had been observed to
+    follow (Joana caught this, 2026-09-02). So measure it: pin the action to
+    zero, run, and print the per-component budget. If standing still is cheap,
+    the freezing trap is real and the goal term has to outweigh it. If it is
+    expensive, my analysis was wrong and the weights need a different fix.
+    """
+    import numpy as _np
+    keys = ("semantic", "goal", "collision", "step", "spin", "smooth",
+            "proximity", "coherence", "crash", "timeout", "total")
+    sums = {k: 0.0 for k in keys}
+    n = 0
+    try:
+        env.reset()
+        act = _np.zeros((env.num_envs,) + env.action_space.shape,
+                        dtype=_np.float32)
+        for _ in range(steps // max(1, env.num_envs)):
+            _, _, _, infos = env.step(act)
+            for info in infos:
+                if "total" not in info:
+                    continue
+                for k in keys:
+                    v = float(info.get(k, 0.0))
+                    if v == v:
+                        sums[k] += v
+                n += 1
+    except Exception as e:
+        print(f"[frozen probe] skipped ({e})", flush=True)
+        return
+    if not n:
+        print("[frozen probe] no steps recorded", flush=True)
+        return
+    line = "-" * 78
+    print(f"\n{line}\nFROZEN PROBE -- reward per step for action=0, "
+          f"{n} steps (MEASURED, not assumed)\n{line}")
+    for k in keys:
+        print(f"  {k:<12} {sums[k] / n:+9.4f}")
+    print(f"\n  A policy that never moves earns {sums['total'] / n:+.4f} per "
+          f"step, so {sums['total'] / n * 120:+.1f} over a\n  120-step episode "
+          f"before the timeout penalty. Moving has to beat that.\n{line}",
+          flush=True)
 
 
 def _scene_env_cfg(args):
@@ -791,6 +925,10 @@ def main():
     ap.add_argument("--action_smooth_cost", type=float, default=0.0,
                     help="penalty * mean|a_t - a_{t-1}|; charges action "
                          "CHANGES (flip-flops), not turning itself")
+    ap.add_argument("--frozen_probe", action="store_true",
+                    help="before training, run zero-action steps and print the "
+                         "per-component reward budget — the MEASURED cost of "
+                         "standing still, which every freezing argument needs")
     ap.add_argument("--ent_coef", type=float, default=0.01,
                     help="PPO entropy bonus. 0.01 is what every run to date "
                          "used (it was hardcoded, not the SB3 default of 0). "
@@ -1006,6 +1144,9 @@ def main():
             print(f"[train_ppo_real] wandb unavailable ({e}); continuing without")
 
     print(f"[train_ppo_real] training {args.total_steps} steps on {args.scene} ...")
+    _reward_banner(args, _scene_env_cfg(args), env)
+    if args.frozen_probe:
+        _frozen_probe(env)
     model.learn(total_timesteps=args.total_steps, callback=callbacks, progress_bar=True,
                 reset_num_timesteps=(args.warmstart is None))
     model.save(str(args.output_dir / "ppo_final.zip"))

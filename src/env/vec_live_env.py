@@ -334,15 +334,28 @@ class LiveVecEnv(VecEnv):
             dones[i] = bool(term or trunc)
             info = dict(info)
             info["TimeLimit.truncated"] = bool(trunc and not term)
+            # Which scene produced this step. Nothing logged it, so a reward
+            # sawtooth caused by rotation was indistinguishable from the policy
+            # getting worse, and the ~10% of episodes force-truncated at a
+            # rotation boundary were invisible (2026-09-02).
+            info["scene_idx"] = float(self._scene_i)
             infos[i] = info
         self._steps_since_rot += self.num_envs
         rotate = (self.rotate_every > 0 and len(self.scenes) > 1
                   and self._steps_since_rot >= self.rotate_every)
         if rotate:
+            print(f"[VecLiveEnv] scene rotate -> "
+                  f"{self.scenes[(self._scene_i + 1) % len(self.scenes)]} "
+                  f"at {self._steps_since_rot} steps; force-truncating "
+                  f"{sum(1 for d in dones if not d)}/{self.num_envs} episodes",
+                  flush=True)
             for i in range(self.num_envs):     # force-truncate survivors
                 if not dones[i]:
                     dones[i] = True
                     infos[i]["TimeLimit.truncated"] = True
+                    # flagged so eval/analysis can drop them: these ended
+                    # because the scene changed, not because of the policy
+                    infos[i]["rotation_truncated"] = True
         # one batched render at the post-step poses (correct terminal obs too,
         # still in the OLD scene when rotating)
         self._render_and_inject(list(range(self.num_envs)))
