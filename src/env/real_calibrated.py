@@ -278,8 +278,15 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         confabulates (the girl/sheep frames) — keep spawns out of that zone."""
         cal = self._calib[scene_id]
         lo = max(0, int(self.cfg.spawn_min_frame))
-        if self.cfg.goal_frame_range is not None:
-            hi = len(cal.positions) - 6      # goal varies: spawn anywhere on the trail
+        if (self.cfg.goal_frame_range is not None
+                or getattr(self.cfg, "goal_xy_override", None) is not None):
+            # goal varies, or it is a fixed WORLD point rather than a path
+            # frame — either way "stay upstream of goal_frame" is meaningless.
+            # With goal_xy set, the old clamp used goal_frame's default of 30,
+            # so hi=25 was then forced up to lo+1: a spawn range of exactly ONE
+            # frame, and 20 identical episodes that looked like a real result
+            # (2026-09-01).
+            hi = len(cal.positions) - 6
         else:
             hi = min(self.cfg.goal_frame - 5, len(cal.positions) - 6)
         hi = max(lo + 1, hi)
