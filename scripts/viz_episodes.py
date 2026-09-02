@@ -37,6 +37,10 @@ def main():
     ap.add_argument("--z_max", type=float, default=0.15)
     ap.add_argument("--crash_frac", type=float, default=0.35)
     ap.add_argument("--out", default="episodes.png")
+    ap.add_argument("--per_episode_dir", default="",
+                    help="also write one plot PER EPISODE here — 20 overlaid "
+                         "paths hide whether a single run approached and "
+                         "stopped or wandered")
     args = ap.parse_args()
 
     cloud = np.load(Path(args.clouds_dir) / f"{args.scene}_cloud.npz")
@@ -110,6 +114,45 @@ def main():
     ax.grid(alpha=0.25)
     fig.savefig(args.out, dpi=140, bbox_inches="tight")
     print(f"==> {args.out}")
+
+    if args.per_episode_dir:
+        od = Path(args.per_episode_dir)
+        od.mkdir(parents=True, exist_ok=True)
+        xl, yl = ax.get_xlim(), ax.get_ylim()
+        n = 0
+        for k, spec in enumerate(args.runs):
+            label, _, p2 = spec.partition("=")
+            d = json.loads(Path(p2).read_text())
+            for i, e in enumerate(d["episodes"]):
+                raw = e.get("traj") or []
+                if len(raw) < 2:
+                    continue
+                tt = np.array([[r[0], r[1], r[3] if len(r) > 3 else 0.0]
+                               for r in raw], dtype=float)
+                f2, a2 = plt.subplots(figsize=(7, 7))
+                for cid, col in ((6, "0.82"), (8, "0.82"), (7, "0.68"),
+                                 (3, "tab:green")):
+                    m = glab == cid
+                    if m.any():
+                        a2.scatter(gxy[m][::12, 0], gxy[m][::12, 1], s=1, c=col,
+                                   linewidths=0)
+                a2.plot(path[:, 0], path[:, 1], "-", c="tab:blue", lw=2)
+                a2.plot(tt[:, 0], tt[:, 1], "-o", c=colors[k % len(colors)],
+                        ms=2.5, lw=1.4)
+                a2.plot(tt[0, 0], tt[0, 1], "o", c="k", ms=7)
+                bad = tt[tt[:, 2] >= args.crash_frac]
+                if len(bad):
+                    a2.plot(bad[:, 0], bad[:, 1], "x", c="red", ms=9, mew=2)
+                a2.set_xlim(xl); a2.set_ylim(yl); a2.set_aspect("equal")
+                a2.grid(alpha=0.25)
+                a2.set_title(f"{label} ep{i}  steps {e.get('steps')}  "
+                             f"return {e.get('return'):.2f}  "
+                             f"crash-steps {len(bad)}", fontsize=9)
+                f2.savefig(od / f"{label}_ep{i:02d}.png", dpi=110,
+                           bbox_inches="tight")
+                plt.close(f2)
+                n += 1
+        print(f"==> {n} per-episode plots: {od}/")
 
 
 if __name__ == "__main__":

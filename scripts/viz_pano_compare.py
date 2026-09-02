@@ -43,11 +43,16 @@ def main():
                     help="sweep offsets (deg) to show as columns")
     ap.add_argument("--width", type=int, default=340)
     ap.add_argument("--out", default="pano_vs_fwd.png")
+    ap.add_argument("--per_offset_dir", default="",
+                    help="also write ONE FULL-SIZE image per offset here — the "
+                         "combined grid shrinks each tile too far to judge "
+                         "whether a render is actually degraded")
     args = ap.parse_args()
 
     import cv2
     targets = [float(v) for v in args.at.split(",")]
     rows, labels = [], []
+    full = {}          # offset -> [(label, native-resolution frame, cov)]
 
     for spec in args.runs:
         label, _, rest = spec.partition("=")
@@ -74,6 +79,8 @@ def main():
         for t in targets:
             i = int(np.argmin(np.abs(offs - t)))
             fr = frames[i]
+            full.setdefault(t, []).append((label, fr.copy(), series[i][1],
+                                           offs[i]))
             h = int(fr.shape[0] * args.width / fr.shape[1])
             fr = cv2.resize(fr, (args.width, h))
             bar = np.zeros((22, args.width, 3), dtype=np.uint8)
@@ -84,6 +91,20 @@ def main():
         rows.append(np.hstack(tiles))
         labels.append(f"{label}  ({n} frames)")
         print(f"{label:<10} matched {len(targets)} offsets from {n} frames")
+
+    if args.per_offset_dir:
+        od = Path(args.per_offset_dir)
+        od.mkdir(parents=True, exist_ok=True)
+        for t, items in sorted(full.items()):
+            stack = []
+            for lab, fr, cv_, off in items:
+                bar = np.zeros((30, fr.shape[1], 3), dtype=np.uint8)
+                cv2.putText(bar, f"{lab}   {off:+.0f}deg   cov {cv_:.1f}%",
+                            (8, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                            (255, 255, 255), 1, cv2.LINE_AA)
+                stack += [bar, fr]
+            cv2.imwrite(str(od / f"OFF{t:+04.0f}.png"), np.vstack(stack))
+        print(f"==> {len(full)} full-size offset images: {od}/OFF*.png")
 
     if not rows:
         raise SystemExit("nothing to draw — check the video and log paths")
