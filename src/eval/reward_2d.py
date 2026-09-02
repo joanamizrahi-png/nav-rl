@@ -170,11 +170,24 @@ def compute_reward(
     corners_uv, in_front = _project_points(corners_world, K, w2c)
 
     if not in_front.all():
-        # Footprint straddles / is behind the camera => skip semantic; treat as no info.
-        sem_score = 0.0
+        # Footprint straddles / is behind the camera => NO INFORMATION.
+        #
+        # 2026-09-02: sem_score was 0.0 here, which under terrain_as_cost makes
+        # semantic_term = weight * (0 - 1) = the MAXIMUM terrain penalty -- an
+        # unseen footprint was charged exactly as if it were solid grass, while
+        # collision_frac stayed 0 so it was simultaneously credited with having
+        # no obstacles. Caught when two evals came back with
+        # ground_share {'none': 1.0} and semantic -60 over 60 steps, and it
+        # also explains 462053 training at semantic -4.84 (~97% of steps blind)
+        # against collision -0.0089.
+        #
+        # 1.0 = neutral, zero cost, the same convention already used for void
+        # (her rule: unknown ground is UNKNOWN, not lava). off_frame_frac is
+        # what carries the fact that we could not see, and it is now logged.
+        sem_score = 1.0
         n_footprint_pixels = 0
         n_traversable_pixels = 0
-        mean_class_score = 0.0
+        mean_class_score = 1.0
         dominant_class_id = -1
         off_frame_frac = 1.0
         collision_frac = 0.0
@@ -186,9 +199,11 @@ def compute_reward(
         n_footprint_pixels = int(in_bounds.sum())
 
         if n_footprint_pixels == 0:
-            sem_score = 0.0
+            # same case: projected in front of the camera but covering no
+            # pixels (below the bottom edge). Neutral, not maximum penalty.
+            sem_score = 1.0
             n_traversable_pixels = 0
-            mean_class_score = 0.0
+            mean_class_score = 1.0
             dominant_class_id = -1
             off_frame_frac = 1.0
             collision_frac = 0.0

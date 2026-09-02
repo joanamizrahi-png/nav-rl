@@ -158,7 +158,12 @@ class RewardComponentsCallback(BaseCallback):
     # go under diag/ so reward/ contains only things that are summed into the
     # return (her ask 2026-09-02).
     DIAG_KEYS = ("coverage", "collision_off_frame", "goal_dist_frac",
-                 "image_void_frac", "scene_idx", "rgb_delta")
+                 "image_void_frac", "scene_idx", "rgb_delta",
+                 # THE one that was missing: fraction of steps where the
+                 # footprint did not project into the image at all. Two evals
+                 # ran 20 episodes each with it at 1.0 -- the reward blind for
+                 # every step -- and nothing said so (2026-09-02).
+                 "off_frame_frac")
 
     def __init__(self):
         super().__init__()
