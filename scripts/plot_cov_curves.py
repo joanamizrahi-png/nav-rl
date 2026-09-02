@@ -25,13 +25,17 @@ from pathlib import Path
 import numpy as np
 
 LINE = re.compile(r"off\s+([-+][\d.]+)deg.*?cov\s+([\d.]+)%")
+# 2026-09-02: drive_preview now also prints `dlt` — mean |dRGB| between
+# consecutive generated frames. Same ladder, second curve: does the
+# frame-difference measure of incoherence agree with the geometric one?
+DLT = re.compile(r"off\s+([-+][\d.]+)deg.*?dlt\s+([\d.]+)")
 
 
-def curve(path: Path):
-    """offset -> mean cov (the sweep visits each offset twice; average them)."""
+def curve(path: Path, pat=LINE):
+    """offset -> mean value (the sweep visits each offset twice; average them)."""
     acc = {}
     for ln in path.read_text(errors="ignore").splitlines():
-        m = LINE.search(ln)
+        m = pat.search(ln)
         if m:
             acc.setdefault(float(m.group(1)), []).append(float(m.group(2)))
     if not acc:
@@ -53,6 +57,7 @@ def main():
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(9, 5))
+    ax2 = [None]          # list so the twin axis is created at most once
     plotted = 0
     for spec in args.runs:
         label, _, p = spec.partition("=")
@@ -60,8 +65,20 @@ def main():
         if off is None:
             print(f"[skip] {label}: no 'off ... cov ...' lines in {p}")
             continue
-        ax.plot(off, cov, "-o", ms=3, label=label)
+        ax.plot(off, cov, "-o", ms=3, label=f"{label} cov")
         plotted += 1
+        # second curve on a twin axis: dlt lives in 0-1, cov in 0-100
+        doff, dlt = curve(Path(p), DLT)
+        if doff is not None:
+            if ax2[0] is None:
+                ax2[0] = ax.twinx()
+                ax2[0].set_ylabel("mean |dRGB| between consecutive frames")
+            ax2[0].plot(doff, dlt, "--s", ms=3, alpha=0.75,
+                        label=f"{label} dlt")
+            print(f"{label:<12} dlt@0deg {np.interp(0, doff, dlt):.4f}   "
+                  f"dlt@+-{args.cone_deg/2:.0f}deg "
+                  f"{np.interp(args.cone_deg/2.0, doff, dlt):.4f}   "
+                  f"dlt max {dlt.max():.4f} at {doff[int(dlt.argmax())]:+.0f}deg")
         half = args.cone_deg / 2.0
         at_cone = float(np.interp(half, off, cov))
         # the CONTIGUOUS band around 0 that stays above tau_coh — "how far can
@@ -99,7 +116,9 @@ def main():
     ax.set_ylabel("reconstruction coverage, mean alpha (%)")
     ax.set_title("How far can the robot turn before the world model is inventing?")
     ax.grid(alpha=0.3)
-    ax.legend()
+    ax.legend(loc="upper left", fontsize=8)
+    if ax2[0] is not None:
+        ax2[0].legend(loc="upper right", fontsize=8)
     fig.savefig(args.out, dpi=140, bbox_inches="tight")
     print(f"==> {args.out}")
 

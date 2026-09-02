@@ -150,7 +150,7 @@ class RewardComponentsCallback(BaseCallback):
     # proportional timeout is how close the robot was WHEN THE EPISODE ENDED,
     # not averaged over every step it took getting there. Logged separately as
     # reward/end_*.
-    TERMINAL_KEYS = ("goal_dist_frac", "coverage")
+    TERMINAL_KEYS = ("goal_dist_frac", "coverage", "rgb_delta")
 
     # These are NOT reward terms and logging them under reward/ made the panel
     # unreadable -- `coverage` is mean alpha, `collision_off_frame` is a
@@ -158,7 +158,7 @@ class RewardComponentsCallback(BaseCallback):
     # go under diag/ so reward/ contains only things that are summed into the
     # return (her ask 2026-09-02).
     DIAG_KEYS = ("coverage", "collision_off_frame", "goal_dist_frac",
-                 "image_void_frac", "scene_idx")
+                 "image_void_frac", "scene_idx", "rgb_delta")
 
     def __init__(self):
         super().__init__()

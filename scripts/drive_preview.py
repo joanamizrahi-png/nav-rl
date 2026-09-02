@@ -570,12 +570,24 @@ def main():
         cov_txt = ""
         if cov is not None and cov == cov:
             cov_txt = f"  cov {cov * 100:5.1f}%"
+        # dlt = mean |dRGB| between consecutive GENERATED frames, 0-1. Printed
+        # beside cov so the offset ladder can be read for both at once: does
+        # the frame-difference measure of incoherence agree with the geometric
+        # one, and where does each start to blow up? (2026-09-02)
+        dlt_txt = ""
+        _prev = globals().get("_PREV_DRIVE_RGB")
+        if _prev is not None and _prev.shape == rgb.shape:
+            _d = float(np.abs(rgb.astype(np.float32)
+                              - _prev.astype(np.float32)).mean() / 255.0)
+            dlt_txt = f"  dlt {_d:.4f}"
+        globals()["_PREV_DRIVE_RGB"] = rgb.copy()
         off_txt = (f"  off {spin_off_deg:+6.1f}deg"
                    if (args.spin and args.spin_deg < 360.0) else "")
         if args.strafe:
             off_txt = f"  lat {strafe_off_m:+6.2f}m"
         print(f"[{step + 1}/{args.frames}] pose {i} "
-              f"{world.last_timings['total']:.2f}s{off_txt}{cov_txt}", flush=True)
+              f"{world.last_timings['total']:.2f}s{off_txt}{cov_txt}{dlt_txt}",
+              flush=True)
     if vw is not None:
         vw.release()
         print(f"==> {out_dir / f'DRIVE_{tag}.mp4'}", flush=True)

@@ -434,6 +434,9 @@ class SceneEnv(gym.Env if gym is not None else object):
         else:
             self._goal_world = self.world_backend.goal_position(self._scene_id).copy()
         self._prev_position = None
+        # a reset teleports the robot, so the first frame difference of an
+        # episode is meaningless -- drop it rather than log a false jump
+        self._rgb_delta = float("nan")
         self._steps = 0
         self._initial_goal_dist = float(np.linalg.norm(
             self._robot_pose_world[:3, 3] - self._goal_world))
@@ -484,6 +487,23 @@ class SceneEnv(gym.Env if gym is not None else object):
         the shared batched diffusion call. `labels` feeds the injected
         semantic backend (reward source for the NEXT step); `coverage` is the
         mean alpha of that frame, which only the backend can see."""
+        # Frame-to-frame |dRGB|: Joana's measure of world-model coherence
+        # (2026-09-02). Alpha coverage is a proxy -- it says how much geometry
+        # backs the view -- but the failure she actually cares about is the
+        # model CUTTING to a different scene, which is exactly a large frame
+        # difference. It is also deployment-safe: real camera frames are
+        # temporally continuous, so a term built on this can never fire on the
+        # robot, whereas a coverage term teaches "avoid low-alpha headings",
+        # which is a property of this reconstruction and not of the world.
+        # Logged as a DIAGNOSTIC first -- it also grows with fast turning, so
+        # its distribution has to be looked at before it becomes a cost.
+        if self._last_rgb is not None and rgb is not None \
+                and self._last_rgb.shape == rgb.shape:
+            self._rgb_delta = float(
+                np.abs(rgb.astype(np.float32)
+                       - self._last_rgb.astype(np.float32)).mean() / 255.0)
+        else:
+            self._rgb_delta = float("nan")
         self._last_rgb, self._last_K, self._last_w2c = rgb, K, w2c
         if labels is not None:
             self._injected_labels = labels
@@ -739,6 +759,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         # Always logged, on or off, so the coverage the policy actually
         # experiences shows up in wandb from the first run.
         info["coverage"] = float("nan") if coverage is None else coverage
+        info["rgb_delta"] = float(getattr(self, "_rgb_delta", float("nan")))
         info["coherence"] = coh_term
         info["coherence_crash"] = coh_crash
         info["goal_bonus"] = bonus
@@ -777,6 +798,23 @@ class SceneEnv(gym.Env if gym is not None else object):
 
     def _render_current(self) -> None:
         rgb, K, w2c = self.world_backend.render(self._robot_pose_world)
+        # Frame-to-frame |dRGB|: Joana's measure of world-model coherence
+        # (2026-09-02). Alpha coverage is a proxy -- it says how much geometry
+        # backs the view -- but the failure she actually cares about is the
+        # model CUTTING to a different scene, which is exactly a large frame
+        # difference. It is also deployment-safe: real camera frames are
+        # temporally continuous, so a term built on this can never fire on the
+        # robot, whereas a coverage term teaches "avoid low-alpha headings",
+        # which is a property of this reconstruction and not of the world.
+        # Logged as a DIAGNOSTIC first -- it also grows with fast turning, so
+        # its distribution has to be looked at before it becomes a cost.
+        if self._last_rgb is not None and rgb is not None \
+                and self._last_rgb.shape == rgb.shape:
+            self._rgb_delta = float(
+                np.abs(rgb.astype(np.float32)
+                       - self._last_rgb.astype(np.float32)).mean() / 255.0)
+        else:
+            self._rgb_delta = float("nan")
         self._last_rgb, self._last_K, self._last_w2c = rgb, K, w2c
 
     def _advance_pose(self, action: np.ndarray) -> None:
