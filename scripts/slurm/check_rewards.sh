@@ -12,7 +12,9 @@
 
 # Reward mechanism check: GATE / VOID / IMGVOID measured on real renders.
 # Renders ONCE, then sweeps the alpha-gate threshold over identical pixels.
-# Knobs: SCENE, TRAV, EPISODES, STEPS, SWEEP, GATETAU, GOALXY, SPAWNFRAME, TAG.
+# Knobs: SCENE, TRAV, EPISODES, STEPS, SWEEP, GATETAU, GOALXY, SPAWNFRAME, TAG,
+#        LADDER (collision look-ahead distances to test for visibility),
+#        COLLAHEAD (second footprint drawn in MAGENTA on every panel).
 
 set -euo pipefail
 module load conda/24.3.0-0
@@ -41,6 +43,8 @@ python scripts/check_rewards.py \
     --sweep "${SWEEP:-0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8}" \
     --gate_tau "${GATETAU:-0.5}" \
     --walk "${WALK:-straight}" \
+    --ladder_dists "${LADDER:-0.8,1.0,1.2,1.5,1.8,2.1,2.4}" \
+    --collision_look_ahead "${COLLAHEAD:-1.0}" \
     --live_ckpt "${LIVECKPT:-/scratch/m000204-pm06b/joana/runs/train_semantic_v21/checkpoint-epoch-12.safetensors}" \
     "${EXTRA[@]}"
 

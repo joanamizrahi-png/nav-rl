@@ -280,6 +280,17 @@ if [ "${GOAL360:-0}" = "1" ]; then
     BC_ARGS="$BC_ARGS --goal_dir_360"
     OUT="${OUT}_g360"
 fi
+# COLLAHEAD: judge COLLISION (and crash termination) on its own footprint this
+# many metres ahead, while the graded semantic score keeps looking 1.5 m out.
+# Unset = both share the 1.5 m box, the behaviour of every run before
+# 2026-09-02, so the control arm stays bit-identical. Campus cameras sit at
+# 0.60 m, so the blind zone is FAR deeper than the 0.25 m RUGD rigs the old
+# comment assumed -- read reward/collision_off_frame on wandb, it must be ~0.
+if [ -n "${COLLAHEAD:-}" ]; then
+    BC_ARGS="$BC_ARGS --collision_look_ahead $COLLAHEAD"
+    OUT="${OUT}_ca${COLLAHEAD}"
+fi
+
 if [ -n "${GOALRANGE:-}" ]; then
     BC_ARGS="$BC_ARGS --goal_dist_range $GOALRANGE"
     OUT="${OUT}_gr${GOALRANGE/,/-}"
