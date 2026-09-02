@@ -285,6 +285,31 @@ if [ "${GOAL360:-0}" = "1" ]; then
     BC_ARGS="$BC_ARGS --goal_dir_360"
     OUT="${OUT}_g360"
 fi
+# ---- LABEL: the short name wandb shows -----------------------------------
+# The output directory name is 20 tokens long, leads with `trail00` and
+# `UNGATED` (true of every run since July, so they distinguish nothing), and
+# carries `v21obs` even on runs using v26 -- so a wandb run list is a wall of
+# identical prefixes with the differences truncated off the right-hand end.
+# This builds a name out of only what actually varies between arms.
+LABEL_SEM=$(basename "${LIVECKPT:-none}" .safetensors | sed 's/checkpoint-epoch-/e/')
+LABEL_RUN=$(basename "$(dirname "${LIVECKPT:-/none/none}")" | sed 's/train_semantic_//; s/_campus//; s/_dino/D/')
+LABEL="${LABEL_RUN}${LABEL_SEM}"
+[ -n "${WARMSTART:-}" ] && LABEL="${LABEL}-warm" || LABEL="${LABEL}-cold"
+[ -n "${NSC:-}" ] && LABEL="${LABEL}-${NSC}sc"
+[ -n "${GOALRANGE:-}" ] && LABEL="${LABEL}-g${GOALRANGE/,/to}"
+[ -n "${MAXSTEPS:-}" ] && LABEL="${LABEL}-ms${MAXSTEPS}"
+[ -n "${RW5SMOOTH:-}" ] && LABEL="${LABEL}-sm${RW5SMOOTH}"
+[ -n "${COLLAHEAD:-}" ] && LABEL="${LABEL}-ca${COLLAHEAD}"
+[ -n "${GOALSUPPORT:-}" ] && LABEL="${LABEL}-gs${GOALSUPPORT}"
+[ -n "${COH:-}" ] && LABEL="${LABEL}-coh${COH}t${COHTAU:-0.4}"
+[ "${TIMEOUTDIST:-0}" = "1" ] && LABEL="${LABEL}-todist"
+[ -n "${CRASHPEN:-}" ] && LABEL="${LABEL}-cp${CRASHPEN}"
+[ "${CURRICULUM:-0}" = "1" ] && LABEL="${LABEL}-curR"
+[ -n "${GOALDIST_START:-}" ] && LABEL="${LABEL}-curD${GOALDIST_START}"
+[ -n "${ENT:-}" ] && LABEL="${LABEL}-ent${ENT}"
+LABEL="${LABEL}-s${SEED:-0}"
+echo "==> wandb label: $LABEL"
+
 # CRASHPEN: override RW5's baked-in crash penalty of 1000. This block sits
 # AFTER the RW5 block so the last --collision_terminate_penalty wins (COLLPEN
 # at the top does NOT work with RW5 -- it is overridden silently).
@@ -463,6 +488,7 @@ python scripts/train_ppo_real.py \
     --total_steps $STEPS \
     --output_dir "$OUT" \
     $BC_ARGS \
+    --run_label "$LABEL" \
     --use_wandb
 
 echo "==> done: $OUT (rollout.mp4 + curves)"

@@ -1052,6 +1052,13 @@ def main():
                          "(live mode only; 1 = the classic single-robot path)")
     ap.add_argument("--output_dir", type=Path, default=Path("outputs/ppo_real"))
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--run_label", default="",
+                    help="short human-readable name for wandb. The output DIR "
+                         "name is a 20-token path that still says trail00, "
+                         "UNGATED and v21obs on runs that are none of those "
+                         "things -- unreadable in a run list and sometimes "
+                         "wrong. Paths keep the long name so existing globs "
+                         "still work; only the display name changes.")
     ap.add_argument("--use_wandb", action="store_true")
     ap.add_argument("--bc_demos", type=Path, default=None,
                     help="npz from make_demo_dataset.py; if set, behavior-clone the "
@@ -1136,7 +1143,8 @@ def main():
         try:
             import wandb
             from wandb.integration.sb3 import WandbCallback
-            wandb.init(project="nav-rl", name=args.output_dir.name,
+            wandb.init(project="nav-rl",
+                       name=(args.run_label or args.output_dir.name),
                        config=vars(args) | {"total_steps": args.total_steps},
                        sync_tensorboard=True, dir=str(args.output_dir))
             callbacks.append(WandbCallback())
