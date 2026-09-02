@@ -457,10 +457,25 @@ class SceneEnv(gym.Env if gym is not None else object):
     def set_goal_dist(self, d: float) -> None:
         """Distance-curriculum hook (2026-08-29, Joana: E must bootstrap like
         B did): goals START close (~3 m) and GROW as the policy earns wins.
-        Backends sample goals, so the knob lives on the backend cfg."""
+        Backends sample goals, so the knob lives on the backend cfg.
+
+        2026-09-02: this only ever wrote `goal_dist_m`, which
+        `sample_goal_position` reads in the RECORDED-FRAME branch. Every arm
+        since 458724 passes `--goal_dir_360`, and that branch returns from
+        `goal_dist_range` before `goal_dist_m` is ever consulted -- so the
+        curriculum has been silently inert on every run for weeks, including
+        the ones whose names carry `gds3`. It moves the UPPER bound now: the
+        near end of the range stays put (close goals must remain in the mix,
+        they are the easy wins that bootstrap learning) and the far end grows
+        as the policy earns them.
+        """
         cfg = getattr(self.world_backend, "cfg", None)
-        if cfg is not None:
-            cfg.goal_dist_m = float(d)
+        if cfg is None:
+            return
+        cfg.goal_dist_m = float(d)
+        if getattr(cfg, "goal_dir_360", False):
+            lo, _hi = getattr(cfg, "goal_dist_range", None) or (3.0, float(d))
+            cfg.goal_dist_range = (float(lo), max(float(lo) + 0.5, float(d)))
 
     def inject_render(self, rgb: np.ndarray, K: np.ndarray, w2c: np.ndarray,
                       labels: "np.ndarray | None" = None,
