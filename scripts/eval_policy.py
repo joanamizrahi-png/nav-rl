@@ -75,11 +75,21 @@ def build_env(args):
         # GND/SCAND clips advance ~1 m per recorded frame vs RUGD's ~0.1 m, so
         # the same goal_frame is a far longer walk there — raise the budget
         # instead of moving the goal (moving it collapses the spawn range).
-        max_steps=args.max_steps, step_size_m=0.25, yaw_step_rad=0.3,
+        # KINEMATICS MUST MATCH TRAINING (2026-09-01). These were hardcoded to
+        # 0.25 / 0.3 while every J arm trains at 0.30 / 0.50, so the policy was
+        # evaluated with 17% shorter steps and 40% weaker turning than the
+        # action model it learned. Combined with forward_only defaulting off —
+        # RW5 clamps reverse away during training — the robot could also drive
+        # backwards in eval, which it never could while learning.
+        max_steps=args.max_steps,
+        step_size_m=args.step_size_m, yaw_step_rad=args.yaw_step_rad,
         reward=RewardWeights(semantic=1.0, goal=1.5, collision=1.0,
                              step_cost=0.05, void_cost=0.3,
                              terrain_as_cost=True),
-        look_ahead_dist=1.5, goal_radius=0.75, collision_threshold=0.1,
+        # read from args so the adoption above actually takes effect
+        look_ahead_dist=getattr(args, "look_ahead_dist", 1.5),
+        goal_radius=getattr(args, "goal_radius", 0.75),
+        collision_threshold=getattr(args, "collision_threshold", 0.1),
         spin_cost=0.05, goal_bonus=50.0, random_spawn=True,
         trav_path=args.trav_path,
         collision_terminate_frac=args.collision_terminate_frac,
@@ -142,6 +152,12 @@ def main():
     ap.add_argument("--footprint_along_motion", action="store_true",
                     help="match the policy's training rule: footprint follows "
                          "the commanded motion direction")
+    ap.add_argument("--step_size_m", type=float, default=0.3,
+                    help="metres per unit forward action — MUST match the "
+                         "checkpoint's training value (J arms: 0.3)")
+    ap.add_argument("--yaw_step_rad", type=float, default=0.5,
+                    help="radians per unit yaw action — MUST match training "
+                         "(J arms: 0.5)")
     ap.add_argument("--forward_only", action="store_true",
                     help="match the policy's training rule: negative velocity "
                          "clamps to 0")
@@ -170,6 +186,36 @@ def main():
                          "frames, or is it odometry-only? Videos still show "
                          "the real frames — only the policy goes blind.")
     args = ap.parse_args()
+    # TRAINING AND EVAL MUST MATCH. train_ppo_real writes env_config.json beside
+    # the checkpoints; adopt it, and shout about anything that disagrees rather
+    # than quietly running a policy outside the action model it learned.
+    try:
+        import json as _json
+        _run = Path(args.checkpoint).resolve().parents[1]
+        _ec = _run / "env_config.json"
+        if _ec.exists():
+            _tr = _json.loads(_ec.read_text())
+            for _k in ("step_size_m", "yaw_step_rad", "forward_only",
+                       "look_ahead_dist", "goal_radius", "collision_threshold",
+                       "action_chunk"):
+                if _k not in _tr:
+                    continue
+                _have = getattr(args, _k, None)
+                if _have is not None and _have != _tr[_k]:
+                    print(f"[eval] MISMATCH {_k}: eval {_have} -> training "
+                          f"{_tr[_k]} (adopting training)", flush=True)
+                setattr(args, _k, _tr[_k])
+            print(f"[eval] adopted training env from {_ec}", flush=True)
+        else:
+            print(f"[eval] WARNING: no env_config.json at {_ec} — this run "
+                  f"predates it, so kinematics come from the CLI and may not "
+                  f"match what the policy trained with", flush=True)
+    except Exception as _e:
+        print(f"[eval] could not read training env config: {_e}", flush=True)
+
+    print(f"[eval] kinematics: step {args.step_size_m} m, yaw "
+          f"{args.yaw_step_rad} rad, forward_only={args.forward_only} "
+          f"— these MUST match the training run", flush=True)
 
     # The policy CNN is size-locked, so an eval at the wrong resolution dies
     # with "Observation spaces do not match" — after queueing, waiting for a

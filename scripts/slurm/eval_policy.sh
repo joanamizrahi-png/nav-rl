@@ -26,6 +26,17 @@ fi
 # SPAWN_MIN pins the near end of the spawn range. Essential with GOAL_XY: the
 # goal is a fixed world point, so without a floor the spawns spread back to the
 # start of the path and most episodes run out of steps before reaching it.
+# Kinematics + reverse clamp must mirror the training rung or the policy is
+# evaluated outside the action model it learned (2026-09-01).
+if [[ "${STEP:-}" != "" ]]; then
+    EXTRA_ARGS+=(--step_size_m "$STEP")
+fi
+if [[ "${YAW:-}" != "" ]]; then
+    EXTRA_ARGS+=(--yaw_step_rad "$YAW")
+fi
+if [[ "${FWDONLY:-0}" == "1" ]]; then
+    EXTRA_ARGS+=(--forward_only)
+fi
 if [[ "${SPAWN_MIN:-}" != "" ]]; then
     EXTRA_ARGS+=(--spawn_min_frame "$SPAWN_MIN")
 fi

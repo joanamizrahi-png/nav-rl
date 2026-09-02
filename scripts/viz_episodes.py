@@ -90,8 +90,9 @@ def main():
         d = json.loads(Path(p).read_text())
         eps = d["episodes"]
         c = colors[k % len(colors)]
-        goal = None
-        n_cr = 0
+        n_cr = 0          # NB: do NOT rebind `goal` here — a leftover
+                          # `goal = None` in this loop silently erased the
+                          # parsed goal before anything was drawn (2026-09-01)
         for i, e in enumerate(eps):
             # eval_policy seeds traj with a 4-element row (x,y,yaw,0) then
             # appends 5-element rows (x,y,yaw,frac,ground_class), so the list

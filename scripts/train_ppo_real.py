@@ -213,9 +213,39 @@ def make_env(args):
         world = CalibratedRealWorldBackend(cfg)
     sem = GaussianLabelBackend(world)
     env_cfg = _scene_env_cfg(args)
+    _dump_env_config(args, env_cfg)
     env = SceneEnv(world_backend=world, semantic_backend=sem,
                    scene_ids=scenes, cfg=env_cfg)
     return Monitor(env)
+
+
+def _dump_env_config(args, cfg):
+    """Record the env the policy is ACTUALLY learning in, beside its
+    checkpoints. Evaluating with different kinematics runs the policy outside
+    its own action model — on 2026-09-01 the eval used step 0.25 / yaw 0.3
+    against training's 0.30 / 0.50 with reverse re-enabled, and it only
+    surfaced when a rollout video showed the robot backing up. A knob needs a
+    human to remember; a file does not."""
+    try:
+        import json as _json
+        out = Path(args.output_dir) / "env_config.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(_json.dumps({
+            "step_size_m": cfg.step_size_m,
+            "yaw_step_rad": cfg.yaw_step_rad,
+            "forward_only": bool(getattr(cfg, "forward_only", False)),
+            "look_ahead_dist": cfg.look_ahead_dist,
+            "goal_radius": cfg.goal_radius,
+            "collision_threshold": cfg.collision_threshold,
+            "collision_terminate_frac": cfg.collision_terminate_frac,
+            "collision_terminate_penalty": cfg.collision_terminate_penalty,
+            "trav_path": cfg.trav_path,
+            "action_chunk": getattr(cfg, "action_chunk", 1),
+            "max_steps": cfg.max_steps,
+        }, indent=2))
+        print(f"[train] env recorded for eval: {out}", flush=True)
+    except Exception as e:
+        print(f"[train] could not write env_config.json: {e}", flush=True)
 
 
 def _scene_env_cfg(args):
