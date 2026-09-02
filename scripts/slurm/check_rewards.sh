@@ -6,7 +6,13 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
 #SBATCH --time=01:30:00
-#SBATCH --exclude=n04,n06,n13,n14,n17,n21,n24,n26,n30,n31
+# 2026-09-02: was excluding TEN nodes (n04,n06,n13,n14,n17,n21,n24,n26,n30,n31)
+# while every other launcher excludes four. Six of seven pending jobs were
+# check-rew, barred from n14 and n26 -- nodes this account's training arms were
+# running on at that moment. Aligned to the common list. This job asks for 96G
+# (more than train's 48G), so if it starts failing on n06/n21/n30/n31, memory
+# is why and the exclusion goes back.
+#SBATCH --exclude=n04,n13,n17,n24
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-check-rew-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-check-rew-%j.err
 
