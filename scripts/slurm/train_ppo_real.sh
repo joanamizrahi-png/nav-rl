@@ -5,7 +5,12 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=48G
-#SBATCH --time=08:00:00
+#SBATCH --time=48:00:00
+# 8h was a leftover from the smoke-test era. At the measured 2.6k env steps/h a
+# live run needs ~77 h for 200k steps, so an 8 h wall killed every arm before it
+# had run overnight (caught 2026-09-02 when four freshly launched arms all came
+# back with TIME_LIMIT 8:00:00 while the older ones had 1-2 days).
+# Override per submission with `sbatch --time=HH:MM:SS`.
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-ppo-real-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-ppo-real-%j.err
 #SBATCH --exclude=n04,n13,n17,n24
