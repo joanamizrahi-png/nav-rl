@@ -4,8 +4,14 @@
 #SBATCH --partition=batch
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=96G
-#SBATCH --time=01:30:00
+#SBATCH --mem=48G
+# 2026-09-02: was 01:30:00 / 96G for a job that finishes in 12-15 min and runs
+# the same live backend train_ppo_real does on 48G. Over-requesting keeps these
+# out of BACKFILL -- the scheduler will slot a small job into a gap ahead of
+# higher-priority work only if it provably fits before the next reservation, so
+# a 6x time request is the difference between running in a gap and waiting a
+# day. Raise --time on the command line for a genuinely long sweep.
+#SBATCH --time=00:30:00
 # 2026-09-02: was excluding TEN nodes (n04,n06,n13,n14,n17,n21,n24,n26,n30,n31)
 # while every other launcher excludes four. Six of seven pending jobs were
 # check-rew, barred from n14 and n26 -- nodes this account's training arms were
