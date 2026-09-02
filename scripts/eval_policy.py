@@ -195,8 +195,14 @@ def main():
         _ec = _run / "env_config.json"
         if _ec.exists():
             _tr = _json.loads(_ec.read_text())
+            # collision_terminate_* belong here too: training ENDS the
+            # episode at >=0.35 footprint non-traversable, eval defaulted to 0
+            # and let the policy keep walking through terrain that would have
+            # killed it — every episode then reports TIMEOUT and the crash
+            # behaviour is invisible (2026-09-02).
             for _k in ("step_size_m", "yaw_step_rad", "forward_only",
                        "look_ahead_dist", "goal_radius", "collision_threshold",
+                       "collision_terminate_frac", "collision_terminate_penalty",
                        "action_chunk"):
                 if _k not in _tr:
                     continue
