@@ -15,6 +15,15 @@
 # (SAM3 routinely calls campus asphalt "road"; a campus robot may cross one,
 # it just shouldn't prefer it), rough 0.0 -> 0.35 (gravel/mulch shoulder of the
 # same paths). grass STAYS 0.0 — the edge-stopping curriculum depends on it.
+#
+# 2026-09-02: road 0.5 -> 0.25. Road was held at 0.5 because Joana feared
+# sidewalk was being mislabelled road; two independent measurements say it is
+# not. SAM3 vs human GT on 12 SANPO val clips: P(SAM3=road | GT=sidewalk) =
+# 0.029. v26 epoch 10 on sanpoval_TTj3piLyS3_000656: road IoU 77.3, painted
+# road 89% / sidewalk 7%, and sidewalk painted road 0%. So penalising road
+# lands on real roads and does not misfire on sidewalk. Kept ABOVE the 0.1
+# collision threshold on purpose: crossing a road must stay possible, just
+# unattractive next to sidewalk 1.0 and trail 0.85.
 0:
   name: void
   score: 0.0
@@ -38,7 +47,7 @@
   score: 1.0
 7:
   name: road
-  score: 0.5
+  score: 0.25
 8:
   name: pavement
   score: 1.0
