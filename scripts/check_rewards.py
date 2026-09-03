@@ -112,7 +112,19 @@ def episode_poses(cal, rng, n_steps, cone_deg, dist_range, yaw_jit, lat_jit,
         goal = p + rng.uniform(*dist_range) * np.array([np.cos(th), np.sin(th)])
 
     poses = [pose_at(p, yaw)]
-    if walk == "yaw":
+    if walk == "path":
+        # Follow the RECORDED trajectory with its recorded heading -- the walk
+        # that was actually filmed, so the render is as honest as this scene
+        # ever gets. `straight` drives at a randomly sampled cone goal instead,
+        # which crosses whatever terrain lies between and says more about the
+        # goal sampler than about the scene (2026-09-02).
+        poses = []
+        for k in range(max(2, n_steps)):
+            i = int(min(f + k, len(path) - 2))
+            fwk = path[min(i + 1, len(path) - 1)] - path[max(i - 1, 0)]
+            poses.append(pose_at(path[i],
+                                 float(np.arctan2(fwk[1], fwk[0]))))
+    elif walk == "yaw":
         # YAW LADDER (2026-09-02). Two evals came back with
         # ground_share {'none': 1.0} -- the reward footprint never projected
         # into the image for 20 episodes -- while scripted walks on the same
@@ -529,7 +541,7 @@ def main():
     ap.add_argument("--gate_tau", type=float, default=0.5,
                     help="the threshold shown in the panels and detail blocks")
     ap.add_argument("--walk", default="straight",
-                    choices=["straight", "wander", "yaw"],
+                    choices=["straight", "wander", "yaw", "path"],
                     help="straight = drive at the goal (best case, coherent "
                          "corridor); wander = random actions through the real "
                          "kinematics (what an untrained policy does)")
