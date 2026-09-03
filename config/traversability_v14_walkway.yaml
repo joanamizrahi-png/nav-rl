@@ -47,7 +47,7 @@
   score: 1.0
 7:
   name: road
-  score: 0.25
+  score: 0.85
 8:
   name: pavement
   score: 1.0
