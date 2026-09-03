@@ -884,11 +884,20 @@ def main():
                             (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                             (255, 255, 255), 2, cv2.LINE_AA)
                 if _survey["w"] is None:
-                    _survey["w"] = cv2.VideoWriter(
-                        str(od / f"SURVEY_{args.scene}.mp4"),
-                        cv2.VideoWriter_fourcc(*"mp4v"), 4.0,
-                        (trio.shape[1], trio.shape[0]))
-                _survey["w"].write(trio)
+                    # mp4v renders as a GREEN SCREEN in QuickTime; try H.264
+                    # first so the file opens on a Mac without VLC.
+                    size = (trio.shape[1], trio.shape[0])
+                    for tag in ("avc1", "H264", "mp4v"):
+                        w = cv2.VideoWriter(
+                            str(od / f"SURVEY_{args.scene}.mp4"),
+                            cv2.VideoWriter_fourcc(*tag), 4.0, size)
+                        if w.isOpened():
+                            print(f"    survey codec: {tag}", flush=True)
+                            _survey["w"] = w
+                            break
+                        w.release()
+                if _survey["w"] is not None:
+                    _survey["w"].write(trio)
         if args.survey_video and _survey["w"] is not None:
             _survey["w"].release()
             print(f"==> survey video: {od}/SURVEY_{args.scene}.mp4", flush=True)
