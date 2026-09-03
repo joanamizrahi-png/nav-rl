@@ -294,7 +294,14 @@ fi
 LABEL_SEM=$(basename "${LIVECKPT:-none}" .safetensors | sed 's/checkpoint-epoch-/e/')
 LABEL_RUN=$(basename "$(dirname "${LIVECKPT:-/none/none}")" | sed 's/train_semantic_//; s/_campus//; s/_dino/D/')
 LABEL="${LABEL_RUN}${LABEL_SEM}"
-[ -n "${WARMSTART:-}" ] && LABEL="${LABEL}-warm" || LABEL="${LABEL}-cold"
+# Encode WHICH checkpoint a warm arm inherits from -- 2026-09-02 launched two
+# warm arms from different priors and they got identical labels, so wandb could
+# not tell them apart at all.
+if [ -n "${WARMSTART:-}" ]; then
+    LABEL="${LABEL}-warm$(basename "$WARMSTART" .zip | sed 's/ppo_//; s/_steps//')"
+else
+    LABEL="${LABEL}-cold"
+fi
 [ -n "${NSC:-}" ] && LABEL="${LABEL}-${NSC}sc"
 [ -n "${GOALRANGE:-}" ] && LABEL="${LABEL}-g${GOALRANGE/,/to}"
 [ -n "${MAXSTEPS:-}" ] && LABEL="${LABEL}-ms${MAXSTEPS}"
