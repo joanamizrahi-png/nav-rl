@@ -33,6 +33,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.env.real_calibrated import CalibratedRealWorldBackend
 
 CONE_DEG = 50.0
+YAW_JITTER_DEG = 20.0
+# The cone is fixed to the RECORDED heading and the robot is jittered inside
+# it, so the bearing error is bounded by cone/2 + jitter -- not cone/2.
+BOUND = CONE_DEG / 2.0 + YAW_JITTER_DEG
 N = 20000
 
 
@@ -63,7 +67,8 @@ def wrap_deg(a):
     return np.degrees((a + np.pi) % (2 * np.pi) - np.pi)
 
 
-def run(path, world, pass_yaw, lat_jitter=0.25, yaw_jitter_deg=20.0, seed=0):
+def run(path, world, pass_yaw, lat_jitter=0.25,
+        yaw_jitter_deg=YAW_JITTER_DEG, seed=0):
     """Replicate a reset: spawn at frame f with lateral+yaw jitter, then sample
     a goal. Report |bearing to goal - robot heading|."""
     rng = np.random.default_rng(seed)
@@ -76,7 +81,7 @@ def run(path, world, pass_yaw, lat_jitter=0.25, yaw_jitter_deg=20.0, seed=0):
         yaw = base + np.deg2rad(float(rng.uniform(-1, 1)) * yaw_jitter_deg)
         g = world.sample_goal_position(
             "hairpin", rng, spawn,
-            spawn_yaw=(yaw if pass_yaw else None))
+            cone_yaw=(base if pass_yaw else None))
         err[k] = abs(wrap_deg(np.arctan2(*(g[:2] - spawn)[::-1]) - yaw))
     return err
 
@@ -97,13 +102,13 @@ def callers_pass_the_heading():
                  and isinstance(n.func, ast.Attribute)
                  and n.func.attr == "sample_goal_position"]
         for c in sites:
-            if not any(k.arg == "spawn_yaw" for k in c.keywords):
+            if not any(k.arg == "cone_yaw" for k in c.keywords):
                 print(f"FAIL: {rel}:{c.lineno} calls sample_goal_position "
-                      f"without spawn_yaw -- the cone falls back to the path "
+                      f"without cone_yaw -- the cone falls back to the path "
                       f"tangent and the fix is inert here.")
                 ok = False
         print(f"{rel}: {len(sites)} call site(s), "
-              f"{'all pass spawn_yaw' if ok else 'SOME MISSING'}")
+              f"{'all pass cone_yaw' if ok else 'SOME MISSING'}")
     return ok
 
 
@@ -111,28 +116,29 @@ def main():
     path = hairpin()
     world = make_world(path)
 
-    print(f"hairpin walk, {len(path)} frames, cone {CONE_DEG:.0f}deg "
-          f"(so |bearing - heading| must stay under {CONE_DEG / 2:.0f}deg), "
-          f"{N} resets each\n")
+    print(f"hairpin walk, {len(path)} frames, cone {CONE_DEG:.0f}deg centred "
+          f"on the RECORDED heading, spawn jitter +-{YAW_JITTER_DEG:.0f}deg\n"
+          f"=> |bearing - heading| must stay under "
+          f"cone/2 + jitter = {BOUND:.0f}deg, {N} resets each\n")
     print(f"{'cone centred on':<28}{'mean':>7}{'p95':>7}{'max':>8}"
-          f"{'>90deg BEHIND':>15}{'>cone/2':>10}")
+          f"{'>90deg BEHIND':>15}{'>bound':>9}")
     print("-" * 75)
 
     ok = True
-    for label, pass_yaw in (("path tangent (OLD)", False),
-                            ("robot heading (NEW)", True)):
+    for label, pass_yaw in (("nearest-frame tan (OLD)", False),
+                            ("recorded heading (NEW)", True)):
         e = run(path, world, pass_yaw)
         behind = 100.0 * (e > 90).mean()
-        over = 100.0 * (e > CONE_DEG / 2 + 1e-6).mean()
+        over = 100.0 * (e > BOUND + 1e-6).mean()
         print(f"{label:<28}{e.mean():7.1f}{np.percentile(e, 95):7.1f}"
               f"{e.max():8.1f}{behind:14.2f}%{over:9.2f}%")
         if pass_yaw:
             # The bound is by construction, so anything above it means the
             # heading is not reaching the sampler -- a real failure, not noise.
-            if e.max() > CONE_DEG / 2 + 1e-6:
-                print(f"\nFAIL: with the heading passed, a goal landed "
-                      f"{e.max():.1f}deg off it -- above the {CONE_DEG / 2:.0f}deg "
-                      f"cone half-width. The heading is not being used.")
+            if e.max() > BOUND + 1e-6:
+                print(f"\nFAIL: a goal landed {e.max():.1f}deg off the "
+                      f"heading -- above the {BOUND:.0f}deg bound. The "
+                      f"recorded heading is not reaching the sampler.")
                 ok = False
             elif behind > 0:
                 print("\nFAIL: a goal is still behind the robot.")
@@ -142,7 +148,7 @@ def main():
     ok = callers_pass_the_heading() and ok
     print()
     if ok:
-        print(f"PASS: every goal within {CONE_DEG / 2:.0f}deg of the heading; "
+        print(f"PASS: every goal within {BOUND:.0f}deg of the heading; "
               f"none behind the robot.")
     return 0 if ok else 1
 

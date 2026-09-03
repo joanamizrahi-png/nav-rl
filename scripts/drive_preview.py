@@ -494,11 +494,12 @@ def main():
             draws = []
             for _s in range(int(n_samp)):
                 sp = world.sample_start_pose(args.scene, srng)
-                # Same heading the env passes, so this picture shows the cone
-                # the policy actually trains against.
+                # Same cone centre the env passes -- the RECORDED heading at
+                # the spawn frame, not the jittered pose -- so this picture
+                # shows the cone the policy actually trains against.
                 g = world.sample_goal_position(
                     args.scene, srng, sp[:2, 3],
-                    spawn_yaw=float(np.arctan2(sp[1, 0], sp[0, 0])))
+                    cone_yaw=world.last_spawn_base_yaw())
                 draws.append((sp, g))
             for dx in (k * args.width for k in range(len(panels))):
                 prev = None

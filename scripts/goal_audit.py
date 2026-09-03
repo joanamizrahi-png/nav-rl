@@ -55,8 +55,12 @@ from src.eval.reward_2d import (
 from src.eval.traversability import load_traversability
 from scripts.spawn_audit import in_quad, V14
 
-TRAIN_SCENES = ("gnd_AUw240", "gnd_AUw360", "sitex_w135", "sitex_w180",
-                "gtown2c1_w150", "gtown2c1_w210")
+# The six the 2026-09-02 arms actually train on. sitex_* have a narrower
+# camera (blind closer than 2.15 m) and gtown2c1_* / gnd_AUw240 are
+# reconstruction failures -- all were dropped from training, so auditing them
+# describes nothing that is running.
+TRAIN_SCENES = ("gnd_AU_180", "gnd_AUd210", "gnd_AUw210", "gnd_AUw360",
+                "gnd_AUw330", "gnd_AUw60")
 
 
 class GroundGrid:
@@ -125,8 +129,8 @@ def main():
     ap.add_argument("--clouds_dir",
                     default="/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds")
     ap.add_argument("--trav_path", default="config/traversability_v14_walkway.yaml")
-    ap.add_argument("--goal_dist_range", default="5,10",
-                    help="matches --goal_dist_range in training (A/B/G use 5,10; H uses 3,10)")
+    ap.add_argument("--goal_dist_range", default="3,8",
+                    help="matches --goal_dist_range in training (the 09-02 arms use 3,8)")
     ap.add_argument("--goal_cone_deg", type=float, default=50.0)
     ap.add_argument("--goal_radius", type=float, default=0.5,
                     help="arrival radius; terrain under the goal is judged inside it")
@@ -146,7 +150,7 @@ def main():
     ap.add_argument("--z_max", type=float, default=0.15)
     ap.add_argument("--n", type=int, default=2000)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--goal_support_radius", type=float, default=0.0,
+    ap.add_argument("--goal_support_radius", type=float, default=0.6,
                     help="apply the training support check: resample goals with "
                          "fewer than min_frac of the recorded path's local "
                          "ground-point density. 0 = audit raw draws.")
@@ -235,19 +239,22 @@ def main():
             #        jitter can move that frame off the spawn frame, and where
             #        the walk turns the two tangents disagree by up to 150 deg
             #        -- the goal then sits BEHIND a forward-only robot.
-            #   NEW  the robot's own heading, so the two cannot disagree.
+            #   NEW  the RECORDED heading at the spawn frame -- the same
+            #        frame the spawn came from, so the two cannot disagree.
+            #        The cone stays fixed and the yaw jitter moves the robot
+            #        INSIDE it, which bounds the error at cone/2 + jitter.
             i = int(np.argmin(np.linalg.norm(path - spawn, axis=1)))
             gfw = path[min(i + 1, len(path) - 1)] - path[max(i - 1, 0)]
             gbase = float(np.arctan2(gfw[1], gfw[0]))
             half = np.deg2rad(args.goal_cone_deg) / 2.0
             off = float(rng.uniform(-half, half))
             d = float(rng.uniform(lo_d, hi_d))
-            for _nm, _b in (("old", gbase), ("new", yaw)):
+            for _nm, _b in (("old", gbase), ("new", base)):
                 _g = spawn + d * np.array([np.cos(_b + off), np.sin(_b + off)])
                 _e = np.arctan2(*(_g - spawn)[::-1]) - yaw
                 bearing[_nm].append(
                     abs(np.degrees((_e + np.pi) % (2 * np.pi) - np.pi)))
-            cone_base = gbase if args.old_cone else yaw
+            cone_base = gbase if args.old_cone else base
             th = cone_base + off
             goal = spawn + d * np.array([np.cos(th), np.sin(th)])
             d_raw.append(d)
@@ -322,7 +329,7 @@ def main():
                   f"mean {b.mean():5.1f}  p95 {np.percentile(b, 95):5.1f}  "
                   f"max {b.max():6.1f} deg | "
                   f">90deg (BEHIND) {100.0 * (b > 90).mean():5.2f}%  "
-                  f">cone/2 {100.0 * (b > args.goal_cone_deg / 2 + 1e-6).mean():5.2f}%",
+                  f">bound {100.0 * (b > args.goal_cone_deg / 2 + args.yaw_jitter + 1e-6).mean():5.2f}%",
                   file=sys.stderr, flush=True)
         if sup_need and d_raw:
             print(f"  [{scene}] support resampled {n_resampled} draws; "

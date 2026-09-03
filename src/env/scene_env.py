@@ -419,13 +419,19 @@ class SceneEnv(gym.Env if gym is not None else object):
         if hasattr(self.world_backend, "sample_goal_position"):
             # per-episode goal when the backend has goal_frame_range set;
             # falls back to the fixed goal otherwise
-            # Pass the robot's ACTUAL heading so the goal cone is centred on
-            # where it is facing, not on a separately-derived path tangent.
-            _yaw = float(np.arctan2(self._robot_pose_world[1, 0],
-                                    self._robot_pose_world[0, 0]))
+            # Centre the goal cone on the RECORDED heading at the spawn
+            # frame -- not the jittered pose, and not a tangent re-derived
+            # from whichever frame is nearest the jittered spawn. Falls back
+            # to the actual pose yaw only if the backend cannot report it.
+            _yaw = None
+            if hasattr(self.world_backend, "last_spawn_base_yaw"):
+                _yaw = self.world_backend.last_spawn_base_yaw()
+            if _yaw is None:
+                _yaw = float(np.arctan2(self._robot_pose_world[1, 0],
+                                        self._robot_pose_world[0, 0]))
             self._goal_world = self.world_backend.sample_goal_position(
                 self._scene_id, self.np_random,
-                self._robot_pose_world[:2, 3], spawn_yaw=_yaw).copy()
+                self._robot_pose_world[:2, 3], cone_yaw=_yaw).copy()
             # Reject goals with no reconstruction under them and draw again.
             # Keeps the LAST draw if every try fails, so a scene whose goals
             # are mostly off-cloud degrades to the old behaviour instead of
@@ -450,7 +456,7 @@ class SceneEnv(gym.Env if gym is not None else object):
                         self._goal_world = self.world_backend.sample_goal_position(
                             self._scene_id, self.np_random,
                             self._robot_pose_world[:2, 3],
-                            spawn_yaw=_yaw).copy()
+                            cone_yaw=_yaw).copy()
         else:
             self._goal_world = self.world_backend.goal_position(self._scene_id).copy()
         self._prev_position = None

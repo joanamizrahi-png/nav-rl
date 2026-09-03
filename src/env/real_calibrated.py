@@ -303,10 +303,22 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         return self._jitter_spawn(
             cal.robot_pose_nav(int(rng.integers(lo, hi))), rng)
 
+    _last_spawn_base_yaw: "float | None" = None
+
+    def last_spawn_base_yaw(self) -> "float | None":
+        """Recorded (un-jittered) heading of the most recent spawn, or None
+        before the first spawn. The goal cone is centred on this."""
+        return self._last_spawn_base_yaw
+
     def _jitter_spawn(self, pose: np.ndarray, rng) -> np.ndarray:
         """Anti-memorization spawn jitter (her spec): rotate heading by
         U(-yaw,+yaw) and slide laterally by U(-lat,+lat). Identity when both
         knobs are 0 (every run before 2026-08-31)."""
+        # The RECORDED heading at this frame, before any jitter. The goal cone
+        # is centred on THIS, not on the jittered pose: the cone should follow
+        # the walk that was actually recorded, so the same spawn frame always
+        # gets the same cone and the jitter only moves the robot within it.
+        self._last_spawn_base_yaw = float(np.arctan2(pose[1, 0], pose[0, 0]))
         jy = float(getattr(self.cfg, "spawn_yaw_jitter_deg", 0.0))
         jl = float(getattr(self.cfg, "spawn_lat_jitter_m", 0.0))
         if jy <= 0.0 and jl <= 0.0:
@@ -368,7 +380,7 @@ class CalibratedRealWorldBackend(RealWorldBackend):
 
     def sample_goal_position(self, scene_id: str, rng, spawn_xy,
                              min_sep_m: "float | None" = None,
-                             spawn_yaw: "float | None" = None) -> np.ndarray:
+                             cone_yaw: "float | None" = None) -> np.ndarray:
         if min_sep_m is None:
             min_sep_m = self.cfg.goal_min_sep_m
         """Per-episode goal (rung 6). With goal_frame_range set, draw a frame
@@ -385,18 +397,24 @@ class CalibratedRealWorldBackend(RealWorldBackend):
                 pos = np.asarray(cal.positions)[:, :2]
                 i = int(np.argmin(np.linalg.norm(
                     pos - np.asarray(spawn_xy), axis=1)))
-                if spawn_yaw is not None:
-                    # Centre the cone on where the robot is ACTUALLY FACING.
-                    # Deriving it from the path tangent instead let the two
-                    # disagree: the spawn heading came from frame f while the
-                    # cone came from the frame nearest the JITTERED spawn,
-                    # which can be f+-1 -- and adjacent tangents swing up to
-                    # 150 deg where the walk turns (gnd_AUw360 frames 58-60,
-                    # 68-71). The goal then sat BEHIND a forward-only robot and
-                    # the episode could only time out. Smoothing the tangent
-                    # does NOT fix this: at a genuine reversal a +-3 frame span
-                    # flips just as hard. Sharing one heading does.
-                    base = float(spawn_yaw)
+                if cone_yaw is not None:
+                    # The RECORDED heading at the spawn frame (see
+                    # last_spawn_base_yaw). NOT the jittered pose: the cone
+                    # belongs to the recorded walk, and jitter should move the
+                    # robot inside a fixed cone rather than drag the cone with
+                    # it.
+                    #
+                    # The bug this replaces was never "tangent vs heading", it
+                    # was WHICH FRAME: the heading came from the spawn frame f
+                    # while the cone came from the frame nearest the laterally
+                    # JITTERED spawn, which can be f+-1 -- and where the walk
+                    # turns, adjacent frames disagree by up to 180 deg
+                    # (measured: 19.6% of gtown2c1_w210 goals landed BEHIND a
+                    # forward-only robot, which can then only time out).
+                    # Smoothing the tangent does not fix that -- at a genuine
+                    # reversal a +-3 frame span flips just as hard. Taking both
+                    # from the SAME frame does.
+                    base = float(cone_yaw)
                 else:
                     k = 3
                     a = pos[max(i - k, 0)]
