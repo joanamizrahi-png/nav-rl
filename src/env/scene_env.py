@@ -110,6 +110,14 @@ class SceneEnvConfig:
     # > 0 = resample until the goal has ground points within this radius.
     goal_support_radius_m: float = 0.0
     goal_support_tries: int = 12
+    # "Enough reconstruction" cannot be "at least one point" -- a single stray
+    # gaussian passes that and the goal is still in a void. Calibrate against
+    # the scene itself: count ground points within the radius at every RECORDED
+    # path position (places we know are well reconstructed, because someone
+    # walked them and filmed it), take the median, and require the goal to
+    # reach this fraction of it. Self-scaling across scenes of different
+    # density. 0 = fall back to the any-point test.
+    goal_support_min_frac: float = 0.25
     goal_radius: float = 0.5            # meters; within this counts as "reached goal"
     collision_threshold: float = 0.1    # class score at/below which counts as collision
     spin_cost: float = 0.0              # shaping v2: penalty * |yaw action| (taxes circling)
@@ -422,10 +430,17 @@ class SceneEnv(gym.Env if gym is not None else object):
             if r > 0.0:
                 gp = getattr(self, "_ground_pts", {}).get(self._scene_id)
                 if gp is not None and len(gp):
+                    ref = getattr(self, "_support_ref", {}).get(self._scene_id, 0.0)
+                    need = max(1, int(self.cfg.goal_support_min_frac * ref))
                     for _try in range(max(1, self.cfg.goal_support_tries)):
                         d2 = np.abs(gp - self._goal_world[:2]).max(axis=1)
                         near = gp[d2 <= r]
-                        if len(near) and float(np.linalg.norm(
+                        # `need` points inside the radius, not merely one --
+                        # and NOTE this deliberately says nothing about
+                        # traversability: a goal ON GRASS is legitimate and is
+                        # the whole stop-at-the-boundary curriculum. The test
+                        # is only "does this place exist in the reconstruction".
+                        if len(near) >= need and float(np.linalg.norm(
                                 near - self._goal_world[:2], axis=1).min()) <= r:
                             break
                         self._goal_world = self.world_backend.sample_goal_position(
@@ -518,6 +533,8 @@ class SceneEnv(gym.Env if gym is not None else object):
             self._obstacle_pts = {}
         if not hasattr(self, "_ground_pts"):
             self._ground_pts = {}
+        if not hasattr(self, "_support_ref"):
+            self._support_ref = {}
         if self.cfg.clouds_dir is None or scene_id in self._obstacle_pts:
             return
         from pathlib import Path
@@ -540,6 +557,23 @@ class SceneEnv(gym.Env if gym is not None else object):
         # reconstructed at all. Goal support needs the latter.
         gr = pts[(pts[:, 2] < 0.15) & (labs >= 0)][:, :2]
         self._ground_pts[scene_id] = gr[::4].astype(np.float32) if len(gr) else None
+        # Reference density: how many ground points sit within the goal radius
+        # at a place we KNOW is reconstructed -- the recorded walk itself.
+        ref = 0.0
+        g = self._ground_pts[scene_id]
+        r = self.cfg.goal_support_radius_m
+        if g is not None and len(g) and r > 0.0 and "traj_positions" in d:
+            path = (np.asarray(d["traj_positions"], dtype=float)
+                    * np.array([1.0, -1.0, 1.0]))[:, :2]
+            cnt = [int((np.abs(g - q).max(axis=1) <= r).sum())
+                   for q in path[::max(1, len(path) // 40)]]
+            ref = float(np.median(cnt)) if cnt else 0.0
+        self._support_ref[scene_id] = ref
+        if r > 0.0:
+            print(f"[SceneEnv] {scene_id}: goal support reference "
+                  f"{ref:.0f} ground pts within {r} m on the recorded path; "
+                  f"goals need >= {self.cfg.goal_support_min_frac:.0%} of that",
+                  flush=True)
 
     def _proximity_term(self, robot_xy: np.ndarray) -> float:
         if self.cfg.proximity_weight <= 0.0:

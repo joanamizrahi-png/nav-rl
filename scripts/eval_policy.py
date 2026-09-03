@@ -164,6 +164,10 @@ def main():
                     help='designed obstacle test: pin the goal to "x,y" (nav-'
                          'frame meters, read off the top-down figure axes) — '
                          'e.g. just past a tree so the straight line crosses it')
+    ap.add_argument("--eval_seed", type=int, default=7,
+                    help="episode e uses seed eval_seed*10000+e, so two "
+                         "policies evaluated at the same value see IDENTICAL "
+                         "spawns and goals and can be compared pair by pair")
     ap.add_argument("--goal_support_radius", type=float, default=0.0,
                     help="reject goals with no cloud support within this "
                          "radius, as training does. Adopted from "
@@ -354,12 +358,18 @@ def main():
     results, video_records = [], []
     for ep in range(args.episodes):
         if ep < args.videos:
-            rec = save_rollout_video(model, env, args.out_dir / f"episode_{ep}.mp4")
+            rec = save_rollout_video(model, env,
+                                     args.out_dir / f"episode_{ep}.mp4",
+                                     seed=args.eval_seed * 10000 + ep)
             if rec:
                 rec["video"] = f"episode_{ep}.mp4"
                 video_records.append(rec)
             # save_rollout_video runs its own episode; count it via a fresh one below
-        obs, _ = env.reset()
+        # Same seed as the video rollout above, so the video IS this episode,
+        # and so a second policy evaluated at the same --eval_seed sees
+        # identical spawns and goals. Unseeded, blind and sighted runs drew
+        # different goals and could only be compared in aggregate.
+        obs, _ = env.reset(seed=args.eval_seed * 10000 + ep)
         goal = env.unwrapped._goal_world
         traj = [_pose_xyyaw(env) + [0]]   # [x, y, yaw, collision_this_step]
         done, steps, collided, total_r = False, 0, 0, 0.0

@@ -631,7 +631,8 @@ def make_live_vec_env(args):
                                  rotate_every=getattr(args, "scene_rotate", 0)))
 
 
-def save_rollout_video(model, env, out_path: Path, max_frames=120):
+def save_rollout_video(model, env, out_path: Path, max_frames=120,
+                       seed: "int | None" = None):
     """Eval rollout with a HUD (step/action/reward/dist) + top-down map inset:
     agent path (white), recorded real trajectory (gray), goal (green). Makes
     off-manifold wandering legible — black frames = outside the reconstructed
@@ -696,7 +697,12 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
 
     base_env = env.unwrapped if hasattr(env, "unwrapped") else env
     frames, path_xy, rows = [], [], []
-    obs, _ = env.reset()          # MUST precede calib access: reset loads the scene
+    # Seeded so the video is THE SAME EPISODE as the scored one, and so two
+    # policies compared on the same seed get identical spawns and goals.
+    # Unseeded, eval drew fresh spawns every run and no two evaluations
+    # were comparable episode-by-episode (2026-09-02).
+    obs, _ = (env.reset(seed=seed) if seed is not None else env.reset())
+    # MUST precede calib access: reset loads the scene
 
     def _xyyaw():
         P = base_env._robot_pose_world
