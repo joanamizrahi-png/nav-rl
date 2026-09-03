@@ -165,14 +165,27 @@ class RewardComponentsCallback(BaseCallback):
                  # every step -- and nothing said so (2026-09-02).
                  "off_frame_frac")
 
-    def __init__(self):
+    def __init__(self, step_size_m: float = 0.3):
         super().__init__()
+        self.step_size_m = float(step_size_m)
         self._sums = {k: 0.0 for k in self.KEYS + self.DIAG_KEYS}
         self._cnt = {k: 0 for k in self.KEYS + self.DIAG_KEYS}
         self._end_sums = {k: 0.0 for k in self.TERMINAL_KEYS}
         self._end_cnt = {k: 0 for k in self.TERMINAL_KEYS}
+        self._thr_sum, self._thr_n = 0.0, 0
 
     def _on_step(self) -> bool:
+        # THROTTLE. step_size_m is the MAXIMUM; the linear action in [0,1]
+        # scales it. Measured 2026-09-02: ppo_240704 sighted runs at 28% of
+        # maximum -- 0.083 m/step -- so in 60 steps it covers 5 m against goals
+        # at 5-10 m, and most of its "timeouts" were the clock rather than a
+        # decision to stop. Creeping minimises crash risk exactly the way
+        # freezing does, and nothing logged it.
+        acts = self.locals.get("actions")
+        if acts is not None:
+            a = np.asarray(acts, dtype=float).reshape(-1, np.asarray(acts).shape[-1])
+            self._thr_sum += float(np.clip(a[:, 0], 0.0, 1.0).mean())
+            self._thr_n += 1
         infos = self.locals.get("infos", [])
         dones = self.locals.get("dones", [])
         for i, info in enumerate(infos):
@@ -211,15 +224,28 @@ class RewardComponentsCallback(BaseCallback):
             for k in self.DIAG_KEYS:
                 if self._cnt[k]:
                     print(f"  [diag] {k:<10} {self._sums[k] / self._cnt[k]:+9.4f}")
+            if self._thr_n:
+                _t = self._thr_sum / self._thr_n
+                print(f"  [diag] throttle    {_t:+9.4f}   "
+                      f"({_t * self.step_size_m:.3f} m/step, "
+                      f"{100 * _t:.0f}% of maximum)")
             print(f"{line}\n  Compare `total` with the frozen probe above: if "
                   f"moving is not clearly better,\n  the policy's best strategy "
-                  f"is to stand still and it will find that.\n{line}", flush=True)
+                  f"is to stand still and it will find that. Watch throttle "
+                  f"too:\n  creeping at 28% is how ppo_240704 avoided crashing "
+                  f"without stopping.\n{line}", flush=True)
         for k in self.KEYS:
             if self._cnt[k]:
                 self.logger.record(f"reward/{k}", self._sums[k] / self._cnt[k])
         for k in self.DIAG_KEYS:
             if self._cnt[k]:
                 self.logger.record(f"diag/{k}", self._sums[k] / self._cnt[k])
+        if self._thr_n:
+            thr = self._thr_sum / self._thr_n
+            self.logger.record("diag/throttle", thr)
+            # what that throttle actually buys, in metres
+            self.logger.record("diag/step_m", thr * self.step_size_m)
+        self._thr_sum, self._thr_n = 0.0, 0
         for k in self.TERMINAL_KEYS:
             if self._end_cnt[k]:
                 self.logger.record(f"reward/end_{k}",
@@ -1162,7 +1188,8 @@ def main():
     callbacks = [CheckpointCallback(save_freq=2_000,
                                     save_path=str(args.output_dir / "checkpoints"),
                                     name_prefix="ppo"),
-                 RewardComponentsCallback()]
+                 RewardComponentsCallback(
+                     step_size_m=_scene_env_cfg(args).step_size_m)]
     if args.goal_radius_start is not None:
         callbacks.append(GoalRadiusCurriculum(
             args.goal_radius_start, args.goal_radius, args.curriculum_steps,
