@@ -101,6 +101,8 @@ if [[ -n "${RENDERH:-}" || -n "${RENDERW:-}" ]]; then
     EXTRA_ARGS+=(--render_height "${RENDERH:-336}" --render_width "${RENDERW:-560}")
     OUT_SUFFIX="${OUT_SUFFIX}_rr${RENDERW:-560}x${RENDERH:-336}"
 fi
+[ -n "${HALT:-}" ] && EXTRA_ARGS+=(--halt_terminate_steps "$HALT")
+
 # Reward weights, so the reported `return=` is on TRAINING's scale. They do not
 # change a frozen policy's actions, but a return computed with goal_bonus 50
 # against training's 1000 is not comparable to anything.

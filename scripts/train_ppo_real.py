@@ -184,6 +184,10 @@ class RewardComponentsCallback(BaseCallback):
     # go under diag/ so reward/ contains only things that are summed into the
     # return (her ask 2026-09-02).
     DIAG_KEYS = ("coverage", "collision_off_frame", "goal_dist_frac",
+                 # 1.0 on the step a HALTED-SAFELY terminal fires, so
+                 # diag/halted is the RATE of correct stops -- the first
+                 # metric for the behaviour this project is about.
+                 "halted",
                  "image_void_frac", "scene_idx", "rgb_delta",
                  # THE one that was missing: fraction of steps where the
                  # footprint did not project into the image at all. Two evals
@@ -423,6 +427,8 @@ def _dump_env_config(args, cfg):
             "coherence_cost_weight": getattr(cfg, "coherence_cost_weight", 0.0),
             "coherence_tau": getattr(cfg, "coherence_tau", 0.4),
             "coherence_terminate_tau": getattr(cfg, "coherence_terminate_tau", 0.0),
+            "halt_terminate_steps": getattr(cfg, "halt_terminate_steps", 0),
+            "halt_throttle_eps": getattr(cfg, "halt_throttle_eps", 0.05),
         }, indent=2))
         print(f"[train] env recorded for eval: {out}", flush=True)
     except Exception as e:
@@ -475,6 +481,11 @@ def _reward_banner_body(args, cfg, env) -> None:
     print(f"footprints       shaping={cfg.look_ahead_dist}m  collision="
           f"{ca if ca > 0 else cfg.look_ahead_dist}m"
           f"{'  (SPLIT)' if ca > 0 else '  (shared -- stop-at-edge is NOT learnable)'}")
+    _h = getattr(cfg, "halt_terminate_steps", 0)
+    print(f"halted-safely    {'ON after ' + str(_h) + ' stopped steps (pays the '
+                              'distance-scaled timeout)' if _h else 'OFF -- a '
+                              'correctly-refused goal is indistinguishable from '
+                              'a timeout'}")
     print(f"coherence        weight={cfg.coherence_cost_weight} "
           f"tau={cfg.coherence_tau} terminate_tau={cfg.coherence_terminate_tau}"
           f"{'' if cfg.coherence_cost_weight > 0 else '   (OFF)'}")
@@ -634,6 +645,8 @@ def _scene_env_cfg(args):
         goal_noise_std=getattr(args, "goal_noise_std", 0.0),
         proximity_delta=getattr(args, "proximity_delta", False),
         timeout_penalty=getattr(args, "timeout_penalty", 0.0),
+        halt_terminate_steps=getattr(args, "halt_terminate_steps", 0),
+        halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
         timeout_distance_scaled=getattr(args, "timeout_distance_scaled", False),
         reward_scale=getattr(args, "reward_scale", 1.0),
         random_spawn=True,
@@ -921,6 +934,8 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
         outcome, ocol = "CRASH", (255, 60, 60, 255)
     elif float(info.get("coherence_crash", 0.0)) != 0.0:
         outcome, ocol = "INCOHERENT (left the world model)", (255, 160, 0, 255)
+    elif float(info.get("halted", 0.0)) != 0.0:
+        outcome, ocol = "HALTED (stopped safely, short of the goal)", (80, 200, 255, 255)
     else:
         outcome, ocol = "TIMEOUT (ran out of steps)", (255, 255, 0, 255)
     final = Image.fromarray(env.render().copy())
@@ -1140,6 +1155,13 @@ def main():
                     help="J-spec: goals at random 360-degree bearing and "
                          "random distance (--goal_dist_range) from spawn; may "
                          "land on non-traversable ground BY DESIGN")
+    ap.add_argument("--halt_terminate_steps", type=int, default=0,
+                    help="END the episode when the policy has stopped (throttle "
+                         "below --halt_throttle_eps) for this many consecutive "
+                         "steps, is somewhere safe, and has closed some "
+                         "distance. Pays the same distance-scaled timeout it "
+                         "would have received anyway. 0 = off.")
+    ap.add_argument("--halt_throttle_eps", type=float, default=0.05)
     ap.add_argument("--goal_dist_window", type=float, default=None,
                     help="sliding-window distance curriculum: keep the goal "
                          "range this wide instead of pinning its near end. "

@@ -127,6 +127,8 @@ def build_env(args):
         coherence_terminate_tau=getattr(args, "coherence_terminate_tau", 0.0),
         coherence_terminate_penalty=getattr(
             args, "coherence_terminate_penalty", 100.0),
+        halt_terminate_steps=getattr(args, "halt_terminate_steps", 0),
+        halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
         random_spawn=True,
         trav_path=args.trav_path,
         collision_terminate_frac=args.collision_terminate_frac,
@@ -204,6 +206,10 @@ def main():
                     help="END the episode below this coverage. Training uses "
                          "0.1 (0.05 on the COHTERM arm). 0 = never terminate.")
     ap.add_argument("--coherence_terminate_penalty", type=float, default=100.0)
+    ap.add_argument("--halt_terminate_steps", type=int, default=0,
+                    help="must match training, or a policy trained to halt is "
+                         "scored as if it merely timed out")
+    ap.add_argument("--halt_throttle_eps", type=float, default=0.05)
     ap.add_argument("--goal_radius", type=float, default=None,
                     help="arrival radius; training's FINAL value, not its start")
     ap.add_argument("--semantic_weight", type=float, default=None)
@@ -509,6 +515,13 @@ def main():
             outcome = "CRASH"
         elif float(info.get("coherence_crash", 0.0)) != 0.0:
             outcome = "INCOHERENT"
+        elif float(info.get("halted", 0.0)) != 0.0:
+            # Stopped deliberately, somewhere safe, having closed distance.
+            # Distinct from TIMEOUT on purpose: "walked to the boundary and
+            # correctly refused an unreachable goal" and "wandered until the
+            # clock ran out" were previously the same outcome, so the behaviour
+            # this project is about had no metric.
+            outcome = "HALTED"
         else:
             outcome = "TIMEOUT"
         results.append({"episode": ep, "success": bool(term),

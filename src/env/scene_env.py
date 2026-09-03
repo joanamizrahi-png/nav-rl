@@ -193,6 +193,24 @@ class SceneEnvConfig:
     # episode hits max_steps without reaching the goal. Makes freezing/stalling
     # strictly worse than trying — the missing counterweight to termination
     # penalties (the -20 crash penalty froze the policy when standing was free).
+    # HALTED-SAFELY terminal (2026-09-03, Joana). A goal on grass can only end
+    # in a timeout, which is the SAME outcome as freezing or wandering off --
+    # so "walked to the boundary and correctly stopped" has no name, no
+    # terminal, and no metric, and the robot keeps paying the per-step terrain
+    # cost for every step it waits (up to -5/step, because the footprint 1.5 m
+    # ahead of a stopped robot is still looking at the grass).
+    #
+    # Fires when the policy has stopped (throttle < eps for N consecutive
+    # steps), is stopped somewhere SAFE (collision below the crash threshold),
+    # and has actually made progress (d < d_start). It pays EXACTLY the
+    # distance-scaled timeout it would have received anyway, so it cannot be
+    # farmed: the only thing it removes is the drip.
+    #
+    # The progress condition is load-bearing. Without it, halting at spawn pays
+    # the same -100 as timing out but skips ~85 steps of living cost and
+    # terrain cost, which is a reward-sanctioned freeze.
+    halt_terminate_steps: int = 0      # 0 = off
+    halt_throttle_eps: float = 0.05
     timeout_penalty: float = 0.0
     # PROPORTIONAL TIMEOUT (2026-09-02, her call: "proportional timeout seems
     # genius"). A flat timeout penalty charges the same for stopping 1 m short
@@ -464,6 +482,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         # episode is meaningless -- drop it rather than log a false jump
         self._rgb_delta = float("nan")
         self._steps = 0
+        self._halt_run = 0
         self._initial_goal_dist = float(np.linalg.norm(
             self._robot_pose_world[:3, 3] - self._goal_world))
 
@@ -833,6 +852,22 @@ class SceneEnv(gym.Env if gym is not None else object):
                 truncated = True
                 bonus = 0.0
         timeout_term = 0.0
+        # ---- HALTED SAFELY ----
+        halted = False
+        if (self.cfg.halt_terminate_steps > 0 and not terminated
+                and crash == 0.0 and coh_crash == 0.0):
+            if abs(float(action[0])) < self.cfg.halt_throttle_eps:
+                self._halt_run += 1
+            else:
+                self._halt_run = 0
+            _fr = -float(breakdown.collision) / max(self.cfg.reward.collision, 1e-6)
+            _d0 = float(getattr(self, "_initial_goal_dist", 0.0) or 0.0)
+            if (self._halt_run >= self.cfg.halt_terminate_steps
+                    and _fr < max(self.cfg.collision_terminate_frac, 1e-9)
+                    and _d0 > 1e-6 and dist_to_goal < _d0):
+                halted = True
+                truncated = True
+
         if (truncated and not terminated and crash == 0.0 and coh_crash == 0.0
                 and self.cfg.timeout_penalty > 0.0):
             timeout_term = -self.cfg.timeout_penalty
@@ -856,6 +891,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             dist_to_goal / self._initial_goal_dist
             if getattr(self, "_initial_goal_dist", 0.0) else float("nan"))
         info["crash"] = crash
+        info["halted"] = float(halted)
         info["proximity"] = prox_term
         # Always logged, on or off, so the coverage the policy actually
         # experiences shows up in wandb from the first run.

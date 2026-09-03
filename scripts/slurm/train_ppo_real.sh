@@ -355,6 +355,7 @@ fi
 [ "${CURRICULUM:-0}" = "1" ] && LABEL="${LABEL}-curR"
 [ -n "${GOALDIST_START:-}" ] && LABEL="${LABEL}-curD${GOALDIST_START}"
 [ -n "${GOALDISTWIN:-}" ] && LABEL="${LABEL}-win${GOALDISTWIN}"
+[ -n "${HALT:-}" ] && LABEL="${LABEL}-halt${HALT}"
 [ -n "${ENT:-}" ] && LABEL="${LABEL}-ent${ENT}"
 LABEL="${LABEL}-s${SEED:-0}"
 echo "==> wandb label: $LABEL"
@@ -492,6 +493,14 @@ if [ -n "${LIVESTEPS:-}" ] && [ "${LIVESTEPS}" != "4" ]; then
 fi
 # CURRICULUM=1: goal-capture radius anneals 1.0 -> --goal_radius over the
 # first 100k steps (terminal-capture fix, advisor spec 2026-08-27).
+# HALT: end the episode when the policy has deliberately stopped somewhere
+# safe, having made progress -- and charge the same distance-scaled timeout it
+# would have paid anyway. Without it a correctly-refused goal is scored exactly
+# like freezing, and the robot pays the terrain cost for every step it waits.
+if [ -n "${HALT:-}" ]; then
+    BC_ARGS="$BC_ARGS --halt_terminate_steps ${HALT}"
+    OUT="${OUT}_halt${HALT}"
+fi
 if [ -n "${GOALDISTWIN:-}" ]; then
     BC_ARGS="$BC_ARGS --goal_dist_window ${GOALDISTWIN}"
     OUT="${OUT}_win${GOALDISTWIN}"
