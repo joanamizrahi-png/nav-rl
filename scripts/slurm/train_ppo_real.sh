@@ -252,7 +252,15 @@ fi
 # STEPS then counts the ADDITIONAL steps on top of the checkpoint's counter.
 if [ -n "${WARMSTART:-}" ]; then
     BC_ARGS="$BC_ARGS --warmstart $WARMSTART"
-    OUT="${OUT}_warm"
+    # The SOURCE goes in the directory name, not just "_warm". Two arms warm
+    # -started from DIFFERENT checkpoints (463168 from ppo_240704, 463169 from
+    # ppo_256704, 2026-09-03) resolved to the same OUT and spent nine hours
+    # writing checkpoints into one directory. They only stayed distinguishable
+    # by accident -- warm runs continue their step counter, so the two were
+    # offset by 16k steps -- and 463168 was hours away from overwriting
+    # 463169's history file by file. LABEL already carried the source; OUT did
+    # not, and OUT is what actually collides on disk.
+    OUT="${OUT}_warm$(basename "$WARMSTART" .zip | sed 's/ppo_//; s/_steps//')"
 fi
 # RW5=1: reward design v5 (2026-08-27) — big terminal rewards (+-1000),
 # timeout penalty, potential-shaped obstacle cost (5 m horizon), strong
