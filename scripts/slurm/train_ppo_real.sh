@@ -325,6 +325,15 @@ if [ -n "${CRASHPEN:-}" ]; then
     OUT="${OUT}_cp${CRASHPEN}"
 fi
 
+# PROBE=1: before training, run zero-action steps and print the MEASURED
+# per-step reward for standing still, then print the policy's first rollout
+# underneath it. Every argument about the policy freezing rests on whether
+# moving beats doing nothing, and until 2026-09-02 that comparison was my
+# arithmetic rather than a measurement.
+if [ "${PROBE:-0}" = "1" ]; then
+    BC_ARGS="$BC_ARGS --frozen_probe"
+fi
+
 # ENT: PPO entropy bonus (default 0 = SB3 default, no bonus). ~0.01 for cold.
 if [ -n "${ENT:-}" ]; then
     BC_ARGS="$BC_ARGS --ent_coef $ENT"
