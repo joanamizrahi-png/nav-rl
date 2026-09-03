@@ -57,6 +57,11 @@ def build_env(args):
         # episodes were unreachable inside the step budget before the policy
         # acted. Pass --goal_dir_360 to sample goals exactly as training does.
         goal_dir_360=args.goal_dir_360,
+        # spawn jitter lives on the BACKEND config (it is applied in
+        # sample_start_pose), not on SceneEnvConfig. Passing it to the wrong
+        # dataclass killed six evals in four seconds on 2026-09-03.
+        spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
+        spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
         goal_dist_range=(tuple(float(v) for v in args.goal_dist_range.split(","))
                          if args.goal_dist_range else None),
         goal_cone_deg=args.goal_cone_deg,
@@ -129,8 +134,6 @@ def build_env(args):
         coherence_terminate_tau=getattr(args, "coherence_terminate_tau", 0.0),
         coherence_terminate_penalty=getattr(
             args, "coherence_terminate_penalty", 100.0),
-        spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
-        spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
         void_terminate_frac=getattr(args, "void_terminate_frac", 0.0),
         void_terminate_penalty=getattr(args, "void_terminate_penalty", 100.0),
         halt_terminate_steps=getattr(args, "halt_terminate_steps", 0),
