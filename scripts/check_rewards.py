@@ -280,6 +280,41 @@ def footprint_mask(rec, look_ahead):
     return _fill_polygon(h, w, uv)
 
 
+def quicktime_safe(path) -> None:
+    """Re-encode an OpenCV mp4 so QuickTime will actually play it.
+
+    OpenCV on this cluster has no H.264 encoder, so VideoWriter falls back to
+    mp4v (MPEG-4 Part 2), which QuickTime renders as a GREEN SCREEN -- VLC
+    plays it fine, which is how it went unnoticed. There is no system ffmpeg
+    either, but the neoverse env ships one inside imageio_ffmpeg. Use it, in
+    place, and keep the original if anything fails. -pix_fmt yuv420p is not
+    optional: QuickTime refuses even H.264 without it.
+    """
+    import shutil
+    import subprocess
+    from pathlib import Path as _P
+    src = _P(path)
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        exe = shutil.which("ffmpeg")
+    if not exe or not src.exists():
+        return
+    tmp = src.with_suffix(".h264.mp4")
+    try:
+        subprocess.run([exe, "-y", "-loglevel", "error", "-i", str(src),
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", str(tmp)],
+                       check=True, timeout=300)
+        if tmp.exists() and tmp.stat().st_size > 0:
+            tmp.replace(src)
+            print(f"    re-encoded H.264 (QuickTime-safe): {src.name}", flush=True)
+    except Exception as e:
+        print(f"    [quicktime_safe] left as-is ({e})", flush=True)
+        if tmp.exists():
+            tmp.unlink()
+
+
 def yaw_ladder(recs, non_trav, args):
     """At which TURN ANGLE does the reward stop seeing the ground?
 
@@ -920,6 +955,7 @@ def main():
                     _survey["w"].write(trio)
         if args.survey_video and _survey["w"] is not None:
             _survey["w"].release()
+            quicktime_safe(od / f"SURVEY_{args.scene}_{args.walk}.mp4")
             print(f"==> survey video: "
                   f"{od}/SURVEY_{args.scene}_{args.walk}.mp4", flush=True)
         print(f"==> visual frames ({len(sel)}): {od}/{stem}_ep*_s*.png", flush=True)
