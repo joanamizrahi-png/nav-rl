@@ -340,6 +340,33 @@ def look_ahead_ladder(recs, non_trav, args):
     often it covers any pixels, how big it is, and what it scores.
     """
     dists = [float(v) for v in args.ladder_dists.split(",")]
+
+    # ---- the geometry that DECIDES the answer, printed before the table ----
+    # For a level camera h above the footprint plane, a footprint d metres
+    # ahead lands at image row v = cy + fy*(h/d). It is in the picture only
+    # while v <= H-1, i.e.  d >= fy*h / (H-1-cy).  That threshold is the
+    # scene's blind-zone radius and it is a pure function of the intrinsics --
+    # so if it differs scene to scene, the reward going blind on 3 of 5 scenes
+    # is explained without appealing to the policy at all (2026-09-02).
+    K = recs[0]["K"]
+    H, W = recs[0]["lab"].shape[:2]
+    fy, cy = float(K[1, 1]), float(K[1, 2])
+    h = float(args.camera_height)
+    denom = (H - 1.0) - cy
+    d_min = (fy * h / denom) if denom > 0 else float("inf")
+    print("\n===== CAMERA GEOMETRY =====")
+    print(f"  render {W}x{H}   fy {fy:.1f}   cy {cy:.1f}   "
+          f"camera height {h:.2f} m")
+    print(f"  horizon row (cy) {cy:.1f}, bottom row {H - 1}")
+    print(f"  PREDICTED BLIND ZONE: ground closer than {d_min:.2f} m is below "
+          f"the frame")
+    if d_min > args.look_ahead:
+        print(f"  ==> the {args.look_ahead} m shaping footprint is INSIDE the "
+              f"blind zone on this scene:\n      the reward cannot see the "
+              f"ground it is scoring.")
+    else:
+        print(f"  ==> the {args.look_ahead} m shaping footprint clears it "
+              f"({args.look_ahead - d_min:.2f} m of margin).")
     print("\n===== LOOK-AHEAD LADDER (is the near collision box visible?) =====")
     print(f"  body {GO2_BODY_LENGTH:.2f} m long, so a box centred at d spans "
           f"d+-{GO2_BODY_LENGTH / 2:.2f} m")
@@ -461,6 +488,12 @@ def main():
     ap.add_argument("--goal_weight", type=float, default=10.0)
     ap.add_argument("--collision_threshold", type=float, default=0.1)
     ap.add_argument("--look_ahead", type=float, default=1.5)
+    ap.add_argument("--camera_height", type=float, default=0.6,
+                    help="camera height above the footprint plane, for the "
+                         "blind-zone prediction. NOTE this is the same number "
+                         "extract_poses uses to set the scene's METRIC SCALE "
+                         "(scale = camera_height_m / h_median), so it is an "
+                         "assumption, not a measurement.")
     ap.add_argument("--yaw_span", type=float, default=90.0,
                     help="with --walk yaw: sweep the heading +-this many "
                          "degrees from the path tangent, position held fixed")
