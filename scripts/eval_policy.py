@@ -100,7 +100,7 @@ def build_env(args):
         max_steps=args.max_steps,
         step_size_m=args.step_size_m, yaw_step_rad=args.yaw_step_rad,
         reward=RewardWeights(
-            semantic=getattr(args, "semantic_weight", 1.0),
+            semantic=(args.semantic_weight if getattr(args, "semantic_weight", None) is not None else 1.0),
             goal=getattr(args, "goal_weight", 1.5),
             collision=getattr(args, "collision_weight", 1.0),
             step_cost=getattr(args, "step_cost", 0.05),
@@ -108,21 +108,23 @@ def build_env(args):
             terrain_as_cost=bool(getattr(args, "terrain_as_cost", True))),
         # read from args so the adoption above actually takes effect
         look_ahead_dist=getattr(args, "look_ahead_dist", 1.5),
-        goal_radius=getattr(args, "goal_radius", 0.75),
+        goal_radius=(args.goal_radius if getattr(args, "goal_radius", None) is not None else 0.75),
         collision_threshold=getattr(args, "collision_threshold", 0.1),
-        spin_cost=getattr(args, "spin_cost", 0.05),
+        spin_cost=(getattr(args, "spin_cost", None) if getattr(args, "spin_cost", None) is not None else 0.05),
         backward_cost=getattr(args, "backward_cost", 0.0),
-        action_smooth_cost=getattr(args, "action_smooth_cost", 0.0),
+        action_smooth_cost=(getattr(args, "action_smooth_cost", None) if getattr(args, "action_smooth_cost", None) is not None else 0.0),
         goal_bonus=getattr(args, "goal_bonus", 50.0),
         timeout_penalty=getattr(args, "timeout_penalty", 0.0),
         proximity_weight=getattr(args, "proximity_weight", 0.0),
         proximity_margin=getattr(args, "proximity_margin", 1.0),
         proximity_delta=bool(getattr(args, "proximity_delta", False)),
         clouds_dir=getattr(args, "clouds_dir", None),
-        reward_scale=getattr(args, "reward_scale", 1.0),
+        reward_scale=(getattr(args, "reward_scale", None) if getattr(args, "reward_scale", None) is not None else 1.0),
         coherence_cost_weight=getattr(args, "coherence_cost_weight", 0.0),
         coherence_tau=getattr(args, "coherence_tau", 0.4),
         coherence_terminate_tau=getattr(args, "coherence_terminate_tau", 0.0),
+        coherence_terminate_penalty=getattr(
+            args, "coherence_terminate_penalty", 100.0),
         random_spawn=True,
         trav_path=args.trav_path,
         collision_terminate_frac=args.collision_terminate_frac,
@@ -165,6 +167,26 @@ def main():
                     help='designed obstacle test: pin the goal to "x,y" (nav-'
                          'frame meters, read off the top-down figure axes) — '
                          'e.g. just past a tree so the straight line crosses it')
+    # 2026-09-03: these were readable ONLY through env_config.json adoption
+    # (`getattr(args, ..., default)`), so when that file is missing there was no
+    # way to make eval terminate the way training does. Every eval that day ran
+    # with crash termination OFF (frac 0) and coherence termination OFF, which
+    # is why five runs reported ZERO crashes against a 72% crash rate in
+    # training, and why goal counts came back at 20/20. Exposed as real flags so
+    # a run can be matched to its training by hand.
+    ap.add_argument("--coherence_cost_weight", type=float, default=0.0,
+                    help="graded cost below --coherence_tau. Training uses 10.")
+    ap.add_argument("--coherence_tau", type=float, default=0.4)
+    ap.add_argument("--coherence_terminate_tau", type=float, default=0.0,
+                    help="END the episode below this coverage. Training uses "
+                         "0.1 (0.05 on the COHTERM arm). 0 = never terminate.")
+    ap.add_argument("--coherence_terminate_penalty", type=float, default=100.0)
+    ap.add_argument("--goal_radius", type=float, default=None,
+                    help="arrival radius; training's FINAL value, not its start")
+    ap.add_argument("--semantic_weight", type=float, default=None)
+    ap.add_argument("--reward_scale", type=float, default=None)
+    ap.add_argument("--action_smooth_cost", type=float, default=None)
+    ap.add_argument("--spin_cost", type=float, default=None)
     ap.add_argument("--sem_palette", type=int, default=4,
                     help="colour table for the video semantic panels. MUST "
                          "match the semantics model (v26 = 4, v21 = 1) or the "

@@ -96,6 +96,21 @@ if [[ -n "${RENDERH:-}" || -n "${RENDERW:-}" ]]; then
     EXTRA_ARGS+=(--render_height "${RENDERH:-336}" --render_width "${RENDERW:-560}")
     OUT_SUFFIX="${OUT_SUFFIX}_rr${RENDERW:-560}x${RENDERH:-336}"
 fi
+# COH / COHTAU / COHTERM: coherence termination, matching training. Without
+# these the eval never ends an episode for leaving the reconstructed world,
+# while training does -- which is exactly the train/eval mismatch that made
+# five evals report ZERO crashes on 2026-09-03.
+if [[ -n "${COH:-}" || -n "${COHTERM:-}" ]]; then
+    EXTRA_ARGS+=(--coherence_cost_weight "${COH:-0}"
+                 --coherence_tau "${COHTAU:-0.4}"
+                 --coherence_terminate_tau "${COHTERM:-0}"
+                 --coherence_terminate_penalty "${COHPEN:-100}")
+    OUT_SUFFIX="${OUT_SUFFIX}_coh${COH:-0}t${COHTAU:-0.4}ct${COHTERM:-0}"
+fi
+[ -n "${GOALRADIUS:-}" ] && EXTRA_ARGS+=(--goal_radius "$GOALRADIUS")
+[ -n "${SEMW:-}" ]       && EXTRA_ARGS+=(--semantic_weight "$SEMW")
+[ -n "${REWSCALE:-}" ]   && EXTRA_ARGS+=(--reward_scale "$REWSCALE")
+[ -n "${SMOOTHCOST:-}" ] && EXTRA_ARGS+=(--action_smooth_cost "$SMOOTHCOST")
 if [[ "${COLLTERM:-}" != "" ]]; then
     EXTRA_ARGS+=(--collision_terminate_frac "$COLLTERM"
                  --collision_terminate_penalty "${COLLPEN:-20}")
