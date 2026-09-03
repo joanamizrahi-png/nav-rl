@@ -334,7 +334,14 @@ fi
 [ -n "${RW5SMOOTH:-}" ] && LABEL="${LABEL}-sm${RW5SMOOTH}"
 [ -n "${COLLAHEAD:-}" ] && LABEL="${LABEL}-ca${COLLAHEAD}"
 [ -n "${GOALSUPPORT:-}" ] && LABEL="${LABEL}-gs${GOALSUPPORT}"
+# COHTERM and COLLTERM were MISSING from the label, so on 2026-09-03 three
+# arms that differed only in those (base / cohterm 0.05 / collterm 0.5) all
+# published to wandb under one identical name and could not be told apart in
+# the run list. The label is the run's identity -- every variable an arm
+# isolates has to appear in it.
 [ -n "${COH:-}" ] && LABEL="${LABEL}-coh${COH}t${COHTAU:-0.4}"
+[ -n "${COHTERM:-}" ] && LABEL="${LABEL}ct${COHTERM}"
+[ -n "${COLLTERM:-}" ] && LABEL="${LABEL}-collt${COLLTERM}"
 [ "${TIMEOUTDIST:-0}" = "1" ] && LABEL="${LABEL}-todist"
 [ -n "${CRASHPEN:-}" ] && LABEL="${LABEL}-cp${CRASHPEN}"
 [ "${CURRICULUM:-0}" = "1" ] && LABEL="${LABEL}-curR"
