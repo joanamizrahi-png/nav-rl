@@ -502,6 +502,12 @@ def main():
     ap.add_argument("--goal_weight", type=float, default=10.0)
     ap.add_argument("--collision_threshold", type=float, default=0.1)
     ap.add_argument("--look_ahead", type=float, default=1.5)
+    ap.add_argument("--survey_video", action="store_true",
+                    help="write SURVEY_<scene>.mp4: RGB diffused | SEM diffused "
+                         "| SEM raster (SAM3 splat labels), side by side. For "
+                         "choosing scenes: is the RGB good, are the diffused "
+                         "semantics good, and do the cloud labels that place "
+                         "spawns and goals agree with them?")
     ap.add_argument("--camera_height", type=float, default=0.6,
                     help="camera height above the footprint plane, for the "
                          "blind-zone prediction. NOTE this is the same number "
@@ -743,6 +749,7 @@ def main():
     print(f"\n==> every per-step number: {csv_p}", flush=True)
 
     # ---- the visual: RGB | raster | labels ungated | labels gated | ... ----
+    _survey = {"w": None}
     try:
         import cv2
         from diffsynth.utils.class_taxonomy import v14_palette
@@ -846,6 +853,45 @@ def main():
                             cv2.LINE_AA)
             cv2.imwrite(str(od / f"{stem}_ep{r['ep']}_s{r['step']:02d}_"
                                f"{vd_tag}.png"), panel)
+
+            # SURVEY VIDEO (2026-09-02, her ask): a per-scene mp4 of the three
+            # layers that actually matter when choosing scenes --
+            #   RGB diffused  = what the POLICY sees
+            #   SEM diffused  = what the REWARD reads (v26 e10, palette 4)
+            #   SEM raster    = the SAM3 labels carried by the GAUSSIAN SPLATS,
+            #                   which is a DIFFERENT label source and the one
+            #                   the spawn filter (--spawn_classes) and goal
+            #                   support actually consult.
+            # Those last two disagreeing is not a bug, it is the thing to look
+            # at: the reward grades the diffusion while spawns and goals are
+            # placed from the cloud.
+            if args.survey_video:
+                trio = np.hstack([rgb, pu, psr])[:, :, ::-1]
+                trio = np.ascontiguousarray(trio)
+                for k, name in enumerate(["RGB diffused (policy sees)",
+                                          "SEM diffused (reward reads)",
+                                          "SEM raster / SAM3 splats "
+                                          "(spawns + goals)"]):
+                    cv2.putText(trio, name, (k * args.width + 8,
+                                             trio.shape[0] - 12),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3,
+                                cv2.LINE_AA)
+                    cv2.putText(trio, name, (k * args.width + 8,
+                                             trio.shape[0] - 12),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                                (255, 255, 255), 1, cv2.LINE_AA)
+                cv2.putText(trio, f"{args.scene}  ep{r['ep']} step{r['step']}",
+                            (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                            (255, 255, 255), 2, cv2.LINE_AA)
+                if _survey["w"] is None:
+                    _survey["w"] = cv2.VideoWriter(
+                        str(od / f"SURVEY_{args.scene}.mp4"),
+                        cv2.VideoWriter_fourcc(*"mp4v"), 4.0,
+                        (trio.shape[1], trio.shape[0]))
+                _survey["w"].write(trio)
+        if args.survey_video and _survey["w"] is not None:
+            _survey["w"].release()
+            print(f"==> survey video: {od}/SURVEY_{args.scene}.mp4", flush=True)
         print(f"==> visual frames ({len(sel)}): {od}/{stem}_ep*_s*.png", flush=True)
         print(f"    crash-level steps ungated {sorted(crash_u)}", flush=True)
         print(f"    crash-level steps gated   {sorted(crash_g)}", flush=True)
