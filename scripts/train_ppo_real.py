@@ -312,6 +312,7 @@ def _dump_env_config(args, cfg):
             "look_ahead_dist": cfg.look_ahead_dist,
             "collision_look_ahead_m": cfg.collision_look_ahead_m,
             "goal_support_radius_m": cfg.goal_support_radius_m,
+            "goal_support_min_frac": getattr(cfg, "goal_support_min_frac", 0.25),
             "goal_radius": cfg.goal_radius,
             "collision_threshold": cfg.collision_threshold,
             "collision_terminate_frac": cfg.collision_terminate_frac,
@@ -498,6 +499,7 @@ def _scene_env_cfg(args):
         # the practical floor, not the 0.4 m the geometry alone would suggest.
         collision_look_ahead_m=getattr(args, "collision_look_ahead", 0.0),
         goal_support_radius_m=getattr(args, "goal_support_radius", 0.0),
+        goal_support_min_frac=getattr(args, "goal_support_min_frac", 0.25),
         goal_radius=getattr(args, "goal_radius", 0.75),
         collision_threshold=0.1,
         spin_cost=getattr(args, "spin_cost", 0.05),
@@ -959,6 +961,10 @@ def main():
                          "used (it was hardcoded, not the SB3 default of 0). "
                          "Raise for a from-scratch arm that stops exploring "
                          "before it ever reaches a goal.")
+    ap.add_argument("--goal_support_min_frac", type=float, default=0.25,
+                    help="a goal needs this fraction of the ground-point "
+                         "density found on the recorded path. 0 = accept any "
+                         "single point (too weak).")
     ap.add_argument("--goal_support_radius", type=float, default=0.0,
                     help="metres; >0 rejects sampled goals with no ground "
                          "points within this radius and draws again. 14.5%% of "

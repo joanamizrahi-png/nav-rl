@@ -86,6 +86,7 @@ def build_env(args):
     sem = GaussianLabelBackend(world)
     env_cfg = SceneEnvConfig(
         goal_support_radius_m=args.goal_support_radius,
+        goal_support_min_frac=args.goal_support_min_frac,
         collision_look_ahead_m=args.collision_look_ahead,
         # GND/SCAND clips advance ~1 m per recorded frame vs RUGD's ~0.1 m, so
         # the same goal_frame is a far longer walk there — raise the budget
@@ -168,6 +169,8 @@ def main():
                     help="episode e uses seed eval_seed*10000+e, so two "
                          "policies evaluated at the same value see IDENTICAL "
                          "spawns and goals and can be compared pair by pair")
+    ap.add_argument("--goal_support_min_frac", type=float, default=0.25,
+                    help="adopted from env_config.json when present")
     ap.add_argument("--goal_support_radius", type=float, default=0.0,
                     help="reject goals with no cloud support within this "
                          "radius, as training does. Adopted from "
@@ -289,6 +292,11 @@ def main():
                        # neither, so it was scoring a goal distribution
                        # training never sees.
                        "goal_support_radius_m", "collision_look_ahead_m",
+                       # max_steps was NOT adopted: eval ran 60-step episodes
+                       # against arms trained at 90, cutting every rollout a
+                       # third short -- so "it never stopped at the boundary"
+                       # could just mean the clock ran out (2026-09-02).
+                       "max_steps", "goal_support_min_frac",
                        # reward, so a reported return means the same thing in
                        # both places (her ask 2026-09-02: "make eval like
                        # training please")

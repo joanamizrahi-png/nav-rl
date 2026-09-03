@@ -141,6 +141,12 @@ def main():
     ap.add_argument("--z_max", type=float, default=0.15)
     ap.add_argument("--n", type=int, default=2000)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--goal_support_radius", type=float, default=0.0,
+                    help="apply the training support check: resample goals with "
+                         "fewer than min_frac of the recorded path's local "
+                         "ground-point density. 0 = audit raw draws.")
+    ap.add_argument("--goal_support_min_frac", type=float, default=0.25)
+    ap.add_argument("--goal_support_tries", type=int, default=12)
     ap.add_argument("--png_dir", default="")
     args = ap.parse_args()
 
@@ -184,6 +190,21 @@ def main():
               file=sys.stderr, flush=True)
         t0 = time.time()
         grid = GroundGrid(gxy, cell=1.0)
+        # Reference density on the recorded path -- the same self-calibration
+        # SceneEnv uses. "Enough reconstruction" is measured against places we
+        # KNOW are reconstructed, not against a constant.
+        sup_r = args.goal_support_radius
+        sup_need = 0
+        if sup_r > 0.0:
+            cnts = [int((np.abs(gxy - q).max(axis=1) <= sup_r).sum())
+                    for q in path[::max(1, len(path) // 40)]]
+            ref = float(np.median(cnts)) if cnts else 0.0
+            sup_need = max(1, int(args.goal_support_min_frac * ref))
+            print(f"  [{scene}] support reference {ref:.0f} pts within "
+                  f"{sup_r} m on the recorded path -> goals need >= "
+                  f"{sup_need}", file=sys.stderr, flush=True)
+        n_resampled = 0
+        d_raw, d_kept = [], []
         rng = np.random.default_rng(args.seed)
         counts = {k: 0 for k in (OFF_CLOUD, ON_BAD, BLOCKED, REACHABLE)}
         doms: dict[str, int] = {}
@@ -207,6 +228,21 @@ def main():
             th = gbase + float(rng.uniform(-half, half))
             d = float(rng.uniform(lo_d, hi_d))
             goal = spawn + d * np.array([np.cos(th), np.sin(th)])
+            d_raw.append(d)
+
+            # --- the training support check, applied here so its EFFECT is
+            # visible: does requiring reconstruction quietly bias goals closer,
+            # or away from grass? Neither should happen -- support is about
+            # whether the place EXISTS, not about distance or walkability.
+            if sup_need:
+                for _t in range(args.goal_support_tries):
+                    if len(grid.within(goal, sup_r)) >= sup_need:
+                        break
+                    n_resampled += 1
+                    d = float(rng.uniform(lo_d, hi_d))
+                    th = gbase + float(rng.uniform(-half, half))
+                    goal = spawn + d * np.array([np.cos(th), np.sin(th)])
+            d_kept.append(float(np.linalg.norm(goal - spawn)))
 
             near = grid.within(goal, args.goal_radius)
             if len(near) == 0:
@@ -250,6 +286,10 @@ def main():
 
         print(f"  [{scene}] {args.n} episodes in {time.time() - t0:.1f}s",
               file=sys.stderr, flush=True)
+        if sup_need and d_raw:
+            print(f"  [{scene}] support resampled {n_resampled} draws; "
+                  f"distance mean {np.mean(d_raw):.2f} -> "
+                  f"{np.mean(d_kept):.2f} m", file=sys.stderr, flush=True)
         tot = sum(counts.values())
         for k in counts:
             totals[k] += counts[k]
