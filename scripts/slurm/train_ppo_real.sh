@@ -505,6 +505,21 @@ if [ -n "${REWSCALE:-}" ]; then
 fi
 # RW5SMOOTH: override RW5's baked-in smoothness 5 (this block sits AFTER the
 # RW5 block so the last --action_smooth_cost wins) — failure-mode-1 arm.
+# COLLTERM on the LIVE path. The original COLLTERM block lives inside the
+# CACHED (obs_cache) branch, so with LIVE=1 it was silently ignored: job 463226
+# was launched as the collision-threshold arm on 2026-09-03, applied nothing,
+# and wrote to the SAME output directory as the baseline 463164 -- two jobs
+# clobbering one another's checkpoints. Third instance of the RW=5 shape.
+# Sits AFTER the RW5 block so it overrides RW5's 0.35, and sets ONLY the
+# fraction -- the penalty stays with RW5/CRASHPEN.
+if [ -n "${COLLTERM:-}" ]; then
+    BC_ARGS="$BC_ARGS --collision_terminate_frac $COLLTERM"
+    case "$OUT" in
+        *_ct${COLLTERM}) ;;
+        *) OUT="${OUT}_ct${COLLTERM}" ;;
+    esac
+fi
+
 if [ -n "${RW5SMOOTH:-}" ]; then
     BC_ARGS="$BC_ARGS --action_smooth_cost $RW5SMOOTH"
     OUT="${OUT}_sm${RW5SMOOTH}"
