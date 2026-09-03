@@ -28,6 +28,32 @@ import numpy as np
 
 NONTRAV_DEFAULT = (0, 1, 3, 5, 10, 11, 12, 13)   # void sky grass water obstacle veg person vehicle
 
+# How each episode ENDED, drawn at the last pose. Reading "12 GOAL 4 CRASH" off
+# a summary tells you nothing about WHERE things went wrong; the symbol does.
+OUTCOME_MARK = {
+    "GOAL":       ("*", "#1a9850", 15),
+    "CRASH":      ("X", "#d73027", 11),
+    "TIMEOUT":    ("s", "#7f7f2a", 8),
+    "INCOHERENT": ("^", "#f46d43", 10),
+    "HALTED":     ("D", "#4575b4", 9),
+}
+
+
+def mark_end(ax, xy, outcome, edge):
+    m, c, sz = OUTCOME_MARK.get(outcome, ("o", "0.4", 8))
+    ax.plot(xy[0], xy[1], m, ms=sz, c=c, mec=edge, mew=1.0, zorder=6)
+
+
+def outcome_legend(ax, present):
+    from matplotlib.lines import Line2D
+    h = [Line2D([], [], marker=OUTCOME_MARK[o][0], color="none",
+                markerfacecolor=OUTCOME_MARK[o][1], markeredgecolor="k",
+                markersize=OUTCOME_MARK[o][2] * 0.8, label=o)
+         for o in OUTCOME_MARK if o in present]
+    if h:
+        ax.legend(handles=h, fontsize=8, loc="lower right", framealpha=0.9,
+                  title="how it ended", title_fontsize=8)
+
 
 def load(run: Path):
     d = json.loads((run / "metrics.json").read_text())
@@ -42,7 +68,7 @@ def main():
     ap.add_argument("--clouds_dir",
                     default="/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds")
     ap.add_argument("--out", default="blind_vs_sighted_paths.png")
-    ap.add_argument("--episodes", type=int, default=12,
+    ap.add_argument("--episodes", type=int, default=20,
                     help="how many paired episodes to draw")
     ap.add_argument("--z_max", type=float, default=0.15)
     ap.add_argument("--overview_out", default="",
@@ -85,6 +111,7 @@ def main():
     fig, axes = plt.subplots(rows, cols, figsize=(4.1 * cols, 4.1 * rows))
     axes = np.atleast_1d(axes).ravel()
 
+    seen = set()
     for i in range(n):
         ax, se, be = axes[i], s_eps[i], b_eps[i]
         # Take x,y only and tolerate ragged rows: the first entry of `traj` was
@@ -109,18 +136,22 @@ def main():
         ax.plot(st[:, 0], st[:, 1], "-", lw=2.0, c="tab:blue", label="sighted")
         ax.plot(bt[:, 0], bt[:, 1], "-", lw=2.0, c="tab:orange", label="blind")
         ax.plot(*st[0, :2], "ko", ms=6)
-        ax.plot(*st[-1, :2], "s", ms=7, c="tab:blue", mec="k", mew=0.5)
-        ax.plot(*bt[-1, :2], "s", ms=7, c="tab:orange", mec="k", mew=0.5)
-        ax.plot(*goal, "*", ms=16, c="tab:red", mec="k", mew=0.5)
+        ax.plot(*goal, "*", ms=16, c="tab:red", mec="k", mew=0.5, zorder=5)
+        # end markers carry the OUTCOME, with the halo naming which policy
+        mark_end(ax, st[-1, :2], se["outcome"], "tab:blue")
+        mark_end(ax, bt[-1, :2], be["outcome"], "tab:orange")
         ax.set_title(f"ep{i}  sighted {se['outcome']} ({se['steps']}st)\n"
                      f"blind {be['outcome']} ({be['steps']}st)", fontsize=9)
         ax.set_aspect("equal")
         ax.tick_params(labelsize=7)
         if i == 0:
             ax.legend(fontsize=8, loc="best")
+        seen.update({se["outcome"], be["outcome"]})
 
     for j in range(n, len(axes)):
         axes[j].axis("off")
+    # one legend, on the first spare panel if there is one, else on panel 0
+    outcome_legend(axes[n] if n < len(axes) else axes[0], seen)
 
     if args.overview_out:
         overview(args, s_eps, b_eps, gxy, glab, _recorded_path)
@@ -171,22 +202,43 @@ def overview(args, s_eps, b_eps, gxy, glab, path=None):
         ax.annotate(f"frame {len(path) - 1}", path[-1], fontsize=9,
                     xytext=(6, 6), textcoords="offset points")
 
+    seen = set()
+    # Pair each spawn with ITS goal first, underneath everything: a faint
+    # dashed tie plus a shared index. Without it a map of 20 spawns and 20
+    # goals is unreadable -- you cannot tell which star belongs to which dot.
+    for i, e in enumerate(s_eps):
+        t0 = np.array(e["traj"][0][:2], dtype=float)
+        g = np.array(e["goal_xy"], dtype=float)
+        ax.plot([t0[0], g[0]], [t0[1], g[1]], "--", lw=0.7, c="0.55",
+                alpha=0.8, zorder=1,
+                label="spawn to its goal" if i == 0 else None)
+
     for eps, c, lbl in ((s_eps, "tab:blue", "sighted"),
                         (b_eps, "tab:orange", "blind")):
         for i, e in enumerate(eps):
             t = np.array([r[:2] for r in e["traj"]], dtype=float)
-            ax.plot(t[:, 0], t[:, 1], "-", lw=1.4, c=c, alpha=0.75,
+            ax.plot(t[:, 0], t[:, 1], "-", lw=1.4, c=c, alpha=0.75, zorder=3,
                     label=lbl if i == 0 else None)
+            mark_end(ax, t[-1], e["outcome"], c)
+            seen.add(e["outcome"])
+
     for i, e in enumerate(s_eps):
-        t = np.array([r[:2] for r in e["traj"]], dtype=float)
-        ax.plot(*t[0], "o", ms=7, c="k", mec="w", mew=0.8,
-                label="spawn" if i == 0 else None)
+        t0 = np.array(e["traj"][0][:2], dtype=float)
         g = np.array(e["goal_xy"], dtype=float)
-        ax.plot(*g, "*", ms=13, c="tab:red", mec="k", mew=0.4,
+        ax.plot(*t0, "o", ms=7, c="k", mec="w", mew=0.8, zorder=4,
+                label="spawn" if i == 0 else None)
+        ax.plot(*g, "*", ms=13, c="tab:red", mec="k", mew=0.4, zorder=4,
                 label="goal" if i == 0 else None)
+        # the index ties the two ends together where the dashes cross
+        ax.annotate(str(i), t0, fontsize=8, fontweight="bold", zorder=7,
+                    xytext=(5, 4), textcoords="offset points")
+        ax.annotate(str(i), g, fontsize=8, color="#b2182b", zorder=7,
+                    xytext=(5, 4), textcoords="offset points")
 
     ax.set_aspect("equal")
-    ax.legend(fontsize=9, markerscale=3, loc="best")
+    leg = ax.legend(fontsize=9, markerscale=3, loc="upper left")
+    ax.add_artist(leg)
+    outcome_legend(ax, seen)
     ax.set_title(f"{args.scene}: every episode, whole scene\n"
                  f"are the spawns spread along the walk, and is there any "
                  f"grass where the robot actually goes?", fontsize=12)
