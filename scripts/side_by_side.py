@@ -25,9 +25,21 @@ from pathlib import Path
 import numpy as np
 
 
+NEOVERSE_PY = "/users/jmizrahi/.conda/envs/neoverse/bin/python"
+
+
 def read_mp4(path: Path):
+    """The login node's imageio has no ffmpeg backend; the neoverse env does.
+    Say that plainly instead of raising a backend error nobody can act on."""
     import imageio.v3 as iio
-    return list(iio.imiter(path))
+    try:
+        return list(iio.imiter(path))
+    except OSError as e:
+        raise SystemExit(
+            "cannot decode %s\n  %s\n\n"
+            "This interpreter has imageio but no ffmpeg backend. Re-run with "
+            "the neoverse env, which bundles imageio_ffmpeg:\n  %s "
+            "scripts/side_by_side.py ..." % (path, e, NEOVERSE_PY))
 
 
 def label_bar(w: int, text: str, rgb, h: int = 26):
