@@ -177,6 +177,13 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # world model is never asked to render where reconstruction is empty.
     goal_dir_360: bool = False
     goal_dist_range: "tuple | None" = None      # (lo_m, hi_m), e.g. (5, 10)
+    # Sliding-window distance curriculum. None = the near end stays pinned
+    # wherever it started, so 2 m goals remain in the mix at full difficulty
+    # (Joana, 2026-09-03: "if the policy starts getting goals at 2m maybe we
+    # should add a curriculum that takes the closer goals away"). Set to a
+    # width in metres and the range becomes (max(lo0, hi - width), hi), so
+    # trivially close goals retire as the far end grows.
+    goal_dist_window_m: "float | None" = None
     # Cone constraint (2026-08-31, her spin sweep verdict: single-pass capture
     # only supports a forward viewing cone — backward views render the backs
     # of one-sided splats and the reward labels there are garbage). Goals are

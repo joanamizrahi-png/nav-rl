@@ -280,6 +280,7 @@ def make_env(args):
         goal_cone_deg=getattr(args, "goal_cone_deg", 360.0),
         goal_dist_range=(tuple(float(v) for v in args.goal_dist_range.split(","))
                          if getattr(args, "goal_dist_range", None) else None),
+        goal_dist_window_m=getattr(args, "goal_dist_window", None),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
@@ -362,6 +363,7 @@ def _dump_env_config(args, cfg):
             # somebody has to remember.
             "goal_dir_360": bool(getattr(args, "goal_dir_360", False)),
             "goal_dist_range": getattr(args, "goal_dist_range", None),
+            "goal_dist_window": getattr(args, "goal_dist_window", None),
             "goal_cone_deg": getattr(args, "goal_cone_deg", None),
             "goal_frame_range": getattr(args, "goal_frame_range", None),
             "spawn_classes": getattr(args, "spawn_classes", None),
@@ -595,6 +597,7 @@ def make_live_vec_env(args):
         goal_cone_deg=getattr(args, "goal_cone_deg", 360.0),
         goal_dist_range=(tuple(float(v) for v in args.goal_dist_range.split(","))
                          if getattr(args, "goal_dist_range", None) else None),
+        goal_dist_window_m=getattr(args, "goal_dist_window", None),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
@@ -1065,6 +1068,11 @@ def main():
                     help="J-spec: goals at random 360-degree bearing and "
                          "random distance (--goal_dist_range) from spawn; may "
                          "land on non-traversable ground BY DESIGN")
+    ap.add_argument("--goal_dist_window", type=float, default=None,
+                    help="sliding-window distance curriculum: keep the goal "
+                         "range this wide instead of pinning its near end. "
+                         "Unset (default) = near end stays where it started, "
+                         "so 2 m goals persist to the end of training.")
     ap.add_argument("--goal_dist_range", default=None,
                     help="'lo,hi' meters for --goal_dir_360 (e.g. 5,10)")
     ap.add_argument("--goal_cone_deg", type=float, default=360.0,

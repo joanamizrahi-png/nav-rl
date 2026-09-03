@@ -483,6 +483,8 @@ class SceneEnv(gym.Env if gym is not None else object):
         (e.g. 1.0 m -> 0.5 m) via vec_env.env_method("set_goal_radius", r)."""
         self.cfg.goal_radius = float(r)
 
+    _goal_dist_lo0: "float | None" = None
+
     def set_goal_dist(self, d: float) -> None:
         """Distance-curriculum hook (2026-08-29, Joana: E must bootstrap like
         B did): goals START close (~3 m) and GROW as the policy earns wins.
@@ -504,7 +506,21 @@ class SceneEnv(gym.Env if gym is not None else object):
         cfg.goal_dist_m = float(d)
         if getattr(cfg, "goal_dir_360", False):
             lo, _hi = getattr(cfg, "goal_dist_range", None) or (3.0, float(d))
-            cfg.goal_dist_range = (float(lo), max(float(lo) + 0.5, float(d)))
+            lo = float(lo)
+            # Remember where the near end STARTED -- it is a floor the window
+            # can never slide below, and reading it off the live range would
+            # let it ratchet.
+            if self._goal_dist_lo0 is None:
+                self._goal_dist_lo0 = lo
+            win = getattr(cfg, "goal_dist_window_m", None)
+            if win:
+                # Sliding window: retire the trivially close goals as the far
+                # end grows, instead of pinning the near end forever. At
+                # width 5 the range walks (2,3) -> (3,8) rather than (2,8), so
+                # the last band the policy has already mastered stops
+                # consuming rollout steps.
+                lo = max(self._goal_dist_lo0, float(d) - float(win))
+            cfg.goal_dist_range = (lo, max(lo + 0.5, float(d)))
 
     def inject_render(self, rgb: np.ndarray, K: np.ndarray, w2c: np.ndarray,
                       labels: "np.ndarray | None" = None,

@@ -21,6 +21,14 @@
 
 set -euo pipefail
 
+# Snapshot the caller's knobs BEFORE any default is applied, so the ledger
+# records what was actually typed rather than what the script filled in.
+# 2026-09-03: seven 48-hour arms were running and NOTHING on disk said what any
+# of them was -- the .out files do not echo the command, env_config.json is
+# only written after the hour-long pipeline load, and shell history had scrolled
+# away. An unrecorded experiment is not an experiment.
+LAUNCH_ENV="$(env | grep -vE '^(SLURM|SBATCH|SRUN|LS_COLORS|PATH|LD_|MANPATH|MODULE|MODULES|_|PWD|OLDPWD|HOME|SHELL|SHLVL|TERM|USER|LOGNAME|HOSTNAME|HOST|SSH|XDG|LANG|LC_|CONDA|PYTHON|CUDA|NCCL|TMPDIR|MAIL|EDITOR|BASH|OMP|MKL|HF_|TRANSFORMERS|WANDB_API)=' | sort | tr '\n' ' ')"
+
 module load conda/24.3.0-0
 module load cuda12.9/toolkit/12.9.1
 export PATH=/users/jmizrahi/.conda/envs/neoverse/bin:$PATH
@@ -325,6 +333,7 @@ fi
 [ -n "${CRASHPEN:-}" ] && LABEL="${LABEL}-cp${CRASHPEN}"
 [ "${CURRICULUM:-0}" = "1" ] && LABEL="${LABEL}-curR"
 [ -n "${GOALDIST_START:-}" ] && LABEL="${LABEL}-curD${GOALDIST_START}"
+[ -n "${GOALDISTWIN:-}" ] && LABEL="${LABEL}-win${GOALDISTWIN}"
 [ -n "${ENT:-}" ] && LABEL="${LABEL}-ent${ENT}"
 LABEL="${LABEL}-s${SEED:-0}"
 echo "==> wandb label: $LABEL"
@@ -462,6 +471,10 @@ if [ -n "${LIVESTEPS:-}" ] && [ "${LIVESTEPS}" != "4" ]; then
 fi
 # CURRICULUM=1: goal-capture radius anneals 1.0 -> --goal_radius over the
 # first 100k steps (terminal-capture fix, advisor spec 2026-08-27).
+if [ -n "${GOALDISTWIN:-}" ]; then
+    BC_ARGS="$BC_ARGS --goal_dist_window ${GOALDISTWIN}"
+    OUT="${OUT}_win${GOALDISTWIN}"
+fi
 if [ "${CURRICULUM:-0}" = "1" ]; then
     BC_ARGS="$BC_ARGS --goal_radius_start 1.0"
     OUT="${OUT}_cur"
@@ -508,6 +521,26 @@ if [ -n "${STEPS_OVERRIDE:-}" ]; then
     OUT="${OUT}_${STEPS}"
 fi
 echo "==> rung: ${BC_ARGS:-pure-shaped}  steps: $STEPS  out: $OUT"
+
+# --- launch ledger. One append-only file for the whole project, plus a copy
+# beside the checkpoints. Written NOW, before the pipeline load, so a job that
+# dies during startup still leaves a record of what it was.
+LEDGER="/scratch/m000204-pm06b/joana/launch_ledger.log"
+mkdir -p "$OUT" 2>/dev/null || true
+LEDGER_ENTRY="$(cat <<EOF
+=== job ${SLURM_JOB_ID:-nojob}   $(date -Is)   node ${SLURMD_NODENAME:-?}
+    git    $(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+    out    $OUT
+    label  ${LABEL:-}
+    steps  $STEPS
+    rung   ${BC_ARGS:-pure-shaped}
+    knobs  $LAUNCH_ENV
+EOF
+)"
+printf '%s\n\n' "$LEDGER_ENTRY" >> "$LEDGER" 2>/dev/null || true
+printf '%s\n'   "$LEDGER_ENTRY" >  "$OUT/launch.txt" 2>/dev/null || true
+echo "==> ledger: $LEDGER"
+
 python scripts/train_ppo_real.py \
     --scene "${SCENE:-rugd_trail_00}" \
     --clips_dir "${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}" \
