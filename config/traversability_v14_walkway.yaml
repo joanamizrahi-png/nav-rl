@@ -24,6 +24,14 @@
 # lands on real roads and does not misfire on sidewalk. Kept ABOVE the 0.1
 # collision threshold on purpose: crossing a road must stay possible, just
 # unattractive next to sidewalk 1.0 and trail 0.85.
+#
+# 2026-09-02, LATER THE SAME DAY -- THE 0.25 ABOVE WAS REVERSED. road is 0.85,
+# i.e. traversable, and the paragraph above is kept only as the record of an
+# argument that did not survive. The measurement that overturned it: SAM3
+# scored road IoU 0.386 against human GT, so the LABEL SOURCES confuse road and
+# sidewalk in the other direction -- penalising road lands on real sidewalk
+# often enough to teach the policy to avoid the surface it is supposed to
+# prefer. Read the VALUES below, never this header, when checking a run.
 0:
   name: void
   score: 0.0
