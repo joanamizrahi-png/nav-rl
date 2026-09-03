@@ -11,7 +11,12 @@
 # higher-priority work only if it provably fits before the next reservation, so
 # a 6x time request is the difference between running in a gap and waiting a
 # day. Raise --time on the command line for a genuinely long sweep.
-#SBATCH --time=00:30:00
+# 00:30:00 was SHORTER THAN THE PIPELINE LOAD. Job 463192 (2026-09-03) spent
+# its entire allocation on "[LiveDiffusedBackend] loading SEMANTIC pipeline"
+# and died having measured nothing -- the load alone takes 30-60 min. It was
+# cut to 30 min on 2026-09-02 to win backfill priority; that traded the whole
+# result for a queue slot.
+#SBATCH --time=2:00:00
 # 2026-09-02: was excluding TEN nodes (n04,n06,n13,n14,n17,n21,n24,n26,n30,n31)
 # while every other launcher excludes four. Six of seven pending jobs were
 # check-rew, barred from n14 and n26 -- nodes this account's training arms were

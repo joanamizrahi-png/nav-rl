@@ -319,6 +319,33 @@ def main():
                           f"{_tr[_k]} (adopting training)", flush=True)
                 setattr(args, _k, _tr[_k])
             print(f"[eval] adopted training env from {_ec}", flush=True)
+            # env_config.json records the range the run STARTED at. With a
+            # distance curriculum the policy finishes somewhere else, and how
+            # far it got is not predictable from the config -- notches are
+            # EARNED. curriculum_state.json is rewritten every rollout with the
+            # live range, so it is the only honest answer to "what was this
+            # policy actually training on when we stopped it".
+            _cs = _run / "curriculum_state.json"
+            if _cs.exists():
+                try:
+                    _st = json.loads(_cs.read_text())
+                    _fin = _st.get("goal_dist_range")
+                    if _fin:
+                        _fin_s = ",".join(str(v) for v in _fin)
+                        if args.goal_dist_range != _fin_s:
+                            print(f"[eval] curriculum FINISHED at "
+                                  f"{_fin_s} m (env_config says "
+                                  f"{args.goal_dist_range}, its START). "
+                                  f"Evaluating at the finished range.",
+                                  flush=True)
+                        args.goal_dist_range = _fin_s
+                except Exception as _e2:
+                    print(f"[eval] could not read {_cs}: {_e2}", flush=True)
+            else:
+                print(f"[eval] no curriculum_state.json — either no distance "
+                      f"curriculum, or a run from before it was recorded; "
+                      f"using the env_config range {args.goal_dist_range}",
+                      flush=True)
         else:
             print(f"[eval] WARNING: no env_config.json at {_ec} — this run "
                   f"predates it, so kinematics come from the CLI and may not "

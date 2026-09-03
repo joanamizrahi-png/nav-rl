@@ -90,11 +90,19 @@ class GoalDistCurriculum(BaseCallback):
     curriculum; both gates draw on the same win stream."""
 
     def __init__(self, start: float, end: float, window: int = 100,
-                 threshold: float = 0.5, notch: float = 0.5):
+                 threshold: float = 0.5, notch: float = 0.5,
+                 state_path: "Path | None" = None):
         super().__init__()
         self.d, self.end = start, end
         self.window, self.threshold, self.notch = window, threshold, notch
         self._wins: list = []
+        # Where the curriculum ACTUALLY got to, on disk beside the checkpoints.
+        # env_config.json records `goal_dist_range` from ARGS -- the range the
+        # run STARTED at (2,8) -- so an eval adopting it would test a policy on
+        # a distribution it stopped training on. And the end point is not
+        # predictable from the config either: the far end only advances when
+        # the policy earns notches, so the truth has to be written as it moves.
+        self.state_path = state_path
 
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
@@ -120,6 +128,17 @@ class GoalDistCurriculum(BaseCallback):
             if rng0:
                 self.logger.record("curriculum/goal_dist_lo", float(rng0[0]))
                 self.logger.record("curriculum/goal_dist_hi", float(rng0[1]))
+        rng0 = next((r for r in rngs if r), None)
+        if self.state_path is not None and rng0:
+            try:
+                import json as _json
+                self.state_path.write_text(_json.dumps({
+                    "goal_dist": float(self.d),
+                    "goal_dist_range": [float(rng0[0]), float(rng0[1])],
+                    "num_timesteps": int(self.num_timesteps),
+                }, indent=2))
+            except Exception:
+                pass
 
 
 class RewardComponentsCallback(BaseCallback):
@@ -469,8 +488,24 @@ def _reward_banner_body(args, cfg, env) -> None:
     dc = args.goal_dist_start
     print(f"curricula        radius={rc if rc else 'OFF'} -> {cfg.goal_radius} | "
           f"distance={dc if dc else 'OFF'} -> {args.goal_dist}")
-    print(f"entropy          ent_coef={args.ent_coef}   scenes={args.scenes} "
+    # Print the scenes the ENV actually has, not the ones that were asked for.
+    # make_live_vec_env PRUNES scenes that do not fit in GPU memory -- on
+    # 2026-09-03 every arm silently trained on 5 of the 6 requested (gnd_AUw60
+    # was dropped for OOM), while this line kept claiming 6. A banner that
+    # reports the request instead of the reality is worse than no banner.
+    _live = None
+    try:
+        _live = env.get_attr("scene_ids")[0]
+    except Exception:
+        pass
+    _dropped = ([s for s in args.scenes if s not in _live] if _live else [])
+    print(f"entropy          ent_coef={args.ent_coef}   "
+          f"scenes={_live if _live else args.scenes} "
           f"rotate_every={args.scene_rotate}")
+    if _dropped:
+        print(f"                 !!! REQUESTED BUT NOT LOADED (pruned for "
+              f"GPU memory): {_dropped} -- this run trains on "
+              f"{len(_live)} of {len(args.scenes)} scenes")
     print(line, flush=True)
 
 
@@ -1259,7 +1294,8 @@ def main():
             mode=args.curriculum_mode))
     if args.goal_dist_start is not None and args.goal_dist is not None:
         callbacks.append(GoalDistCurriculum(
-            args.goal_dist_start, args.goal_dist))
+            args.goal_dist_start, args.goal_dist,
+            state_path=args.output_dir / "curriculum_state.json"))
     if args.use_wandb:
         try:
             import wandb
