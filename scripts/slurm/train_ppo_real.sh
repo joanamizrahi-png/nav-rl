@@ -27,7 +27,13 @@ set -euo pipefail
 # of them was -- the .out files do not echo the command, env_config.json is
 # only written after the hour-long pipeline load, and shell history had scrolled
 # away. An unrecorded experiment is not an experiment.
-LAUNCH_ENV="$(env | grep -vE '^(SLURM|SBATCH|SRUN|LS_COLORS|PATH|LD_|MANPATH|MODULE|MODULES|_|PWD|OLDPWD|HOME|SHELL|SHLVL|TERM|USER|LOGNAME|HOSTNAME|HOST|SSH|XDG|LANG|LC_|CONDA|PYTHON|CUDA|NCCL|TMPDIR|MAIL|EDITOR|BASH|OMP|MKL|HF_|TRANSFORMERS|WANDB_API)=' | sort | tr '\n' ' ')"
+KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
+# Whitelist, not a blacklist. The first version excluded known-noisy prefixes
+# and still emitted lmod shell functions, base64 module tables and every SLURM
+# variable -- thousands of unreadable characters per entry (2026-09-03, first
+# real ledger dump). Only the launcher's OWN knobs are worth recording; the
+# resolved `rung` line below already carries everything the run actually got.
+LAUNCH_ENV="$(env | grep -E "^(${KNOB_NAMES})=" | sort | tr '\n' ' ')"
 
 module load conda/24.3.0-0
 module load cuda12.9/toolkit/12.9.1
