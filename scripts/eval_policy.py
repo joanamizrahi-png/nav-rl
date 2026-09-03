@@ -85,6 +85,8 @@ def build_env(args):
         world = CalibratedRealWorldBackend(cfg)
     sem = GaussianLabelBackend(world)
     env_cfg = SceneEnvConfig(
+        goal_support_radius_m=args.goal_support_radius,
+        collision_look_ahead_m=args.collision_look_ahead,
         # GND/SCAND clips advance ~1 m per recorded frame vs RUGD's ~0.1 m, so
         # the same goal_frame is a far longer walk there — raise the budget
         # instead of moving the goal (moving it collapses the spawn range).
@@ -162,6 +164,12 @@ def main():
                     help='designed obstacle test: pin the goal to "x,y" (nav-'
                          'frame meters, read off the top-down figure axes) — '
                          'e.g. just past a tree so the straight line crosses it')
+    ap.add_argument("--goal_support_radius", type=float, default=0.0,
+                    help="reject goals with no cloud support within this "
+                         "radius, as training does. Adopted from "
+                         "env_config.json when present.")
+    ap.add_argument("--collision_look_ahead", type=float, default=0.0,
+                    help="0 = collision judged on the same box as shaping")
     ap.add_argument("--goal_dir_360", action="store_true",
                     help="sample goals the way training does (cone at a random "
                          "distance from the spawn) instead of a fixed goal")
@@ -271,6 +279,12 @@ def main():
                        "look_ahead_dist", "goal_radius", "collision_threshold",
                        "collision_terminate_frac", "collision_terminate_penalty",
                        "action_chunk",
+                       # 2026-09-02: training rejects goals with no
+                       # reconstruction under them (14.5% of draws) and can
+                       # judge collision on its own closer footprint. Eval did
+                       # neither, so it was scoring a goal distribution
+                       # training never sees.
+                       "goal_support_radius_m", "collision_look_ahead_m",
                        # reward, so a reported return means the same thing in
                        # both places (her ask 2026-09-02: "make eval like
                        # training please")

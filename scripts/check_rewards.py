@@ -555,6 +555,9 @@ def main():
                          "choosing scenes: is the RGB good, are the diffused "
                          "semantics good, and do the cloud labels that place "
                          "spawns and goals agree with them?")
+    ap.add_argument("--gate_tau_cov", type=float, default=0.4,
+                    help="coverage threshold drawn on the survey HUD; matches "
+                         "coherence_tau")
     ap.add_argument("--camera_height", type=float, default=0.6,
                     help="camera height above the footprint plane, for the "
                          "blind-zone prediction. NOTE this is the same number "
@@ -951,10 +954,23 @@ def main():
                 else:
                     fp_txt = f"FOOTPRINT MISSING -- reward is BLIND this frame"
                     fp_col = (0, 0, 255)
+                # coverage (mean alpha) every frame, flagged against tau.
+                # The coherence cost is -w*max(0, tau-coverage) and the
+                # terminator fires below 0.1, so "is it always above 0.4" is
+                # answerable only if the number is on screen (her ask).
+                cov = (float(r["alpha"].mean())
+                       if r.get("alpha") is not None else float("nan"))
+                cov_ok = not (cov == cov) or cov >= args.gate_tau_cov
                 cv2.putText(trio, f"{args.scene}  ep{r['ep']} step{r['step']}"
                                   f"   {fp_txt}",
                             (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                             fp_col, 2, cv2.LINE_AA)
+                cv2.putText(trio, f"coverage {cov:.3f}"
+                                  + ("" if cov_ok else
+                                     f"   BELOW tau {args.gate_tau_cov}"),
+                            (8, 48), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                            (0, 255, 0) if cov_ok else (0, 80, 255), 2,
+                            cv2.LINE_AA)
                 if _survey["w"] is None:
                     # mp4v renders as a GREEN SCREEN in QuickTime; try H.264
                     # first so the file opens on a Mac without VLC.
