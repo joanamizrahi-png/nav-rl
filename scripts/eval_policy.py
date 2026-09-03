@@ -459,7 +459,10 @@ def main():
         # different goals and could only be compared in aggregate.
         obs, _ = env.reset(seed=args.eval_seed * 10000 + ep)
         goal = env.unwrapped._goal_world
-        traj = [_pose_xyyaw(env) + [0]]   # [x, y, yaw, collision_this_step]
+        # 5 fields, matching every later row: [x, y, yaw, collision_frac,
+        # dominant_class]. It used to be 4 here and 5 below, which made `traj`
+        # ragged and np.array() on it raise (2026-09-03).
+        traj = [_pose_xyyaw(env) + [0.0, -1]]
         done, steps, collided, total_r = False, 0, 0, 0.0
         ground_counts: dict = {}
         # 2026-09-02: a bare success=False conflated "crashed at step 8",

@@ -76,8 +76,11 @@ def main():
 
     for i in range(n):
         ax, se, be = axes[i], s_eps[i], b_eps[i]
-        st = np.array(se["traj"], dtype=float)
-        bt = np.array(be["traj"], dtype=float)
+        # Take x,y only and tolerate ragged rows: the first entry of `traj` was
+        # written with 4 fields and the rest with 5, so np.array() on the whole
+        # thing raises. Old metrics.json files still have that shape.
+        st = np.array([r[:2] for r in se["traj"]], dtype=float)
+        bt = np.array([r[:2] for r in be["traj"]], dtype=float)
         goal = np.array(se["goal_xy"], dtype=float)
 
         if gxy is not None:
