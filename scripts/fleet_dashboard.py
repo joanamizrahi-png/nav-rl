@@ -181,7 +181,9 @@ def main():
                 y = get(s, key)
                 if np.all(np.isnan(y)):
                     continue
-                ax.plot(x, y, "-", c=c, lw=1.6, label=nm)
+                # markers, so an arm with a single dump still shows up: the
+                # halt arm's first point was invisible as a one-vertex line
+                ax.plot(x, y, "-o", c=c, lw=1.6, ms=2.5, label=nm)
         ax.set_title(title, fontsize=10)
         ax.set_xlabel("env steps this run")
         if ylim:
