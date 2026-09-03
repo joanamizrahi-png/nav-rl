@@ -866,12 +866,20 @@ def main():
             # at: the reward grades the diffusion while spawns and goals are
             # placed from the cloud.
             if args.survey_video:
-                trio = np.hstack([rgb, pu, psr])[:, :, ::-1]
+                # Fourth column: SUPPORT. Without it you cannot tell whether a
+                # region of the diffused semantics is grounded or invented --
+                # and on 2026-09-02 the gate showed MOST of the collision
+                # signal sits in unobserved regions, so "are the hallucinated
+                # regions good" is the question the survey exists to answer.
+                # Bright = geometry backs this pixel, dark = the model made it
+                # up.
+                trio = np.hstack([rgb, pu, psr, heat])[:, :, ::-1]
                 trio = np.ascontiguousarray(trio)
                 for k, name in enumerate(["RGB diffused (policy sees)",
                                           "SEM diffused (reward reads)",
                                           "SEM raster / SAM3 splats "
-                                          "(spawns + goals)"]):
+                                          "(spawns + goals)",
+                                          "SUPPORT alpha (dark = invented)"]):
                     cv2.putText(trio, name, (k * args.width + 8,
                                              trio.shape[0] - 12),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3,
