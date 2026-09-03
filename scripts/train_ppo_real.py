@@ -785,16 +785,29 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
 
     # Arrival frame: the loop above draws BEFORE stepping, so the terminal pose
     # (entering the goal disc) was never rendered — append it.
+    # WHY the episode ended, burned in. "reached_goal=False" conflated
+    # crashed-at-step-8, walked-to-the-boundary-and-held, and never-moved --
+    # three different policies with the same label (her ask, 2026-09-02).
+    if info.get("reached_goal"):
+        outcome, ocol = "GOAL", (0, 255, 0, 255)
+    elif float(info.get("crash", 0.0)) != 0.0:
+        outcome, ocol = "CRASH", (255, 60, 60, 255)
+    elif float(info.get("coherence_crash", 0.0)) != 0.0:
+        outcome, ocol = "INCOHERENT (left the world model)", (255, 160, 0, 255)
+    else:
+        outcome, ocol = "TIMEOUT (ran out of steps)", (255, 255, 0, 255)
     final = Image.fromarray(env.render().copy())
     fd = ImageDraw.Draw(final, "RGBA")
-    fd.rectangle([0, 0, final.width, 14], fill=(0, 0, 0, 180))
-    fd.text((4, 2), f"t={len(frames):3d} DONE reached_goal={info.get('reached_goal')} "
-                    f"r={float(r):+.2f}", fill=(0, 255, 0, 255))
+    fd.rectangle([0, 0, final.width, 26], fill=(0, 0, 0, 200))
+    fd.text((4, 2), f"t={len(frames):3d}  ENDED: {outcome}", fill=ocol)
+    fd.text((4, 14), f"dist_to_goal={info.get('dist_to_goal', float('nan')):.2f}m "
+                     f"r={float(r):+.2f}", fill=(220, 220, 220, 255))
     last = np.array(final.convert("RGB"))
     sem = semantic_panel(world, last.shape[0], last.shape[1])
     if sem is not None:
         last = np.concatenate([last, sem], axis=1)
-    frames.append(last)
+    # hold the final frame ~1 s so the outcome is readable at 8 fps
+    frames.extend([last] * 8)
 
     iio.imwrite(str(out_path), np.stack(frames), fps=8,
                 codec="libx264", macro_block_size=1,
@@ -803,6 +816,7 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120):
           f"({len(frames)} frames, reached_goal={info.get('reached_goal')})")
     return {"traj": traj,
             "goal_xy": [round(float(goal[0]), 3), round(float(goal[1]), 3)],
+            "outcome": outcome.split(" ")[0],
             "success": bool(info.get("reached_goal", False))}
 
 

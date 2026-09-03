@@ -121,6 +121,27 @@ def main():
                     label=label if i == 0 else None)
             ax.plot(t[0, 0], t[0, 1], "o", c=c, ms=4, mec="k", mew=0.4, zorder=5)
             ax.plot(t[-1, 0], t[-1, 1], "s", c=c, ms=6, mec="k", mew=0.6, zorder=5)
+            # PER-EPISODE goal (2026-09-02). --goal_xy draws one fixed goal,
+            # which is right for a pinned-goal eval and wrong for the training
+            # distribution, where every episode draws its own goal in a cone at
+            # a random distance. eval_policy already records it per episode; a
+            # path is unreadable without knowing where it was TRYING to go.
+            g = e.get("goal_xy")
+            if g and len(g) >= 2:
+                ax.plot(g[0], g[1], "*", c=c, ms=11, mec="k", mew=0.5,
+                        zorder=7, alpha=0.9,
+                        label=f"{label} goals" if i == 0 else None)
+                ax.plot([t[-1, 0], g[0]], [t[-1, 1], g[1]], ":", c=c, lw=0.7,
+                        alpha=0.45, zorder=3)
+                ax.add_patch(plt.Circle((g[0], g[1]), args.goal_radius,
+                                        fill=False, ec=c, lw=0.7, alpha=0.5,
+                                        zorder=6))
+                # outcome at a glance, on the endpoint
+                oc = (e.get("outcome") or "")[:1]
+                if oc:
+                    ax.annotate(oc, (t[-1, 0], t[-1, 1]), fontsize=6,
+                                color="k", zorder=9,
+                                xytext=(3, 3), textcoords="offset points")
             if t.shape[1] > 3:
                 bad = t[t[:, 3] >= args.crash_frac]
                 n_cr += len(bad)
