@@ -19,6 +19,18 @@ cd /scratch/m000204-pm06b/joana/nav-rl
 CKPT=${CKPT:?set CKPT=/path/to/checkpoint.zip via --export=CKPT=...}
 # eval dir carries the run name (ppo_v4_... vs ppo_v5_...) so evals never collide
 RUN_NAME=$(basename "$(dirname "$(dirname "$CKPT")")")
+# 2026-09-02: eval_<run>_<ckpt><flags> blew past the 255-byte filename limit
+# (OSError 36) and every eval of the new arms would have failed the same way --
+# their names are longer still. Drop the tokens that are identical on EVERY run
+# and therefore distinguish nothing, then hard-cap as a backstop. The full name
+# stays in the log line above, so nothing is lost.
+RUN_SHORT=$(echo "$RUN_NAME" \
+    | sed -e 's/ppo_live_trail00_UNGATED_//' -e 's/ppo_live_trail00_//' \
+          -e 's/_r336x224//' -e 's/_rr560x336//' -e 's/_smin10//' \
+          -e 's/_spcls//' -e 's/_gc50//' -e 's/_sjy20//' -e 's/_sjl0\.4//' \
+          -e 's/_pal4//' -e 's/v21obs_//' -e 's/_trstrict//' -e 's/_semw5//' \
+          -e 's/_rs0\.01//' -e 's/_g360//')
+RUN_SHORT=${RUN_SHORT:0:110}
 EXTRA_ARGS=()
 if [[ "${SPAWN_MAX:-}" != "" ]]; then
     EXTRA_ARGS+=(--spawn_max_frame "$SPAWN_MAX")   # match the training rung
@@ -149,6 +161,6 @@ python scripts/eval_policy.py \
     --clips_dir "${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}" \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
     --labels_dir $LABELS_DIR \
-    --out_dir /scratch/m000204-pm06b/joana/outputs/eval_${RUN_NAME}_$(basename "$CKPT" .zip)${OUT_SUFFIX} \
+    --out_dir /scratch/m000204-pm06b/joana/outputs/eval_${RUN_SHORT}_$(basename "$CKPT" .zip)${OUT_SUFFIX} \
     "${EXTRA_ARGS[@]}"
 echo "==> eval done"
