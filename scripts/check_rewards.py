@@ -909,7 +909,7 @@ def main():
                     size = (trio.shape[1], trio.shape[0])
                     for tag in ("avc1", "H264", "mp4v"):
                         w = cv2.VideoWriter(
-                            str(od / f"SURVEY_{args.scene}.mp4"),
+                            str(od / f"SURVEY_{args.scene}_{args.walk}.mp4"),
                             cv2.VideoWriter_fourcc(*tag), 4.0, size)
                         if w.isOpened():
                             print(f"    survey codec: {tag}", flush=True)
@@ -920,7 +920,8 @@ def main():
                     _survey["w"].write(trio)
         if args.survey_video and _survey["w"] is not None:
             _survey["w"].release()
-            print(f"==> survey video: {od}/SURVEY_{args.scene}.mp4", flush=True)
+            print(f"==> survey video: "
+                  f"{od}/SURVEY_{args.scene}_{args.walk}.mp4", flush=True)
         print(f"==> visual frames ({len(sel)}): {od}/{stem}_ep*_s*.png", flush=True)
         print(f"    crash-level steps ungated {sorted(crash_u)}", flush=True)
         print(f"    crash-level steps gated   {sorted(crash_g)}", flush=True)
