@@ -555,6 +555,9 @@ def main():
                          "choosing scenes: is the RGB good, are the diffused "
                          "semantics good, and do the cloud labels that place "
                          "spawns and goals agree with them?")
+    ap.add_argument("--coh_hard_tau", type=float, default=0.1,
+                    help="coverage below this terminates the episode in "
+                         "training (coherence_terminate_tau)")
     ap.add_argument("--gate_tau_cov", type=float, default=0.4,
                     help="coverage threshold drawn on the survey HUD; matches "
                          "coherence_tau")
@@ -799,7 +802,8 @@ def main():
     print(f"\n==> every per-step number: {csv_p}", flush=True)
 
     # ---- the visual: RGB | raster | labels ungated | labels gated | ... ----
-    _survey = {"w": None}
+    _survey = {"w": None, "n": 0, "lo_tau": 0, "lo_hard": 0,
+               "cov": []}
     try:
         import cv2
         from diffsynth.utils.class_taxonomy import v14_palette
@@ -961,6 +965,13 @@ def main():
                 cov = (float(r["alpha"].mean())
                        if r.get("alpha") is not None else float("nan"))
                 cov_ok = not (cov == cov) or cov >= args.gate_tau_cov
+                if cov == cov:
+                    _survey["n"] += 1
+                    _survey["cov"].append(cov)
+                    if cov < args.gate_tau_cov:
+                        _survey["lo_tau"] += 1
+                    if cov < args.coh_hard_tau:
+                        _survey["lo_hard"] += 1
                 cv2.putText(trio, f"{args.scene}  ep{r['ep']} step{r['step']}"
                                   f"   {fp_txt}",
                             (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
@@ -989,6 +1000,25 @@ def main():
         if args.survey_video and _survey["w"] is not None:
             _survey["w"].release()
             quicktime_safe(od / f"SURVEY_{args.scene}_{args.walk}.mp4")
+            n = _survey["n"]
+            if n:
+                cv_arr = np.array(_survey["cov"])
+                print(f"\n===== COVERAGE OVER THE {args.walk.upper()} WALK "
+                      f"({n} frames) =====")
+                print(f"  mean {cv_arr.mean():.3f}  min {cv_arr.min():.3f}  "
+                      f"p10 {np.percentile(cv_arr, 10):.3f}  "
+                      f"max {cv_arr.max():.3f}")
+                print(f"  frames below tau {args.gate_tau_cov} (graded cost "
+                      f"fires): {_survey['lo_tau']}/{n} = "
+                      f"{100.0 * _survey['lo_tau'] / n:.1f}%")
+                print(f"  frames below {args.coh_hard_tau} (episode would "
+                      f"TERMINATE): {_survey['lo_hard']}/{n} = "
+                      f"{100.0 * _survey['lo_hard'] / n:.1f}%")
+                if args.walk == "straight":
+                    print("  A straight run at a randomly sampled goal LEAVES "
+                          "the reconstructed\n  corridor on purpose -- this is "
+                          "the rate the coherence terminator would\n  fire at "
+                          "on exactly the behaviour the goal sampler asks for.")
             print(f"==> survey video: "
                   f"{od}/SURVEY_{args.scene}_{args.walk}.mp4", flush=True)
         print(f"==> visual frames ({len(sel)}): {od}/{stem}_ep*_s*.png", flush=True)

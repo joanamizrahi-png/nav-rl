@@ -61,6 +61,8 @@ python scripts/check_rewards.py \
     --sweep "${SWEEP:-0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8}" \
     --gate_tau "${GATETAU:-0.5}" \
     --sem_palette "${SEMPAL:-4}" \
+    --cone_deg "${GOALCONE:-50}" \
+    --dist_range "${GOALRANGE:-5,10}" \
     --walk "${WALK:-straight}" \
     --ladder_dists "${LADDER:-0.8,1.0,1.2,1.5,1.8,2.1,2.4}" \
     --collision_look_ahead "${COLLAHEAD:-1.0}" \
