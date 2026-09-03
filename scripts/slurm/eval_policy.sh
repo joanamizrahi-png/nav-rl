@@ -138,8 +138,15 @@ if [[ "${COLLTERM:-}" != "" ]]; then
                  --collision_terminate_penalty "${COLLPEN:-20}")
     OUT_SUFFIX="${OUT_SUFFIX}_ct${COLLTERM}"
 fi
+# Accept MAXSTEPS as well as MAX_STEPS. train_ppo_real.sh spells it MAXSTEPS,
+# this script spelled it MAX_STEPS, and nothing warned -- so on 2026-09-03 six
+# evals were launched with MAXSTEPS=90 and silently ran the DEFAULT 60 against
+# training's 90. The ancestor's headline result (19/20 TIMEOUT) was measured on
+# a two-thirds episode budget; several of those episodes had closed 50-64% of
+# the distance when the clock ran out.
+MAX_STEPS="${MAX_STEPS:-${MAXSTEPS:-}}"
 if [[ "${MAX_STEPS:-}" != "" ]]; then
-    EXTRA_ARGS+=(--max_steps "$MAX_STEPS")   # GND/SCAND need a longer budget
+    EXTRA_ARGS+=(--max_steps "$MAX_STEPS")
     OUT_SUFFIX="${OUT_SUFFIX}_s${MAX_STEPS}"
 fi
 if [[ "${GOAL_XY:-}" != "" ]]; then
