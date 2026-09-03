@@ -75,7 +75,7 @@ def pose_at(xy, heading):
 def episode_poses(cal, rng, n_steps, cone_deg, dist_range, yaw_jit, lat_jit,
                   spawn_min=10, goal_xy=None, spawn_frame=None,
                   walk="straight", step_size_m=0.3, yaw_step_rad=0.5,
-                  yaw_span_deg=90.0,
+                  yaw_span_deg=90.0, support=None,
                   wander_fwd_min=0.0):
     """One J-spec episode: jittered spawn on the recorded path, goal in the
     tangent cone, then a walk from there.
@@ -110,6 +110,18 @@ def episode_poses(cal, rng, n_steps, cone_deg, dist_range, yaw_jit, lat_jit,
     else:
         th = base + np.deg2rad(rng.uniform(-1, 1) * cone_deg / 2.0)
         goal = p + rng.uniform(*dist_range) * np.array([np.cos(th), np.sin(th)])
+        # Same support check training applies, so the survey walks toward the
+        # goals training would actually draw (her ask: the comparison is only
+        # meaningful if the goal distribution matches). `support` is
+        # (ground_xy, radius, min_count); None = raw draws.
+        if support is not None:
+            gpts, srad, sneed = support
+            for _t in range(12):
+                if int((np.linalg.norm(gpts - goal, axis=1) <= srad).sum()) >= sneed:
+                    break
+                th = base + np.deg2rad(rng.uniform(-1, 1) * cone_deg / 2.0)
+                goal = p + rng.uniform(*dist_range) * np.array(
+                    [np.cos(th), np.sin(th)])
 
     poses = [pose_at(p, yaw)]
     if walk == "path":
@@ -178,6 +190,29 @@ def render_episodes(args):
     if args.goal_xy:
         goal_xy = [float(v) for v in args.goal_xy.split(",")]
 
+    # Goal support, calibrated the way SceneEnv does it: the reference is the
+    # ground-point density at the RECORDED path positions, and a goal must
+    # reach min_frac of it. Says nothing about traversability -- a goal on
+    # grass is legitimate and is the point of the curriculum.
+    _support = None
+    if args.goal_support_radius > 0.0:
+        try:
+            _c = np.load(Path(args.clouds_dir) / f"{args.scene}_cloud.npz")
+            _p, _l = _c["points"], _c["labels"].astype(int)
+            _g = _p[(_p[:, 2] < 0.15) & (_l >= 0)][:, :2][::4]
+            _path = (np.asarray(_c["traj_positions"], dtype=float)
+                     * np.array([1.0, -1.0, 1.0]))[:, :2]
+            _cnt = [int((np.abs(_g - q).max(axis=1) <= args.goal_support_radius).sum())
+                    for q in _path[::max(1, len(_path) // 40)]]
+            _ref = float(np.median(_cnt)) if _cnt else 0.0
+            _need = max(1, int(args.goal_support_min_frac * _ref))
+            _support = (_g, args.goal_support_radius, _need)
+            print(f"goal support: reference {_ref:.0f} pts within "
+                  f"{args.goal_support_radius} m on the recorded path -> "
+                  f"goals need >= {_need}", flush=True)
+        except Exception as _e:
+            print(f"goal support: DISABLED ({_e})", flush=True)
+
     rng = np.random.default_rng(args.seed)
     recs = []
     for ep in range(args.episodes):
@@ -187,7 +222,7 @@ def render_episodes(args):
             args.spawn_yaw_jitter, args.spawn_lat_jitter,
             goal_xy=goal_xy, spawn_frame=args.spawn_frame,
             walk=args.walk, step_size_m=args.step_size_m,
-            yaw_span_deg=args.yaw_span,
+            yaw_span_deg=args.yaw_span, support=_support,
             yaw_step_rad=args.yaw_step_rad,
             wander_fwd_min=args.wander_fwd_min)
         prev = None
@@ -555,6 +590,12 @@ def main():
                          "choosing scenes: is the RGB good, are the diffused "
                          "semantics good, and do the cloud labels that place "
                          "spawns and goals agree with them?")
+    ap.add_argument("--goal_support_radius", type=float, default=0.0,
+                    help="apply training's goal support check when sampling "
+                         "the straight-walk goal (needs --clouds_dir)")
+    ap.add_argument("--goal_support_min_frac", type=float, default=0.25)
+    ap.add_argument("--clouds_dir",
+                    default="/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds")
     ap.add_argument("--coh_hard_tau", type=float, default=0.1,
                     help="coverage below this terminates the episode in "
                          "training (coherence_terminate_tau)")
