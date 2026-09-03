@@ -293,6 +293,15 @@ def make_env(args):
         goal_dist_m=getattr(args, "goal_dist", None),
         spawn_min_frame=getattr(args, "spawn_min", 0),
     )
+    # Dump BEFORE the backend is built. Building it loads the diffusion
+    # pipeline, which takes the better part of an hour, so dumping afterwards
+    # meant the file describing a run did not exist while the run was starting
+    # -- on 2026-09-03 seven arms had been up for 55 minutes with no
+    # env_config.json anywhere on disk, and nothing could be audited against
+    # what they were actually configured with.
+    env_cfg = _scene_env_cfg(args)
+    _dump_env_config(args, env_cfg)
+
     if getattr(args, "live", False):
         # Live per-action diffusion: the policy queries the generative model at
         # its own CONTINUOUS pose every step — no cache, no grid snapping.
@@ -313,8 +322,6 @@ def make_env(args):
     else:
         world = CalibratedRealWorldBackend(cfg)
     sem = GaussianLabelBackend(world)
-    env_cfg = _scene_env_cfg(args)
-    _dump_env_config(args, env_cfg)
     env = SceneEnv(world_backend=world, semantic_backend=sem,
                    scene_ids=scenes, cfg=env_cfg)
     return Monitor(env)
