@@ -96,6 +96,14 @@ if [[ -n "${RENDERH:-}" || -n "${RENDERW:-}" ]]; then
     EXTRA_ARGS+=(--render_height "${RENDERH:-336}" --render_width "${RENDERW:-560}")
     OUT_SUFFIX="${OUT_SUFFIX}_rr${RENDERW:-560}x${RENDERH:-336}"
 fi
+# GOALSUPPORT: reject goals with no reconstruction under them, exactly as
+# training does. It existed in check_rewards.sh but NOT here, so every eval
+# before 2026-09-03 12:45 sampled goals with the support check OFF (default
+# 0.0) while training ran 0.6 -- about 14.5% of eval goals had no world under
+# them and could never be reached.
+[ -n "${GOALSUPPORT:-}" ] && EXTRA_ARGS+=(--goal_support_radius "$GOALSUPPORT")
+[ -n "${GOALSUPPORTFRAC:-}" ] && EXTRA_ARGS+=(--goal_support_min_frac "$GOALSUPPORTFRAC")
+
 # COH / COHTAU / COHTERM: coherence termination, matching training. Without
 # these the eval never ends an episode for leaving the reconstructed world,
 # while training does -- which is exactly the train/eval mismatch that made
