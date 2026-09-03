@@ -1223,6 +1223,15 @@ def main():
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Dump the env config HERE, not inside a builder. It lived in make_env(),
+    # which the LIVE batched path never calls -- so every live arm ever run has
+    # been missing env_config.json, and every eval of one silently fell back to
+    # CLI defaults: crash termination OFF (frac 0), coherence termination OFF,
+    # goal support OFF. That is why five evals on 2026-09-03 reported ZERO
+    # crashes against a 72% crash rate in training. One call, on the one path
+    # every run takes.
+    _dump_env_config(args, _scene_env_cfg(args))
+
     # ONE env: each env holds a reconstructed scene on the GPU. Parallel envs
     # would multiply VRAM; not worth it for the smoke.
     if getattr(args, "live", False) and getattr(args, "live_batch", 1) > 1:
