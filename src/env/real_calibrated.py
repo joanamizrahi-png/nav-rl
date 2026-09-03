@@ -299,6 +299,26 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         hi = max(lo + 1, hi)
         if self.cfg.spawn_max_frame is not None:
             hi = max(lo + 1, min(hi, self.cfg.spawn_max_frame))
+        # SHOUT if the spawn range has collapsed. This has now bitten twice:
+        # 2026-09-01 with goal_xy (hi forced to lo+1 -> 20 identical episodes
+        # that read as a real result), and 2026-09-03 in eval, where
+        # goal_frame_range was unset so hi = goal_frame(30) - 5 = 25 while
+        # spawn_min was raised to 50 -- one single spawn frame. Both times the
+        # numbers looked plausible. Printed once per scene, not per episode.
+        if not hasattr(self, "_spawn_range_warned"):
+            self._spawn_range_warned = set()
+        if scene_id not in self._spawn_range_warned:
+            self._spawn_range_warned.add(scene_id)
+            n_fr = len(cal.positions)
+            print(f"[spawn range] {scene_id}: frames [{lo},{hi}) of {n_fr} "
+                  f"({hi - lo} frames, {100.0 * (hi - lo) / max(n_fr, 1):.0f}% "
+                  f"of the walk)", flush=True)
+            if hi - lo < 5:
+                print(f"[spawn range] !!! {scene_id}: only {hi - lo} spawn "
+                      f"frame(s). Every episode starts from nearly the same "
+                      f"place. Set goal_frame_range (or lower spawn_min_frame) "
+                      f"-- with goal_frame_range UNSET the bound is "
+                      f"goal_frame({self.cfg.goal_frame}) - 5.", flush=True)
         ok = self._spawn_ok_frames(scene_id)
         if ok is not None:
             cand = [f for f in range(lo, hi) if ok[f]]
