@@ -354,9 +354,23 @@ def look_ahead_ladder(recs, non_trav, args):
     h = float(args.camera_height)
     denom = (H - 1.0) - cy
     d_min = (fy * h / denom) if denom > 0 else float("inf")
+    # Implied vertical FOV: the single number that says whether fy is
+    # PLAUSIBLE for this render size. A walking camera is ~45-55 deg
+    # vertically, which at H=336 means fy ~ 320-400. If fy comes back at
+    # 500-700 (27-37 deg) the intrinsics were probably never rescaled from the
+    # reconstructor's working resolution to the render size -- a bug we can
+    # fix, rather than a camera that genuinely could not see its own feet.
+    vfov = 2.0 * np.degrees(np.arctan((H / 2.0) / fy)) if fy > 0 else float("nan")
     print("\n===== CAMERA GEOMETRY =====")
     print(f"  render {W}x{H}   fy {fy:.1f}   cy {cy:.1f}   "
           f"camera height {h:.2f} m")
+    print(f"  implied vertical FOV {vfov:.1f} deg"
+          + ("   <-- IMPLAUSIBLY NARROW for a walking camera; suspect the "
+             "intrinsics\n      were not rescaled to the render size"
+             if vfov < 40.0 else "   (plausible)"))
+    print(f"  cy offset from centre {cy - H / 2.0:+.1f} px"
+          + ("   <-- camera is PITCHED" if abs(cy - H / 2.0) > 0.08 * H
+             else "   (centred, not pitched)"))
     print(f"  horizon row (cy) {cy:.1f}, bottom row {H - 1}")
     print(f"  PREDICTED BLIND ZONE: ground closer than {d_min:.2f} m is below "
           f"the frame")
