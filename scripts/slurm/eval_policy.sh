@@ -101,6 +101,9 @@ if [[ -n "${RENDERH:-}" || -n "${RENDERW:-}" ]]; then
     EXTRA_ARGS+=(--render_height "${RENDERH:-336}" --render_width "${RENDERW:-560}")
     OUT_SUFFIX="${OUT_SUFFIX}_rr${RENDERW:-560}x${RENDERH:-336}"
 fi
+[ -n "${SPAWNJYAW:-}" ] && EXTRA_ARGS+=(--spawn_yaw_jitter "$SPAWNJYAW")
+[ -n "${SPAWNJLAT:-}" ] && EXTRA_ARGS+=(--spawn_lat_jitter "$SPAWNJLAT")
+[ -n "${VOIDTERM:-}" ]  && EXTRA_ARGS+=(--void_terminate_frac "$VOIDTERM")
 [ -n "${HALT:-}" ] && EXTRA_ARGS+=(--halt_terminate_steps "$HALT")
 
 # Reward weights, so the reported `return=` is on TRAINING's scale. They do not

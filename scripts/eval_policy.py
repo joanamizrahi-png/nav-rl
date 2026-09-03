@@ -129,6 +129,10 @@ def build_env(args):
         coherence_terminate_tau=getattr(args, "coherence_terminate_tau", 0.0),
         coherence_terminate_penalty=getattr(
             args, "coherence_terminate_penalty", 100.0),
+        spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
+        spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
+        void_terminate_frac=getattr(args, "void_terminate_frac", 0.0),
+        void_terminate_penalty=getattr(args, "void_terminate_penalty", 100.0),
         halt_terminate_steps=getattr(args, "halt_terminate_steps", 0),
         halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
         random_spawn=True,
@@ -208,6 +212,17 @@ def main():
                     help="END the episode below this coverage. Training uses "
                          "0.1 (0.05 on the COHTERM arm). 0 = never terminate.")
     ap.add_argument("--coherence_terminate_penalty", type=float, default=100.0)
+    # Spawn jitter. Training spawns with +-20 deg of heading and +-0.4 m of
+    # lateral offset; eval had no flag at all, so it spawned exactly on the
+    # recorded pose -- an easier and different distribution (2026-09-03).
+    ap.add_argument("--spawn_yaw_jitter", type=float, default=0.0)
+    ap.add_argument("--spawn_lat_jitter", type=float, default=0.0)
+    ap.add_argument("--void_terminate_frac", type=float, default=0.0,
+                    help="END the episode when this fraction of the footprint "
+                         "is void. The whole-frame coherence terminal does NOT "
+                         "catch an unsupported ground patch under a "
+                         "well-rendered view. 0 = off, as in training.")
+    ap.add_argument("--void_terminate_penalty", type=float, default=100.0)
     ap.add_argument("--halt_terminate_steps", type=int, default=0,
                     help="must match training, or a policy trained to halt is "
                          "scored as if it merely timed out")
