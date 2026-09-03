@@ -935,9 +935,26 @@ def main():
                                              trio.shape[0] - 12),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                                 (255, 255, 255), 1, cv2.LINE_AA)
-                cv2.putText(trio, f"{args.scene}  ep{r['ep']} step{r['step']}",
+                # Draw the reward footprint on every column. If it is absent
+                # for a frame, the reward saw NOTHING that step -- which is
+                # how three of five training scenes turned out to be blind
+                # (2026-09-02). A survey without it can look perfectly healthy
+                # while the reward is reading nothing at all.
+                if uv is not None:
+                    poly = np.round(uv).astype(np.int32).reshape(-1, 1, 2)
+                    for k in range(4):
+                        cv2.polylines(trio,
+                                      [poly + np.array([[k * args.width, 0]])],
+                                      True, (0, 255, 255), 2, cv2.LINE_AA)
+                    fp_txt = f"footprint {args.look_ahead}m OK"
+                    fp_col = (0, 255, 255)
+                else:
+                    fp_txt = f"FOOTPRINT MISSING -- reward is BLIND this frame"
+                    fp_col = (0, 0, 255)
+                cv2.putText(trio, f"{args.scene}  ep{r['ep']} step{r['step']}"
+                                  f"   {fp_txt}",
                             (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                            (255, 255, 255), 2, cv2.LINE_AA)
+                            fp_col, 2, cv2.LINE_AA)
                 if _survey["w"] is None:
                     # mp4v renders as a GREEN SCREEN in QuickTime; try H.264
                     # first so the file opens on a Mac without VLC.
