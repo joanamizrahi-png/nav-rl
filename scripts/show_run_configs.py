@@ -55,12 +55,16 @@ def main():
     for i, n in enumerate(names):
         print(f"  [{i}] {n}")
     print()
-    print(f"{'key':<{w}}" + "".join(f"{f'[{i}]':>26}" for i in range(len(names))))
+    # Plain .ljust/.rjust rather than nested f-string format specs: the cluster
+    # runs an older Python than the machine these are written on, and nested
+    # f-strings are a 3.12 feature (PEP 701).
+    print("key".ljust(w) + "".join(("[%d]" % i).rjust(26)
+                                   for i in range(len(names))))
     print("-" * (w + 26 * len(names)))
     for k in keys:
         vals = [str(runs[n].get(k, "--")) for n in names]
         flag = "  <-- DIFFERS" if len(set(vals)) > 1 else ""
-        print(f"{k:<{w}}" + "".join(f"{v[:24]:>26}" for v in vals) + flag)
+        print(k.ljust(w) + "".join(v[:24].rjust(26) for v in vals) + flag)
 
 
 if __name__ == "__main__":

@@ -481,11 +481,18 @@ def _reward_banner_body(args, cfg, env) -> None:
     print(f"footprints       shaping={cfg.look_ahead_dist}m  collision="
           f"{ca if ca > 0 else cfg.look_ahead_dist}m"
           f"{'  (SPLIT)' if ca > 0 else '  (shared -- stop-at-edge is NOT learnable)'}")
-    _h = getattr(cfg, "halt_terminate_steps", 0)
-    print(f"halted-safely    {'ON after ' + str(_h) + ' stopped steps (pays the '
-                              'distance-scaled timeout)' if _h else 'OFF -- a '
-                              'correctly-refused goal is indistinguishable from '
-                              'a timeout'}")
+    # Built OUTSIDE the f-string. Nesting quotes inside f-string braces is
+    # legal on 3.12+ (PEP 701) and a SyntaxError on older Pythons -- jobs
+    # 464400/464402 died in 4 seconds because a local parse check ran on 3.13
+    # and the cluster does not (2026-09-03).
+    _h = int(getattr(cfg, "halt_terminate_steps", 0) or 0)
+    if _h:
+        _halt_msg = ("ON after %d stopped steps "
+                     "(pays the distance-scaled timeout)" % _h)
+    else:
+        _halt_msg = ("OFF -- a correctly-refused goal is indistinguishable "
+                     "from a timeout")
+    print("halted-safely    " + _halt_msg)
     print(f"coherence        weight={cfg.coherence_cost_weight} "
           f"tau={cfg.coherence_tau} terminate_tau={cfg.coherence_terminate_tau}"
           f"{'' if cfg.coherence_cost_weight > 0 else '   (OFF)'}")
