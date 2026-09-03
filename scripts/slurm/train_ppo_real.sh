@@ -245,6 +245,18 @@ fi
 # smoothness, forward-only, crash forfeits the bonus AND charges. Semantic
 # terrain term stays at default weight (sidewalk-over-driveway requirement).
 # Works in any branch incl. LIVE. Do not combine with the PROX knob.
+# RW=5 is the spelling everyone reaches for and it silently did NOTHING --
+# 2026-09-02 launched six 48-hour arms that way and every one got DEFAULT
+# weights: goal_bonus 50 instead of 1000, collision_terminate_frac 0.0 (so no
+# crash termination AT ALL), timeout 0, forward_only False, step 0.25. The
+# banner is what caught it. Accept both spellings, and shout when neither is
+# given.
+if [ "${RW:-}" = "5" ]; then RW5=1; fi
+if [ "${RW5:-0}" != "1" ] && [ "${LIVE:-0}" = "1" ]; then
+    echo "==> WARNING: neither RW5=1 nor RW=5 given -- this run uses DEFAULT" \
+         "reward weights (goal_bonus 50, NO crash termination, no timeout," \
+         "reverse enabled). Almost certainly not what you want."
+fi
 if [ "${RW5:-0}" = "1" ]; then
     BC_ARGS="$BC_ARGS --goal_bonus 1000 --goal_radius 0.5 --goal_weight 10 --timeout_penalty 100 --proximity_delta --proximity_weight 10 --proximity_margin 5 --clouds_dir /scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds --action_smooth_cost 5 --forward_only --collision_terminate_frac 0.35 --collision_terminate_penalty 1000"
     OUT="${OUT}_rw5"
