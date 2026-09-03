@@ -37,6 +37,11 @@ RUN_SHORT=$(echo "$RUN_NAME" \
           -e 's/_rs0\.01//' -e 's/_g360//')
 RUN_SHORT=${RUN_SHORT:0:110}
 EXTRA_ARGS=()
+# Accept the training spellings too. train_ppo_real.sh uses SPAWNMIN/SPAWNMAX,
+# this script used SPAWN_MIN/SPAWN_MAX, and a mismatched name is silently
+# ignored -- the same trap as MAXSTEPS vs MAX_STEPS (2026-09-03).
+SPAWN_MAX="${SPAWN_MAX:-${SPAWNMAX:-}}"
+SPAWN_MIN="${SPAWN_MIN:-${SPAWNMIN:-}}"
 if [[ "${SPAWN_MAX:-}" != "" ]]; then
     EXTRA_ARGS+=(--spawn_max_frame "$SPAWN_MAX")   # match the training rung
 fi
