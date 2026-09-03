@@ -5,7 +5,12 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=48G
-#SBATCH --time=01:00:00
+# 01:00:00 loses the run to the PIPELINE LOAD. A live eval spends 25-40 min
+# loading the diffusion pipeline before the first episode, so a 1 h wall leaves
+# ~20 min for 20 episodes and job 463931 (2026-09-03) timed out having written
+# videos but no metrics -- while its BLIND partner, which happened to load
+# faster, completed. A pair where only one half survives is worse than no pair.
+#SBATCH --time=2:00:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-eval-policy-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-eval-policy-%j.err
 #SBATCH --exclude=n04,n13,n17,n24
