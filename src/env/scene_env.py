@@ -485,7 +485,44 @@ class SceneEnv(gym.Env if gym is not None else object):
 
     _goal_dist_lo0: "float | None" = None
 
-    def set_goal_dist(self, d: float) -> None:
+    def goal_cone_probe(self, n: int = 500, seed: int = 0) -> dict:
+        """Is the goal ever BEHIND the robot? Sample n spawn/goal pairs per
+        scene exactly as reset() does -- same backend, same live config, same
+        scenes -- but WITHOUT rendering, so this costs milliseconds and can run
+        in the startup banner of every job.
+
+        Standalone tests can pass while the real thing is broken: the goal cone
+        was centred on a path tangent re-derived from whichever frame was
+        nearest the JITTERED spawn, which on a walk that doubles back can be a
+        frame on the other leg pointing the opposite way. 2.25% of episodes
+        across the six AU scenes put the goal more than 90 deg behind a
+        forward-only robot, which can then only time out. Fixed by centring on
+        the recorded heading at the spawn frame; this probe is what proves the
+        fix is live in THIS run rather than in a test file.
+
+        Returns {scene: (mean_deg, max_deg, behind_pct)}.
+        """
+        rng = np.random.default_rng(seed)
+        wb = self.world_backend
+        out = {}
+        for sid in self.scene_ids:
+            errs = []
+            for _ in range(int(n)):
+                pose = wb.sample_start_pose(sid, rng)
+                yaw = float(np.arctan2(pose[1, 0], pose[0, 0]))
+                cone = (wb.last_spawn_base_yaw()
+                        if hasattr(wb, "last_spawn_base_yaw") else None)
+                g = wb.sample_goal_position(sid, rng, pose[:2, 3],
+                                            cone_yaw=cone)
+                d = g[:2] - pose[:2, 3]
+                e = float(np.arctan2(d[1], d[0])) - yaw
+                errs.append(abs(np.degrees((e + np.pi) % (2 * np.pi) - np.pi)))
+            e = np.asarray(errs)
+            out[sid] = (float(e.mean()), float(e.max()),
+                        float(100.0 * (e > 90).mean()))
+        return out
+
+    def set_goal_dist(self, d: float) -> "tuple | None":
         """Distance-curriculum hook (2026-08-29, Joana: E must bootstrap like
         B did): goals START close (~3 m) and GROW as the policy earns wins.
         Backends sample goals, so the knob lives on the backend cfg.
@@ -502,7 +539,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         """
         cfg = getattr(self.world_backend, "cfg", None)
         if cfg is None:
-            return
+            return None
         cfg.goal_dist_m = float(d)
         if getattr(cfg, "goal_dir_360", False):
             lo, _hi = getattr(cfg, "goal_dist_range", None) or (3.0, float(d))
@@ -521,6 +558,9 @@ class SceneEnv(gym.Env if gym is not None else object):
                 # consuming rollout steps.
                 lo = max(self._goal_dist_lo0, float(d) - float(win))
             cfg.goal_dist_range = (lo, max(lo + 0.5, float(d)))
+        # Returned so the callback can log the ACTUAL range on wandb. Logging
+        # only `d` hid the near end, which the sliding window moves.
+        return getattr(cfg, "goal_dist_range", None)
 
     def inject_render(self, rgb: np.ndarray, K: np.ndarray, w2c: np.ndarray,
                       labels: "np.ndarray | None" = None,

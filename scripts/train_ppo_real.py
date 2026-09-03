@@ -110,9 +110,16 @@ class GoalDistCurriculum(BaseCallback):
                 and self.d < self.end):
             self.d = min(self.end, self.d + self.notch)
             self._wins.clear()               # re-earn the next notch
-        self.training_env.env_method("set_goal_dist", self.d)
+        rngs = self.training_env.env_method("set_goal_dist", self.d)
         if self.logger is not None:
             self.logger.record("curriculum/goal_dist", self.d)
+            # The far end alone is not the task: with a sliding window the near
+            # end moves too, and "goals are 2-8 m" vs "goals are 5-10 m" are
+            # different problems with the same `goal_dist`.
+            rng0 = next((r for r in rngs if r), None)
+            if rng0:
+                self.logger.record("curriculum/goal_dist_lo", float(rng0[0]))
+                self.logger.record("curriculum/goal_dist_hi", float(rng0[1]))
 
 
 class RewardComponentsCallback(BaseCallback):
@@ -465,6 +472,36 @@ def _reward_banner_body(args, cfg, env) -> None:
     print(f"entropy          ent_coef={args.ent_coef}   scenes={args.scenes} "
           f"rotate_every={args.scene_rotate}")
     print(line, flush=True)
+
+
+def _goal_cone_banner(env, n: int = 500) -> None:
+    """Prove, in THIS run, that no goal starts behind the robot.
+
+    Costs milliseconds (no rendering) and prints before the first rollout, so a
+    48-hour arm cannot spend its whole life sampling unwinnable episodes
+    without saying so. A forward-only robot given a goal behind it can only
+    time out, and that penalty is independent of anything the policy does --
+    pure noise in the gradient.
+    """
+    try:
+        res = env.env_method("goal_cone_probe", n)[0]
+    except Exception as e:
+        print(f"[goal-cone] probe unavailable: {e}", flush=True)
+        return
+    print("\n=== GOAL CONE CHECK (no rendering; "
+          f"{n} spawn/goal draws per scene) ===")
+    print(f"{'scene':<16}{'mean':>8}{'max':>8}{'BEHIND >90deg':>16}")
+    worst = 0.0
+    for sid, (mean, mx, behind) in sorted(res.items()):
+        print(f"{sid:<16}{mean:8.1f}{mx:8.1f}{behind:15.2f}%")
+        worst = max(worst, behind)
+    if worst > 0.0:
+        print(f"!!! {worst:.2f}% of episodes start with the goal BEHIND a "
+              f"forward-only robot -- those can only time out. The cone is "
+              f"NOT centred on the recorded spawn heading in this run.")
+    else:
+        print("OK: no goal starts behind the robot on any scene.")
+    print(flush=True)
 
 
 def _frozen_probe(env, steps: int = 120) -> None:
@@ -1237,6 +1274,7 @@ def main():
 
     print(f"[train_ppo_real] training {args.total_steps} steps on {args.scene} ...")
     _reward_banner(args, _scene_env_cfg(args), env)
+    _goal_cone_banner(env)
     if args.frozen_probe:
         _frozen_probe(env)
     model.learn(total_timesteps=args.total_steps, callback=callbacks, progress_bar=True,
