@@ -26,7 +26,13 @@
 # Renders ONCE, then sweeps the alpha-gate threshold over identical pixels.
 # Knobs: SCENE, TRAV, EPISODES, STEPS, SWEEP, GATETAU, GOALXY, SPAWNFRAME, TAG,
 #        LADDER (collision look-ahead distances to test for visibility),
-#        COLLAHEAD (second footprint drawn in MAGENTA on every panel).
+#        COLLAHEAD (second footprint drawn in MAGENTA on every panel),
+#        SEMPAL (semantic palette; v26 is 4, v21 was 1 — this was NOT passed
+#        until 2026-09-02, so every earlier run decoded a palette-4 model with
+#        the palette-1 table and its class ids, and therefore its collision and
+#        traversability numbers, were wrong. Geometry — fy, cy, pixel counts,
+#        blind zone — is unaffected, so the scene certification still stands),
+#        SURVEY (per-scene RGB | diffused sem | splat sem mp4).
 
 set -euo pipefail
 module load conda/24.3.0-0
@@ -54,6 +60,7 @@ python scripts/check_rewards.py \
     --steps "${STEPS:-8}" \
     --sweep "${SWEEP:-0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8}" \
     --gate_tau "${GATETAU:-0.5}" \
+    --sem_palette "${SEMPAL:-4}" \
     --walk "${WALK:-straight}" \
     --ladder_dists "${LADDER:-0.8,1.0,1.2,1.5,1.8,2.1,2.4}" \
     --collision_look_ahead "${COLLAHEAD:-1.0}" \
