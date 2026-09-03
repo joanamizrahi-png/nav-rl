@@ -74,8 +74,10 @@ def build_env(args):
         # Live-trained policies (--live runs) must be evaluated on live
         # observations too — cache lookups would be an obs-distribution shift.
         from src.env.live_backend import LiveDiffusedBackend
-        world = LiveDiffusedBackend(cfg, checkpoint=args.live_ckpt,
-                                    alpha_gate=not args.no_alpha_gate)
+        world = LiveDiffusedBackend(
+            cfg, checkpoint=args.live_ckpt,
+            alpha_gate=not args.no_alpha_gate,
+            alpha_gate_tau=float(getattr(args, "alpha_gate_tau", None) or 0.5))
     elif args.obs_cache:
         from src.env.cached_backend import CachedDiffusedBackend
         world = CachedDiffusedBackend(cfg, args.obs_cache,
@@ -347,6 +349,13 @@ def main():
                        # neither, so it was scoring a goal distribution
                        # training never sees.
                        "goal_support_radius_m", "collision_look_ahead_m",
+                       # 2026-09-03: the ALPHA GATE. Training runs ungated;
+                       # eval defaulted to gated, which turns low-coverage
+                       # pixels into void -- and void leaves the collision
+                       # fraction when void_cost > 0, so gated evals do not
+                       # crash where training would. Every eval that day
+                       # under-crashed for this reason.
+                       "no_alpha_gate", "alpha_gate_tau",
                        # max_steps was NOT adopted: eval ran 60-step episodes
                        # against arms trained at 90, cutting every rollout a
                        # third short -- so "it never stopped at the boundary"

@@ -427,6 +427,15 @@ def _dump_env_config(args, cfg):
             "coherence_cost_weight": getattr(cfg, "coherence_cost_weight", 0.0),
             "coherence_tau": getattr(cfg, "coherence_tau", 0.4),
             "coherence_terminate_tau": getattr(cfg, "coherence_terminate_tau", 0.0),
+            # THE ALPHA GATE. Training runs NOGATE=1 (raw labels); eval
+            # defaulted to GATED, which turns low-coverage pixels into void --
+            # and void is excluded from the collision fraction when
+            # void_cost > 0, so gated evals simply do not crash where training
+            # would. Joana caught it in a video panel: "sem RAW" solid
+            # non-traversable, "sem REWARD (gated)" black, episode running on
+            # (2026-09-03).
+            "no_alpha_gate": bool(getattr(args, "no_alpha_gate", False)),
+            "alpha_gate_tau": float(getattr(args, "alpha_gate_tau", 0.5)),
             "halt_terminate_steps": getattr(cfg, "halt_terminate_steps", 0),
             "halt_throttle_eps": getattr(cfg, "halt_throttle_eps", 0.05),
         }, indent=2))
