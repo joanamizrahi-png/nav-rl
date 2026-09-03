@@ -118,6 +118,8 @@ def build_env(args):
         proximity_weight=getattr(args, "proximity_weight", 0.0),
         proximity_margin=getattr(args, "proximity_margin", 1.0),
         proximity_delta=bool(getattr(args, "proximity_delta", False)),
+        timeout_distance_scaled=bool(
+            getattr(args, "timeout_distance_scaled", False)),
         clouds_dir=getattr(args, "clouds_dir", None),
         reward_scale=(getattr(args, "reward_scale", None) if getattr(args, "reward_scale", None) is not None else 1.0),
         coherence_cost_weight=getattr(args, "coherence_cost_weight", 0.0),
@@ -174,6 +176,27 @@ def main():
     # is why five runs reported ZERO crashes against a 72% crash rate in
     # training, and why goal counts came back at 20/20. Exposed as real flags so
     # a run can be matched to its training by hand.
+    # Reward weights. These do NOT change what a frozen policy does -- only the
+    # `return=` it reports -- but a return that is not on training's scale is a
+    # number nobody can compare to anything, so expose them all. Defaults here
+    # are the OLD eval defaults, deliberately: passing nothing reproduces
+    # previous evals exactly.
+    ap.add_argument("--goal_weight", type=float, default=1.5,
+                    help="training's RW5 value is 10")
+    ap.add_argument("--collision_weight", type=float, default=1.0)
+    ap.add_argument("--goal_bonus", type=float, default=50.0,
+                    help="training's RW5 value is 1000")
+    ap.add_argument("--timeout_penalty", type=float, default=0.0,
+                    help="training's RW5 value is 100. At 0 a TIMEOUT costs "
+                         "NOTHING, so --timeout_distance_scaled is also inert.")
+    ap.add_argument("--timeout_distance_scaled", action="store_true",
+                    help="scale the timeout by remaining/initial distance, as "
+                         "training does with TIMEOUTDIST=1")
+    ap.add_argument("--proximity_weight", type=float, default=0.0)
+    ap.add_argument("--proximity_margin", type=float, default=1.0)
+    ap.add_argument("--proximity_delta", action="store_true")
+    ap.add_argument("--void_cost", type=float, default=0.3)
+    ap.add_argument("--step_cost", type=float, default=0.05)
     ap.add_argument("--coherence_cost_weight", type=float, default=0.0,
                     help="graded cost below --coherence_tau. Training uses 10.")
     ap.add_argument("--coherence_tau", type=float, default=0.4)

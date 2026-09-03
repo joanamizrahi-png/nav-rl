@@ -96,6 +96,20 @@ if [[ -n "${RENDERH:-}" || -n "${RENDERW:-}" ]]; then
     EXTRA_ARGS+=(--render_height "${RENDERH:-336}" --render_width "${RENDERW:-560}")
     OUT_SUFFIX="${OUT_SUFFIX}_rr${RENDERW:-560}x${RENDERH:-336}"
 fi
+# Reward weights, so the reported `return=` is on TRAINING's scale. They do not
+# change a frozen policy's actions, but a return computed with goal_bonus 50
+# against training's 1000 is not comparable to anything.
+[ -n "${GOALWEIGHT:-}" ]  && EXTRA_ARGS+=(--goal_weight "$GOALWEIGHT")
+[ -n "${COLLWEIGHT:-}" ]  && EXTRA_ARGS+=(--collision_weight "$COLLWEIGHT")
+[ -n "${GOALBONUS:-}" ]   && EXTRA_ARGS+=(--goal_bonus "$GOALBONUS")
+[ -n "${TIMEOUTPEN:-}" ]  && EXTRA_ARGS+=(--timeout_penalty "$TIMEOUTPEN")
+[ "${TIMEOUTDIST:-0}" = "1" ] && EXTRA_ARGS+=(--timeout_distance_scaled)
+[ -n "${PROXW:-}" ]       && EXTRA_ARGS+=(--proximity_weight "$PROXW")
+[ -n "${PROXMARGIN:-}" ]  && EXTRA_ARGS+=(--proximity_margin "$PROXMARGIN")
+[ "${PROXDELTA:-0}" = "1" ] && EXTRA_ARGS+=(--proximity_delta)
+[ -n "${VOIDCOST:-}" ]    && EXTRA_ARGS+=(--void_cost "$VOIDCOST")
+[ -n "${STEPCOST:-}" ]    && EXTRA_ARGS+=(--step_cost "$STEPCOST")
+
 # GOALSUPPORT: reject goals with no reconstruction under them, exactly as
 # training does. It existed in check_rewards.sh but NOT here, so every eval
 # before 2026-09-03 12:45 sampled goals with the support check OFF (default
