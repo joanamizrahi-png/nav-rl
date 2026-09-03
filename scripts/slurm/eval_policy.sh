@@ -61,6 +61,7 @@ fi
 # does instead of pinning one goal_xy. Eval could previously only use a fixed
 # goal or the default goal frame, so it never reproduced the distribution the
 # policy learned, and with a wide spawn range d_start varied uncontrolled.
+EXTRA_ARGS+=(--sem_palette "${SEMPAL:-4}")
 if [ "${GOAL360:-0}" = "1" ]; then
     EXTRA_ARGS+=(--goal_dir_360)
 fi

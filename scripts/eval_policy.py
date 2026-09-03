@@ -165,6 +165,10 @@ def main():
                     help='designed obstacle test: pin the goal to "x,y" (nav-'
                          'frame meters, read off the top-down figure axes) — '
                          'e.g. just past a tree so the straight line crosses it')
+    ap.add_argument("--sem_palette", type=int, default=4,
+                    help="colour table for the video semantic panels. MUST "
+                         "match the semantics model (v26 = 4, v21 = 1) or the "
+                         "panels are coloured with the wrong classes.")
     ap.add_argument("--eval_seed", type=int, default=7,
                     help="episode e uses seed eval_seed*10000+e, so two "
                          "policies evaluated at the same value see IDENTICAL "
@@ -368,7 +372,8 @@ def main():
         if ep < args.videos:
             rec = save_rollout_video(model, env,
                                      args.out_dir / f"episode_{ep}.mp4",
-                                     seed=args.eval_seed * 10000 + ep)
+                                     seed=args.eval_seed * 10000 + ep,
+                                     sem_palette=args.sem_palette)
             if rec:
                 rec["video"] = f"episode_{ep}.mp4"
                 video_records.append(rec)

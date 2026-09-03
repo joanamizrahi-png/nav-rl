@@ -494,7 +494,11 @@ def main():
             draws = []
             for _s in range(int(n_samp)):
                 sp = world.sample_start_pose(args.scene, srng)
-                g = world.sample_goal_position(args.scene, srng, sp[:2, 3])
+                # Same heading the env passes, so this picture shows the cone
+                # the policy actually trains against.
+                g = world.sample_goal_position(
+                    args.scene, srng, sp[:2, 3],
+                    spawn_yaw=float(np.arctan2(sp[1, 0], sp[0, 0])))
                 draws.append((sp, g))
             for dx in (k * args.width for k in range(len(panels))):
                 prev = None

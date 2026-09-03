@@ -367,7 +367,8 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         return goal.astype(np.float32)
 
     def sample_goal_position(self, scene_id: str, rng, spawn_xy,
-                             min_sep_m: "float | None" = None) -> np.ndarray:
+                             min_sep_m: "float | None" = None,
+                             spawn_yaw: "float | None" = None) -> np.ndarray:
         if min_sep_m is None:
             min_sep_m = self.cfg.goal_min_sep_m
         """Per-episode goal (rung 6). With goal_frame_range set, draw a frame
@@ -384,8 +385,26 @@ class CalibratedRealWorldBackend(RealWorldBackend):
                 pos = np.asarray(cal.positions)[:, :2]
                 i = int(np.argmin(np.linalg.norm(
                     pos - np.asarray(spawn_xy), axis=1)))
-                fwd = pos[min(i + 1, len(pos) - 1)] - pos[max(i - 1, 0)]
-                base = float(np.arctan2(fwd[1], fwd[0]))
+                if spawn_yaw is not None:
+                    # Centre the cone on where the robot is ACTUALLY FACING.
+                    # Deriving it from the path tangent instead let the two
+                    # disagree: the spawn heading came from frame f while the
+                    # cone came from the frame nearest the JITTERED spawn,
+                    # which can be f+-1 -- and adjacent tangents swing up to
+                    # 150 deg where the walk turns (gnd_AUw360 frames 58-60,
+                    # 68-71). The goal then sat BEHIND a forward-only robot and
+                    # the episode could only time out. Smoothing the tangent
+                    # does NOT fix this: at a genuine reversal a +-3 frame span
+                    # flips just as hard. Sharing one heading does.
+                    base = float(spawn_yaw)
+                else:
+                    k = 3
+                    a = pos[max(i - k, 0)]
+                    b = pos[min(i + k, len(pos) - 1)]
+                    fwd = b - a
+                    if float(np.hypot(*fwd)) < 1e-6:
+                        fwd = pos[min(i + 1, len(pos) - 1)] - pos[max(i - 1, 0)]
+                    base = float(np.arctan2(fwd[1], fwd[0]))
                 half = float(np.deg2rad(cone)) / 2.0
                 th = base + float(rng.uniform(-half, half))
             return np.array([spawn_xy[0] + d * np.cos(th),

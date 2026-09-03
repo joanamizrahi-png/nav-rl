@@ -660,7 +660,8 @@ def make_live_vec_env(args):
 
 
 def save_rollout_video(model, env, out_path: Path, max_frames=120,
-                       seed: "int | None" = None):
+                       seed: "int | None" = None,
+                       sem_palette: int = 4):
     """Eval rollout with a HUD (step/action/reward/dist) + top-down map inset:
     agent path (white), recorded real trajectory (gray), goal (green). Makes
     off-manifold wandering legible — black frames = outside the reconstructed
@@ -676,8 +677,18 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
         import cv2
         # v14 runs carry ids 0-13; legacy raster runs carry the 30-class ids —
         # pick the palette that actually matches the ids or colors lie.
-        from src.eval.palette import CLASS_COLORS_255
-        pal = CLASS_COLORS_V14_255 if int(np.max(lab)) < 14 else CLASS_COLORS_255
+        # Use the SAME palette the surveys and the reward decode use --
+        # v14_palette(sem_palette). This drew from src/eval/palette.py instead,
+        # a different table, so eval videos were coloured differently from
+        # every other visual in the pipeline (2026-09-02). Falls back if the
+        # taxonomy import is unavailable.
+        try:
+            from diffsynth.utils.class_taxonomy import v14_palette
+            pal = (v14_palette(sem_palette).numpy() * 255).astype(np.uint8)
+        except Exception:
+            from src.eval.palette import CLASS_COLORS_255
+            pal = (CLASS_COLORS_V14_255 if int(np.max(lab)) < 14
+                   else CLASS_COLORS_255)
         col = pal[np.clip(lab, 0, len(pal) - 1)]
         if col.shape[:2] != (H, W):
             col = cv2.resize(col, (W, H), interpolation=cv2.INTER_NEAREST)

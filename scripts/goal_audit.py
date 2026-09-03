@@ -132,6 +132,11 @@ def main():
                     help="arrival radius; terrain under the goal is judged inside it")
     ap.add_argument("--lat_jitter", type=float, default=0.4)
     ap.add_argument("--yaw_jitter", type=float, default=20.0)
+    ap.add_argument("--old_cone", action="store_true",
+                    help="audit the PRE-FIX sampler (cone on the nearest-frame "
+                         "tangent). The before/after bearing table is printed "
+                         "either way; this only changes which goals are then "
+                         "checked for reachability.")
     ap.add_argument("--spawn_min", type=int, default=10)
     ap.add_argument("--look_ahead", type=float, default=1.5)
     ap.add_argument("--crash_frac", type=float, default=0.35)
@@ -167,6 +172,7 @@ def main():
     print("-" * len(hdr))
 
     totals = {k: 0 for k in (OFF_CLOUD, ON_BAD, BLOCKED, REACHABLE)}
+    bearing_tot = {"old": [], "new": []}
     for scene in args.scenes:
         cloud_path = Path(args.clouds_dir) / f"{scene}_cloud.npz"
         if not cloud_path.exists():
@@ -207,6 +213,7 @@ def main():
         d_raw, d_kept = [], []
         rng = np.random.default_rng(args.seed)
         counts = {k: 0 for k in (OFF_CLOUD, ON_BAD, BLOCKED, REACHABLE)}
+        bearing = {"old": [], "new": []}
         doms: dict[str, int] = {}
         drawn = []
 
@@ -218,15 +225,30 @@ def main():
             spawn = path[f] + rng.uniform(-1, 1) * args.lat_jitter * np.array(
                 [-np.sin(base), np.cos(base)])
 
-            # --- goal, sampled exactly as real_calibrated.sample_goal_position.
-            # The tangent is taken at the path frame NEAREST THE SPAWN, not at
-            # the spawn frame -- with lateral jitter those can differ.
+            # --- the robot's ACTUAL heading at reset: spawn-frame tangent
+            # plus the same yaw jitter the env applies (real_calibrated.py:310).
+            yaw = base + np.deg2rad(float(rng.uniform(-1, 1)) * args.yaw_jitter)
+
+            # --- goal. Two cone centres, drawn from the SAME d and the SAME
+            # offset so the comparison is paired:
+            #   OLD  the path tangent at the frame NEAREST THE SPAWN. Lateral
+            #        jitter can move that frame off the spawn frame, and where
+            #        the walk turns the two tangents disagree by up to 150 deg
+            #        -- the goal then sits BEHIND a forward-only robot.
+            #   NEW  the robot's own heading, so the two cannot disagree.
             i = int(np.argmin(np.linalg.norm(path - spawn, axis=1)))
             gfw = path[min(i + 1, len(path) - 1)] - path[max(i - 1, 0)]
             gbase = float(np.arctan2(gfw[1], gfw[0]))
             half = np.deg2rad(args.goal_cone_deg) / 2.0
-            th = gbase + float(rng.uniform(-half, half))
+            off = float(rng.uniform(-half, half))
             d = float(rng.uniform(lo_d, hi_d))
+            for _nm, _b in (("old", gbase), ("new", yaw)):
+                _g = spawn + d * np.array([np.cos(_b + off), np.sin(_b + off)])
+                _e = np.arctan2(*(_g - spawn)[::-1]) - yaw
+                bearing[_nm].append(
+                    abs(np.degrees((_e + np.pi) % (2 * np.pi) - np.pi)))
+            cone_base = gbase if args.old_cone else yaw
+            th = cone_base + off
             goal = spawn + d * np.array([np.cos(th), np.sin(th)])
             d_raw.append(d)
 
@@ -240,7 +262,7 @@ def main():
                         break
                     n_resampled += 1
                     d = float(rng.uniform(lo_d, hi_d))
-                    th = gbase + float(rng.uniform(-half, half))
+                    th = cone_base + float(rng.uniform(-half, half))
                     goal = spawn + d * np.array([np.cos(th), np.sin(th)])
             d_kept.append(float(np.linalg.norm(goal - spawn)))
 
@@ -286,6 +308,22 @@ def main():
 
         print(f"  [{scene}] {args.n} episodes in {time.time() - t0:.1f}s",
               file=sys.stderr, flush=True)
+        # THE TEST FOR THE CONE FIX. |bearing to goal - robot heading| at
+        # reset. With the cone centred on the heading this is bounded by
+        # cone/2 BY CONSTRUCTION, so `max` must not exceed it and `behind`
+        # must be 0. Any nonzero "behind" is an episode a forward-only robot
+        # cannot win: it can only time out.
+        for nm in ("old", "new"):
+            b = np.asarray(bearing[nm])
+            if not len(b):
+                continue
+            bearing_tot[nm].append(b)
+            print(f"  [{scene}] cone {nm:<3} |goal bearing - heading|: "
+                  f"mean {b.mean():5.1f}  p95 {np.percentile(b, 95):5.1f}  "
+                  f"max {b.max():6.1f} deg | "
+                  f">90deg (BEHIND) {100.0 * (b > 90).mean():5.2f}%  "
+                  f">cone/2 {100.0 * (b > args.goal_cone_deg / 2 + 1e-6).mean():5.2f}%",
+                  file=sys.stderr, flush=True)
         if sup_need and d_raw:
             print(f"  [{scene}] support resampled {n_resampled} draws; "
                   f"distance mean {np.mean(d_raw):.2f} -> "
@@ -302,6 +340,14 @@ def main():
 
         if args.png_dir:
             draw_scene(args, scene, gxy, glab, path, drawn)
+
+    for nm in ("old", "new"):
+        if bearing_tot[nm]:
+            b = np.concatenate(bearing_tot[nm])
+            print(f"ALL SCENES  cone {nm:<3} |goal bearing - heading|: "
+                  f"mean {b.mean():5.1f}  max {b.max():6.1f} deg | "
+                  f">90deg (BEHIND) {100.0 * (b > 90).mean():5.2f}%",
+                  file=sys.stderr, flush=True)
 
     tot = sum(totals.values())
     if tot:
