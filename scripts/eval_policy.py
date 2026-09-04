@@ -524,6 +524,8 @@ def main():
         d_start = float(getattr(env.unwrapped, "_initial_goal_dist", 0.0) or 0.0)
         comps = {k: 0.0 for k in EVAL_COMPONENTS}
         cov_sum, cov_n, trespass, min_dist = 0.0, 0, 0, float("inf")
+        phantom = missed = 0
+        last_phantom = 0.0
         while not done:
             action, _ = model.predict(obs, deterministic=True)
             obs, r, term, trunc, info = env.step(action)
@@ -543,6 +545,10 @@ def main():
             # or failure, when the goal itself sits on grass.
             if int(info.get("dominant_class_id", -1)) == 3:
                 trespass += 1
+            # generator vs map reading of the footprint (logged when a cloud exists)
+            phantom += int(float(info.get("phantom", 0.0)) > 0)
+            missed += int(float(info.get("missed", 0.0)) > 0)
+            last_phantom = float(info.get("phantom", 0.0))
             # collision magnitude = footprint fraction on non-traversable
             # classes (eval reward weight is 1.0, so |term| = the fraction).
             frac = round(float(max(0.0, -info.get("collision", 0.0))), 3)
@@ -579,6 +585,9 @@ def main():
                                         if d_start > 1e-6 else None),
                         "min_dist": round(min_dist, 2),
                         "trespass_steps": trespass,
+                        "phantom_steps": phantom, "missed_steps": missed,
+                        # the crash that ended this episode was one the map did not see
+                        "crash_was_phantom": bool(outcome == "CRASH" and last_phantom > 0),
                         "mean_coverage": (round(cov_sum / cov_n, 3)
                                           if cov_n else None),
                         "reward_components": {k: round(v, 2)
@@ -632,6 +641,9 @@ def main():
         "mean_steps_to_goal": round(float(np.mean([r["steps"] for r in succ])), 1) if succ else None,
         "mean_return": round(float(np.mean([r["return"] for r in results])), 2),
         "mean_collision_steps": round(float(np.mean([r["collision_steps"] for r in results])), 2),
+        "mean_phantom_steps": round(float(np.mean([r["phantom_steps"] for r in results])), 2),
+        "mean_missed_steps": round(float(np.mean([r["missed_steps"] for r in results])), 2),
+        "crashes_that_were_phantoms": "%d/%d" % (sum(r["crash_was_phantom"] for r in results), sum(r["outcome"] == "CRASH" for r in results)),
         "reward_components_mean": comp_mean,
         "ground_share": ground_share,
     }

@@ -263,6 +263,11 @@ class SceneEnvConfig:
     # "map_then_generated" = the map where it has support, the image where
     # the footprint is mostly void.
     reward_source: str = "generated"
+    # 2026-09-04: compute the MAP reading of the footprint on every arm that
+    # has a cloud, even when the reward reads the image, and log where the
+    # two disagree: diag/phantom = generator says crash, map says clear;
+    # diag/missed = map says crash, generator says clear; diag/label_agree.
+    map_diagnostics: bool = True
     map_res_m: float = 0.1
     map_inflate_m: float = 0.2        # grow non-traversable cells by the robot half-width
     map_fill_m: float = 0.3           # fill void holes up to this radius from their neighbours
@@ -670,7 +675,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         # reconstructed at all. Goal support needs the latter.
         gr = pts[(pts[:, 2] < 0.15) & (labs >= 0)][:, :2]
         self._ground_pts[scene_id] = gr[::4].astype(np.float32) if len(gr) else None
-        if self.cfg.reward_source != "generated":
+        if self.cfg.reward_source != "generated" or self.cfg.map_diagnostics:
             from src.eval.reward_map import build_label_grid, VOID
             if not hasattr(self, "_label_grids"):
                 self._label_grids = {}
@@ -778,13 +783,14 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._last_fp_heading = fp_heading
 
         # ---- decomposed reward on the CURRENT view + robot pose ----
-        if self.cfg.reward_source != "generated":
+        breakdown_map = None
+        grids = getattr(self, "_label_grids", {})
+        if self.cfg.reward_source != "generated" and self._scene_id not in grids:
+            raise RuntimeError(f"reward_source={self.cfg.reward_source} but no label grid "
+                               f"for scene {self._scene_id} -- is clouds_dir set and the "
+                               f"cloud present?")
+        if self._scene_id in grids:
             from src.eval.reward_map import compute_reward_map
-            grids = getattr(self, "_label_grids", {})
-            if self._scene_id not in grids:
-                raise RuntimeError(f"reward_source={self.cfg.reward_source} but no label grid "
-                                   f"for scene {self._scene_id} -- is clouds_dir set and the "
-                                   f"cloud present?")
             breakdown_map = compute_reward_map(
                 grids[self._scene_id], robot_position=robot_position, robot_heading=fp_heading,
                 goal=self._goal_world, traversability_scores=self._trav_scores,
@@ -811,6 +817,19 @@ class SceneEnv(gym.Env if gym is not None else object):
             body_width=GO2_BODY_WIDTH,
             weights=self.cfg.reward,
         )
+        # the two readings of the same footprint, logged before either is chosen
+        self._map_vs_gen = None
+        if breakdown_map is not None:
+            _thr = max(self.cfg.collision_terminate_frac, 1e-9)
+            _w = max(self.cfg.reward.collision, 1e-6)
+            _fg = -float(breakdown.collision) / _w
+            _fm = -float(breakdown_map.collision) / _w
+            self._map_vs_gen = {
+                "gen_collision_frac": _fg, "map_collision_frac": _fm,
+                "phantom": float(_fg >= _thr and _fm < _thr),
+                "missed": float(_fm >= _thr and _fg < _thr),
+                "label_agree": float(int(breakdown.dominant_class_id) == int(breakdown_map.dominant_class_id)),
+            }
         if self.cfg.reward_source == "map":
             breakdown = breakdown_map
         elif self.cfg.reward_source == "map_then_generated":
@@ -965,6 +984,8 @@ class SceneEnv(gym.Env if gym is not None else object):
             if getattr(self, "_initial_goal_dist", 0.0) else float("nan"))
         info["crash"] = crash
         info["halted"] = float(halted)
+        if getattr(self, "_map_vs_gen", None):
+            info.update(self._map_vs_gen)
         info["proximity"] = prox_term
         # Always logged, on or off, so the coverage the policy actually
         # experiences shows up in wandb from the first run.

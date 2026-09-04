@@ -184,6 +184,8 @@ class RewardComponentsCallback(BaseCallback):
     # go under diag/ so reward/ contains only things that are summed into the
     # return (her ask 2026-09-02).
     DIAG_KEYS = ("coverage", "collision_off_frame", "goal_dist_frac",
+                 # 2026-09-04: generator vs map reading of the same footprint
+                 "phantom", "missed", "label_agree", "gen_collision_frac", "map_collision_frac",
                  # 1.0 on the step a HALTED-SAFELY terminal fires, so
                  # diag/halted is the RATE of correct stops -- the first
                  # metric for the behaviour this project is about.
@@ -441,6 +443,7 @@ def _dump_env_config(args, cfg):
             "halt_penalty_scale": getattr(cfg, "halt_penalty_scale", 1.0),
             "terrain_speed_scaled": bool(getattr(cfg, "terrain_speed_scaled", False)),
             "reward_source": getattr(cfg, "reward_source", "generated"),
+            "map_diagnostics": bool(getattr(cfg, "map_diagnostics", True)),
             "map_res_m": getattr(cfg, "map_res_m", 0.1),
         }, indent=2))
         print(f"[train] env recorded for eval: {out}", flush=True)

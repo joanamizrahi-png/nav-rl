@@ -276,8 +276,23 @@ def main():
     ax.set_title("episodes ended by the COHERENCE TERMINAL (fraction)\n"
                  "coverage < tau_kill; 0.1 on most arms, 0.05 on 463170", fontsize=10)
     ax.set_xlabel("env steps this run"); ax.set_ylim(0, 1); ax.grid(alpha=0.3)
-    for k in (14, 15):
-        axes[k].axis("off")
+    # 2026-09-04: the generator's reading of the footprint against the map's,
+    # logged live on every arm that has a cloud. phantom = generator says
+    # crash (>= collision_terminate_frac) while the map says clear.
+    for k, key, title in ((14, "diag/phantom", "PHANTOM rate per step\n(generator says crash, map says clear)"),
+                          (15, "diag/label_agree", "footprint label agreement\n(generator dominant class == map's)")):
+        ax = axes[k]
+        drawn = False
+        for j, s_ in data.items():
+            y = get(s_, key)
+            if np.all(np.isnan(y)):
+                continue
+            x = get(s_, "time/total_timesteps"); x = x - x[0]
+            ax.plot(x, y, "-o", c=colors[j], lw=1.4, ms=2.5); drawn = True
+        ax.set_title(title, fontsize=10); ax.set_xlabel("env steps this run"); ax.grid(alpha=0.3)
+        ax.set_ylim(0, 1)
+        if not drawn:
+            ax.text(0.5, 0.5, "no arm logs this yet\n(arms launched after 2026-09-04 01:30)", ha="center", va="center", fontsize=9, transform=ax.transAxes)
     fig.suptitle(f"fleet of {len(data)} arms — {Path(args.out).stem}", fontsize=12)
     fig.tight_layout(rect=(0, 0.05, 1, 0.96))
     fig.savefig(args.out, dpi=130, bbox_inches="tight")
