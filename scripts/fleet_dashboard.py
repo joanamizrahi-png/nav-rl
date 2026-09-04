@@ -133,7 +133,11 @@ def main():
         raise SystemExit("no jobs given and none found")
 
     labels = ledger_labels()
-    names = short_names({j: labels.get(j, str(j)) for j in jobs})
+    # Job id FIRST. Two arms launched before the label carried COHTERM had
+    # byte-identical labels (463164 and 463170), so their legend entries
+    # merged and a colour got misread as the wrong arm (2026-09-03).
+    names = {j: "%d %s" % (j, n)
+             for j, n in short_names({j: labels.get(j, str(j)) for j in jobs}).items()}
 
     data = {}
     for j in jobs:
@@ -154,7 +158,7 @@ def main():
     def get(s, k):
         return np.array(s.get(k, [float("nan")] * len(s["time/total_timesteps"])), dtype=float)
 
-    fig, axes = plt.subplots(2, 4, figsize=(22, 9))
+    fig, axes = plt.subplots(3, 4, figsize=(22, 13))
     axes = axes.ravel()
     panels = [
         ("curriculum/goal_dist", "goal distance curriculum (m)\nadvances only on >=50% wins", None),
@@ -163,6 +167,12 @@ def main():
         ("curriculum/recent_success", "recent success (100-ep window)", (0, 1)),
         ("diag/throttle", "mean commanded throttle\n(ppo_240704 crept at 0.28)", (0, 1)),
         ("diag/halted", "halted-safely rate (per step)", None),
+        # the GRADED coherence cost, per step -- not the terminal. Nonzero
+        # means coverage is below tau_coh (0.4) and the policy is being
+        # charged for looking where the reconstruction is thin.
+        ("reward/coherence", "incoherence COST per step (unscaled)\n0 = coverage above tau_coh everywhere", None),
+        ("diag/coverage", "reconstruction coverage seen by the policy\n(mean alpha; tau_coh 0.4, kill 0.1)", (0, 1)),
+        ("reward/semantic", "terrain cost per step (unscaled)\n0 = perfect ground, -5 = all grass", None),
     ]
     for ax, (key, title, ylim) in zip(axes, panels):
         for j, s in data.items():
@@ -189,7 +199,11 @@ def main():
         if ylim:
             ax.set_ylim(*ylim)
         ax.grid(alpha=0.3)
-    axes[0].legend(fontsize=7, loc="upper left", ncol=2)
+    from matplotlib.lines import Line2D
+    handles = [Line2D([], [], color=colors[j], lw=2, label=names.get(j, str(j)))
+               for j in data]
+    fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=8,
+               frameon=False, bbox_to_anchor=(0.5, -0.005))
 
     # ---- BY SCENE. Behaviour depends heavily on which scene is resident:
     # gnd_AU_180 has 47.7% of goals on grass and a 36.8% reachability ceiling,
@@ -210,8 +224,8 @@ def main():
     crash_fn = lambda s: -get(s, "reward/crash") * get(s, "rollout/ep_len_mean") / 10.0
     xs = np.arange(len(scene_names))
     narm = max(len(data), 1)
-    for ax, fn, title in ((axes[6], goal_fn, "goal rate BY SCENE (%%), last %d dumps\nblack tick = reachability ceiling" % args.recent),
-                          (axes[7], crash_fn, "crash rate BY SCENE (%%), last %d dumps" % args.recent)):
+    for ax, fn, title in ((axes[9], goal_fn, "goal rate BY SCENE (%%), last %d dumps\nblack tick = reachability ceiling" % args.recent),
+                          (axes[10], crash_fn, "crash rate BY SCENE (%%), last %d dumps" % args.recent)):
         for i, (j, s) in enumerate(data.items()):
             y = by_scene(s, fn)
             off = (i - (narm - 1) / 2) * (0.7 / narm)
@@ -225,8 +239,9 @@ def main():
         ax.set_ylim(0, 100)
         ax.set_title(title, fontsize=10)
         ax.grid(alpha=0.3, axis="y")
+    axes[11].axis("off")
     fig.suptitle(f"fleet of {len(data)} arms — {Path(args.out).stem}", fontsize=12)
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.tight_layout(rect=(0, 0.05, 1, 0.96))
     fig.savefig(args.out, dpi=130, bbox_inches="tight")
     print(f"==> {args.out}")
 
