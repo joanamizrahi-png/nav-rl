@@ -280,7 +280,7 @@ def main():
     # logged live on every arm that has a cloud. phantom = generator says
     # crash (>= collision_terminate_frac) while the map says clear.
     for k, key, title in ((14, "diag/phantom", "PHANTOM rate per step\n(generator says crash, map says clear)"),
-                          (15, "diag/label_agree", "footprint label agreement\n(generator dominant class == map's)")):
+                          (15, "diag/trav_agree", "footprint TRAVERSABILITY agreement\n(generator and map both walkable, or both not)")):
         ax = axes[k]
         drawn = False
         for j, s_ in data.items():

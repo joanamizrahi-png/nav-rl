@@ -607,7 +607,7 @@ def main():
                         "min_dist": round(min_dist, 2),
                         "trespass_steps": trespass,
                         "phantom_steps": phantom, "missed_steps": missed,
-                        "goal_traversable": (None if goal_trav != goal_trav else bool(goal_trav > 0.5)),
+                        "goal_traversable": (None if goal_trav != goal_trav else (True if goal_trav >= 0.75 else (False if goal_trav <= 0.25 else "edge"))),
                         # the crash that ended this episode was one the map did not see
                         "crash_was_phantom": bool(outcome == "CRASH" and last_phantom > 0),
                         "mean_coverage": (round(cov_sum / cov_n, 3)
@@ -672,7 +672,7 @@ def main():
     # ---- refusal metric: what the policy did, by what ground the goal sat on (Joana, 2026-09-04) ----
     by_ground = {}
     for r in results:
-        k = {True: "goal on traversable ground", False: "goal on NON-traversable ground", None: "goal ground unknown"}[r.get("goal_traversable")]
+        k = {True: "goal on traversable ground", False: "goal on NON-traversable ground", None: "goal ground unknown", "edge": "goal on the EDGE (25-75% of the disc walkable)"}[r.get("goal_traversable")]
         by_ground.setdefault(k, {})
         by_ground[k][r["outcome"]] = by_ground[k].get(r["outcome"], 0) + 1
     summary["outcomes_by_goal_ground"] = by_ground

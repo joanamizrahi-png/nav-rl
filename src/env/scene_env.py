@@ -541,7 +541,13 @@ class SceneEnv(gym.Env if gym is not None else object):
             _known = _lab >= 0
             if _known.mean() >= 0.5:
                 _nt = self._non_trav[np.clip(_lab[_known], 0, len(self._non_trav) - 1)]
-                self._goal_traversable = float(_nt.mean() < 0.5)
+                _walk = float(1.0 - _nt.mean())         # walkable share of the arrival disc
+                # Joana 2026-09-04: a goal on grass with part of its disc on the
+                # walkway is REACHABLE (the robot stands on the walkable part).
+                # Three-way: 1 = traversable (>= 75% walkable), 0 = non-traversable
+                # (<= 25%), 0.5 = edge goal. The refusal flags use the extremes.
+                self._goal_walkable_frac = _walk
+                self._goal_traversable = 1.0 if _walk >= 0.75 else (0.0 if _walk <= 0.25 else 0.5)
 
         if self.cfg.defer_render:
             self._needs_render = True
@@ -558,6 +564,14 @@ class SceneEnv(gym.Env if gym is not None else object):
         """Curriculum hook: training callback anneals the capture radius
         (e.g. 1.0 m -> 0.5 m) via vec_env.env_method("set_goal_radius", r)."""
         self.cfg.goal_radius = float(r)
+
+    def set_halt_penalty_scale(self, s: float) -> None:
+        """Curriculum hook (2026-09-04): the halt is EARNED. It pays the full
+        timeout while the policy cannot reach goals and notches down toward
+        the configured scale as recent wins pass the threshold. A cold policy
+        under a cheap reachable halt and a 2500 crash froze at 0% goals /
+        70% halts within 8k steps (465704/465706/465709)."""
+        self.cfg.halt_penalty_scale = float(s)
 
     _goal_dist_lo0: "float | None" = None
 
@@ -862,6 +876,11 @@ class SceneEnv(gym.Env if gym is not None else object):
                 "label_agree": float(int(breakdown.dominant_class_id) == int(breakdown_map.dominant_class_id)),
                 "gen_dominant_class_id": int(breakdown.dominant_class_id),
                 "map_dominant_class_id": int(breakdown_map.dominant_class_id),
+                # Joana 2026-09-04: road / sidewalk / pavement swaps are semantic
+                # disagreements that change nothing for the reward. This is the
+                # agreement that matters: do both call the footprint walkable?
+                "trav_agree": float(bool(self._non_trav[max(int(breakdown.dominant_class_id), 0)])
+                                    == bool(self._non_trav[max(int(breakdown_map.dominant_class_id), 0)])),
                 "map_void_frac": float(breakdown_map.void_frac),
             }
         if self.cfg.reward_source == "map":
@@ -1031,6 +1050,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         # are over episode ENDS: the refusal metric
         _end = bool(terminated or truncated)
         _nan = float("nan")
+        info["goal_walkable_frac"] = float(getattr(self, "_goal_walkable_frac", float("nan")))
         info["halt_correct"] = (float(halted and _gt == 0.0) if _end and _gt == _gt else _nan)
         info["halt_wrong"] = (float(halted and _gt == 1.0) if _end and _gt == _gt else _nan)
         info["reach_on_nontrav"] = (float(bool(terminated) and _gt == 0.0) if _end and _gt == _gt else _nan)

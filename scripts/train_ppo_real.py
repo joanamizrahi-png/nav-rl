@@ -34,6 +34,38 @@ from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 
 
+class HaltPriceCurriculum(BaseCallback):
+    """The halt is earned (2026-09-04). halt_penalty_scale starts at `start`
+    (1.0 = a halt pays the full distance-scaled timeout) and notches down by
+    `notch` toward `end` each time the last `window` episodes win >= threshold,
+    re-earning each notch -- the same rule as GoalRadiusCurriculum. Warm arms
+    reach `end` within an hour; a cold arm must learn to reach goals before
+    refusing becomes cheap, which is what stops the freeze."""
+
+    def __init__(self, start: float, end: float, window: int = 100,
+                 threshold: float = 0.5, notch: float = 0.1):
+        super().__init__()
+        self.start, self.end, self.window, self.threshold, self.notch = start, end, window, threshold, notch
+        self.s = start
+        self._wins: list = []
+
+    def _on_step(self) -> bool:
+        for info in self.locals.get("infos", []):
+            if "episode" in info:
+                self._wins.append(1.0 if info.get("goal_bonus", 0.0) > 0 else 0.0)
+        return True
+
+    def _on_rollout_start(self) -> None:
+        recent = self._wins[-self.window:]
+        if (len(recent) >= self.window // 2 and float(np.mean(recent)) >= self.threshold
+                and self.s > self.end):
+            self.s = max(self.end, self.s - self.notch)
+            self._wins.clear()
+        self.training_env.env_method("set_halt_penalty_scale", self.s)
+        if self.logger is not None:
+            self.logger.record("curriculum/halt_scale", self.s)
+
+
 class GoalRadiusCurriculum(BaseCallback):
     """Anneal the goal-capture radius start -> end (advisor spec 2026-08-27).
     Attacks terminal-capture: a 1.0 m disc is reachable by a fresh policy;
@@ -185,11 +217,11 @@ class RewardComponentsCallback(BaseCallback):
     # return (her ask 2026-09-02).
     DIAG_KEYS = ("coverage", "collision_off_frame", "goal_dist_frac",
                  # 2026-09-04: generator vs map reading of the same footprint
-                 "phantom", "missed", "label_agree", "gen_collision_frac", "map_collision_frac",
+                 "phantom", "missed", "label_agree", "trav_agree", "gen_collision_frac", "map_collision_frac",
                  "used_generated", "map_void_frac",
                  # refusal metric (per episode end): goal on traversable ground?
                  # halted on a non-traversable goal = correct; on a traversable one = the freeze
-                 "goal_traversable", "halt_correct", "halt_wrong", "reach_on_nontrav",
+                 "goal_traversable", "goal_walkable_frac", "halt_correct", "halt_wrong", "reach_on_nontrav",
                  # 1.0 on the step a HALTED-SAFELY terminal fires, so
                  # diag/halted is the RATE of correct stops -- the first
                  # metric for the behaviour this project is about.
@@ -1217,6 +1249,8 @@ def main():
     ap.add_argument("--map_ignore_classes", default="")
     ap.add_argument("--terrain_speed_scaled", action="store_true",
                     help="terrain cost x |throttle|: driving onto bad ground costs, facing it does not")
+    ap.add_argument("--halt_scale_start", type=float, default=None,
+                    help="halt-price curriculum: start scale (1.0 = full timeout), notches to --halt_penalty_scale on wins")
     ap.add_argument("--halt_penalty_scale", type=float, default=1.0,
                     help="HALTED pays timeout x this (1.0 = same as a timeout)")
     ap.add_argument("--goal_dist_window", type=float, default=None,
@@ -1380,6 +1414,8 @@ def main():
         callbacks.append(GoalRadiusCurriculum(
             args.goal_radius_start, args.goal_radius, args.curriculum_steps,
             mode=args.curriculum_mode))
+    if getattr(args, "halt_scale_start", None) is not None:
+        callbacks.append(HaltPriceCurriculum(float(args.halt_scale_start), float(args.halt_penalty_scale)))
     if args.goal_dist_start is not None and args.goal_dist is not None:
         callbacks.append(GoalDistCurriculum(
             args.goal_dist_start, args.goal_dist,
