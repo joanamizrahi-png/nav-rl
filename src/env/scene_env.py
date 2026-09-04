@@ -256,6 +256,15 @@ class SceneEnvConfig:
     # still use the TRUE goal; only the policy's observation is corrupted.
     goal_noise_std: float = 0.0
     clouds_dir: "str | None" = None     # dir holding <scene>_cloud.npz files
+    # 2026-09-03: where the reward reads its labels. "generated" = the
+    # co-generated semantic image (every run before this date); "map" = a
+    # top-down label grid built from the scene cloud (src/eval/reward_map.py),
+    # deterministic and view-consistent, no phantom obstacles;
+    # "map_then_generated" = the map where it has support, the image where
+    # the footprint is mostly void.
+    reward_source: str = "generated"
+    map_res_m: float = 0.1
+    map_inflate_m: float = 0.2        # grow non-traversable cells by the robot half-width
     # Trajectory output (plan-B arm, 2026-08-25): the policy emits k action
     # pairs per decision and only observes again after all k execute. Rewards
     # still accrue per sub-step, so the world stays action-conditioned; only
@@ -655,6 +664,18 @@ class SceneEnv(gym.Env if gym is not None else object):
         # reconstructed at all. Goal support needs the latter.
         gr = pts[(pts[:, 2] < 0.15) & (labs >= 0)][:, :2]
         self._ground_pts[scene_id] = gr[::4].astype(np.float32) if len(gr) else None
+        if self.cfg.reward_source != "generated":
+            from src.eval.reward_map import build_label_grid, VOID
+            if not hasattr(self, "_label_grids"):
+                self._label_grids = {}
+            g = build_label_grid(pts, labs, self._non_trav, res=self.cfg.map_res_m,
+                                 inflate_m=self.cfg.map_inflate_m)
+            self._label_grids[scene_id] = g
+            known = g.labels >= 0
+            nt = known & self._non_trav[np.clip(g.labels, 0, len(self._non_trav) - 1)]
+            print(f"[map reward] {scene_id}: grid {g.labels.shape[1]}x{g.labels.shape[0]} "
+                  f"@ {g.res} m, known {known.mean():.0%} of cells, non-traversable "
+                  f"{nt.sum() / max(known.sum(), 1):.0%} of known", flush=True)
         # Reference density: how many ground points sit within the goal radius
         # at a place we KNOW is reconstructed -- the recorded walk itself.
         ref = 0.0
@@ -746,6 +767,21 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._last_fp_heading = fp_heading
 
         # ---- decomposed reward on the CURRENT view + robot pose ----
+        if self.cfg.reward_source != "generated":
+            from src.eval.reward_map import compute_reward_map
+            grids = getattr(self, "_label_grids", {})
+            if self._scene_id not in grids:
+                raise RuntimeError(f"reward_source={self.cfg.reward_source} but no label grid "
+                                   f"for scene {self._scene_id} -- is clouds_dir set and the "
+                                   f"cloud present?")
+            breakdown_map = compute_reward_map(
+                grids[self._scene_id], robot_position=robot_position, robot_heading=fp_heading,
+                goal=self._goal_world, traversability_scores=self._trav_scores,
+                non_traversable_mask=self._non_trav, previous_position=self._prev_position,
+                look_ahead_dist=self.cfg.look_ahead_dist,
+                collision_look_ahead_dist=(self.cfg.collision_look_ahead_m
+                                           if self.cfg.collision_look_ahead_m > 0.0 else None),
+                body_length=GO2_BODY_LENGTH, body_width=GO2_BODY_WIDTH, weights=self.cfg.reward)
         breakdown = compute_reward(
             semantic_image=semantic_image,
             K=self._last_K,
@@ -764,6 +800,13 @@ class SceneEnv(gym.Env if gym is not None else object):
             body_width=GO2_BODY_WIDTH,
             weights=self.cfg.reward,
         )
+        if self.cfg.reward_source == "map":
+            breakdown = breakdown_map
+        elif self.cfg.reward_source == "map_then_generated":
+            # the map where it has support; the image where the footprint is
+            # mostly off the reconstruction
+            if breakdown_map.void_frac < 0.5:
+                breakdown = breakdown_map
 
         # Collision snapshot: the view + semantics + numbers behind every
         # non-traversable footprint, saved BEFORE the pose advances so the

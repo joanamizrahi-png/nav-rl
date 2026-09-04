@@ -123,6 +123,7 @@ fi
 [ -n "${HALTSCALE:-}" ] && EXTRA_ARGS+=(--halt_penalty_scale "$HALTSCALE")
 [ -n "${HALTEPS:-}" ] && EXTRA_ARGS+=(--halt_throttle_eps "$HALTEPS")
 [ "${SPEEDCOST:-0}" = "1" ] && EXTRA_ARGS+=(--terrain_speed_scaled)
+[ -n "${REWSRC:-}" ] && { EXTRA_ARGS+=(--reward_source "$REWSRC"); OUT_SUFFIX="${OUT_SUFFIX}_r${REWSRC}"; }
 
 # Reward weights, so the reported `return=` is on TRAINING's scale. They do not
 # change a frozen policy's actions, but a return computed with goal_bonus 50

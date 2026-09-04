@@ -27,7 +27,7 @@ set -euo pipefail
 # of them was -- the .out files do not echo the command, env_config.json is
 # only written after the hour-long pipeline load, and shell history had scrolled
 # away. An unrecorded experiment is not an experiment.
-KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|CKPTFREQ|SPEEDCOST|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
+KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|CKPTFREQ|SPEEDCOST|REWSRC|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
 # Whitelist, not a blacklist. The first version excluded known-noisy prefixes
 # and still emitted lmod shell functions, base64 module tables and every SLURM
 # variable -- thousands of unreadable characters per entry (2026-09-03, first
@@ -359,6 +359,7 @@ fi
 [ -n "${HALTSCALE:-}" ] && LABEL="${LABEL}-hs${HALTSCALE}"
 [ -n "${HALTEPS:-}" ] && LABEL="${LABEL}-he${HALTEPS}"
 [ "${SPEEDCOST:-0}" = "1" ] && LABEL="${LABEL}-spd"
+[ -n "${REWSRC:-}" ] && LABEL="${LABEL}-r${REWSRC}"
 [ -n "${ENT:-}" ] && LABEL="${LABEL}-ent${ENT}"
 LABEL="${LABEL}-s${SEED:-0}"
 echo "==> wandb label: $LABEL"
@@ -518,6 +519,14 @@ fi
 if [ "${SPEEDCOST:-0}" = "1" ]; then
     BC_ARGS="$BC_ARGS --terrain_speed_scaled"
     OUT="${OUT}_spd"
+fi
+# REWSRC=map: the reward reads the scene cloud's top-down label grid instead
+# of the generated semantic image (map_then_generated = map with image
+# fallback where the footprint is mostly off the reconstruction). Needs the
+# clouds_dir RW5 already passes.
+if [ -n "${REWSRC:-}" ]; then
+    BC_ARGS="$BC_ARGS --reward_source ${REWSRC}"
+    OUT="${OUT}_r${REWSRC}"
 fi
 # HALTSCALE: what a HALTED episode pays, as a multiple of the distance-scaled
 # timeout. 1 (default) = the tie; 0.3 = refusing an unreachable goal is the

@@ -69,6 +69,7 @@ Both pairs had to be rerun.
 | 464428 / 464429 | `HALT=5` |
 | tonight's A (halt+tie) | `HALT=3 HALTEPS=0.15 HALTSCALE=0.3 COLLPEN=2500` |
 | tonight's B / C (+speed) | `HALT=3 HALTEPS=0.15 HALTSCALE=0.3 COLLPEN=2500 SPEEDCOST=1` |
+| map-reward arms (`_rmap` in the dir) | add `REWSRC=map` to whatever the arm's other knobs are |
 | warm arms | `GOALRADIUS` from the run's `curriculum_state.json` (automatic) |
 
 The run's own record is `outputs/<run>/launch.txt` (the ledger entry):

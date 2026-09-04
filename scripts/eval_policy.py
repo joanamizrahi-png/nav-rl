@@ -140,6 +140,9 @@ def build_env(args):
         halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
         halt_penalty_scale=getattr(args, "halt_penalty_scale", 1.0),
         terrain_speed_scaled=bool(getattr(args, "terrain_speed_scaled", False)),
+        reward_source=getattr(args, "reward_source", "generated"),
+        map_res_m=float(getattr(args, "map_res_m", 0.1)),
+        map_inflate_m=float(getattr(args, "map_inflate_m", 0.2)),
         random_spawn=True,
         trav_path=args.trav_path,
         collision_terminate_frac=args.collision_terminate_frac,
@@ -234,6 +237,10 @@ def main():
     ap.add_argument("--halt_throttle_eps", type=float, default=0.05)
     ap.add_argument("--halt_penalty_scale", type=float, default=1.0)
     ap.add_argument("--terrain_speed_scaled", action="store_true")
+    ap.add_argument("--reward_source", default="generated",
+                    choices=("generated", "map", "map_then_generated"))
+    ap.add_argument("--map_res_m", type=float, default=0.1)
+    ap.add_argument("--map_inflate_m", type=float, default=0.2)
     ap.add_argument("--goal_radius", type=float, default=None,
                     help="arrival radius; training's FINAL value, not its start")
     ap.add_argument("--semantic_weight", type=float, default=None)

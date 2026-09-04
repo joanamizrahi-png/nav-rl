@@ -440,6 +440,8 @@ def _dump_env_config(args, cfg):
             "halt_throttle_eps": getattr(cfg, "halt_throttle_eps", 0.05),
             "halt_penalty_scale": getattr(cfg, "halt_penalty_scale", 1.0),
             "terrain_speed_scaled": bool(getattr(cfg, "terrain_speed_scaled", False)),
+            "reward_source": getattr(cfg, "reward_source", "generated"),
+            "map_res_m": getattr(cfg, "map_res_m", 0.1),
         }, indent=2))
         print(f"[train] env recorded for eval: {out}", flush=True)
     except Exception as e:
@@ -667,6 +669,9 @@ def _scene_env_cfg(args):
         halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
         halt_penalty_scale=getattr(args, "halt_penalty_scale", 1.0),
         terrain_speed_scaled=bool(getattr(args, "terrain_speed_scaled", False)),
+        reward_source=getattr(args, "reward_source", "generated"),
+        map_res_m=float(getattr(args, "map_res_m", 0.1)),
+        map_inflate_m=float(getattr(args, "map_inflate_m", 0.2)),
         timeout_distance_scaled=getattr(args, "timeout_distance_scaled", False),
         reward_scale=getattr(args, "reward_scale", 1.0),
         random_spawn=True,
@@ -1184,6 +1189,11 @@ def main():
     ap.add_argument("--halt_throttle_eps", type=float, default=0.05)
     ap.add_argument("--ckpt_every_calls", type=int, default=2000,
                     help="checkpoint every N env calls (x n_envs = steps); 2000 x 4 = 8000 steps")
+    ap.add_argument("--reward_source", default="generated",
+                    choices=("generated", "map", "map_then_generated"),
+                    help="labels the reward reads: the generated image, or the scene cloud map")
+    ap.add_argument("--map_res_m", type=float, default=0.1)
+    ap.add_argument("--map_inflate_m", type=float, default=0.2)
     ap.add_argument("--terrain_speed_scaled", action="store_true",
                     help="terrain cost x |throttle|: driving onto bad ground costs, facing it does not")
     ap.add_argument("--halt_penalty_scale", type=float, default=1.0,
