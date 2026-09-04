@@ -167,11 +167,11 @@ def main():
     axes = axes.ravel()
     panels = [
         ("curriculum/goal_dist", "goal distance curriculum (m)\nadvances only on >=50% wins", None),
-        ("END", "how episodes end (fraction)\nsolid=goal  dashed=crash  dotted=incoherent", None),
+        ("END", "how episodes end (fraction)\nsolid=goal  dashed=crash  dotted=incoherent  dash-dot=STOPPED (timeout or halted)", None),
         ("rollout/ep_len_mean", "episode length (steps)", None),
         ("curriculum/recent_success", "recent success (100-ep window)", (0, 1)),
         ("diag/throttle", "mean commanded throttle\n(ppo_240704 crept at 0.28)", (0, 1)),
-        ("diag/halted", "halted-safely rate (per step)", None),
+        ("HALTED_EP", "episodes ending HALTED (fraction)\nstopped deliberately, short of the goal, on safe ground", None),
         # the GRADED coherence cost, per step -- not the terminal. Nonzero
         # means coverage is below tau_coh (0.4) and the policy is being
         # charged for looking where the reconstruction is thin.
@@ -189,9 +189,24 @@ def main():
                 goal = get(s, "reward/goal_bonus") * L / 1000.0
                 crash = -get(s, "reward/crash") * L / 1000.0
                 coh = -get(s, "reward/coherence_crash") * L / 100.0
+                # 2026-09-03 (Joana, after the goal-on-grass pair: "sad that
+                # sighted has not learned timeout or halt"): the remainder --
+                # episodes that ended NEITHER at the goal nor in a crash -- is
+                # the stopping behaviour this project wants, and it was only
+                # implicit. Drawn explicitly so its absence is visible.
+                stopped = np.clip(1.0 - goal - crash - coh, 0.0, 1.0)
                 ax.plot(x, goal, "-", c=c, lw=1.6, label=nm)
                 ax.plot(x, crash, "--", c=c, lw=1.0)
                 ax.plot(x, coh, ":", c=c, lw=1.0)
+                ax.plot(x, stopped, "-.", c=c, lw=1.3)
+            elif key == "HALTED_EP":
+                # diag/halted is a PER-STEP rate; times episode length it is
+                # the fraction of episodes that ended halted. Arms without the
+                # terminal log nothing here and are skipped.
+                h = get(s, "diag/halted")
+                if np.all(np.isnan(h)):
+                    continue
+                ax.plot(x, h * get(s, "rollout/ep_len_mean"), "-o", c=c, lw=1.6, ms=2.5, label=nm)
             else:
                 y = get(s, key)
                 if np.all(np.isnan(y)):
