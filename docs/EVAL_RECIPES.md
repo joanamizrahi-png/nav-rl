@@ -72,6 +72,7 @@ Both pairs had to be rerun.
 | map-reward arms (`_rmap` in the dir) | add `REWSRC=map` to whatever the arm's other knobs are |
 | map-reward arms with the near crash box (`_ca0.6` in the dir) | `REWSRC=map COLLAHEAD=0.6` plus the arm's other knobs |
 | map-reward arms with `_mi<x>` in the dir | add `MAPINFL=<x>` |
+| arms with `_mic10-11-13` in the dir (467203/467204/467205 and later) | add `MAPINFLCLS=10,11,13` -- only obstacle/vegetation/vehicle cells inflate; without it the eval map grows grass by 0.1 m the policy never saw |
 | halt-curriculum arms (`_hc<start>` in the dir) | eval with `HALTSCALE=` the arm's END value (0.3), like the radius |
 | goal-mix arms (`_gm<p>` in the dir) | add `GOALMIX=<p>` so the eval samples the same mix |
 | warm arms | `GOALRADIUS` from the run's `curriculum_state.json` (automatic) |
