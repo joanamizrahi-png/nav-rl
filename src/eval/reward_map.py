@@ -47,7 +47,8 @@ class LabelGrid:
 def build_label_grid(pts: np.ndarray, labs: np.ndarray, non_trav_mask: np.ndarray,
                      res: float = 0.1, z_ground: float = 0.15, z_max: float = 1.2,
                      min_points: int = 2, min_nontrav_points: int = 3,
-                     clean: bool = True, inflate_m: float = 0.2, fill_m: float = 0.3) -> LabelGrid:
+                     clean: bool = True, inflate_m: float = 0.2, fill_m: float = 0.3,
+                     fill_max_area_m2: float = 4.0) -> LabelGrid:
     pts = np.asarray(pts, dtype=np.float32)
     labs = np.asarray(labs).astype(int)
     keep = (pts[:, 2] < z_max) & (labs >= 0) & (labs < len(non_trav_mask))
@@ -87,8 +88,13 @@ def build_label_grid(pts: np.ndarray, labs: np.ndarray, non_trav_mask: np.ndarra
         # majority of its known neighbours within fill_m, only when most of
         # those neighbours are known -- so a hole gets its surroundings'
         # label and the real edge of the reconstruction stays void.
-        for _ in range(3):                # close holes from the outside in
+        for _ in range(3):                # thin gaps: close from the outside in
             labels = _fill_holes(labels, int(round(fill_m / res)))
+        # enclosed holes of any width up to fill_max_area_m2: a void region
+        # completely surrounded by known cells is a reconstruction dropout,
+        # however wide; the rim's majority label fills it. A region touching
+        # the grid border is the outside world and stays void.
+        labels = _fill_enclosed(labels, max_cells=int(round(fill_max_area_m2 / (res * res))))
     if inflate_m > 0:
         # costmap inflation: a wall is one cell thick in x,y, so without this a
         # 0.6 m footprint crossing it is only ~1/6 non-traversable and never
@@ -146,6 +152,34 @@ def _fill_holes(labels: np.ndarray, r: int, min_known_frac: float = 0.6) -> np.n
     fill = (labels == VOID) & (frac_known >= min_known_frac)
     out = labels.copy()
     out[fill] = votes.argmax(0)[fill].astype(np.int16)
+    return out
+
+
+def _fill_enclosed(labels: np.ndarray, max_cells: int) -> np.ndarray:
+    """Fill void regions that touch no grid border and have at most max_cells
+    cells, with the majority label of their 1-cell rim."""
+    if max_cells <= 0:
+        return labels
+    try:
+        from scipy import ndimage
+    except Exception:
+        return labels                    # no scipy: keep the pass-based fill only
+    void = labels == VOID
+    comp, n = ndimage.label(void)
+    if n == 0:
+        return labels
+    H, W = labels.shape
+    border = set(np.unique(np.concatenate([comp[0, :], comp[-1, :], comp[:, 0], comp[:, -1]])))
+    sizes = np.bincount(comp.ravel())
+    out = labels.copy()
+    for k in range(1, n + 1):
+        if k in border or sizes[k] > max_cells:
+            continue
+        m = comp == k
+        rim = ndimage.binary_dilation(m, iterations=1) & ~m & (labels >= 0)
+        if not rim.any():
+            continue
+        out[m] = np.bincount(labels[rim]).argmax()
     return out
 
 

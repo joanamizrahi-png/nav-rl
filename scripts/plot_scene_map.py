@@ -34,6 +34,7 @@ def main():
     ap.add_argument("--res", type=float, default=0.1)
     ap.add_argument("--inflate", type=float, default=0.2)
     ap.add_argument("--fill", type=float, default=0.3)
+    ap.add_argument("--fill_area", type=float, default=4.0, help="fill enclosed void regions up to this many m2")
     ap.add_argument("--out_dir", default="/scratch/m000204-pm06b/joana/outputs/scene_maps")
     ap.add_argument("--suffix", default="", help="appended to the file names, e.g. filled")
     args = ap.parse_args()
@@ -50,8 +51,8 @@ def main():
     for sc in args.scenes:
         c = np.load(Path(args.clouds_dir) / f"{sc}_cloud.npz")
         pts, labs = c["points"], c["labels"].astype(int)
-        g = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=args.inflate, fill_m=args.fill)
-        g_raw = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=0.0, fill_m=0.0, clean=False)
+        g = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=args.inflate, fill_m=args.fill, fill_max_area_m2=args.fill_area)
+        g_raw = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=0.0, fill_m=0.0, fill_max_area_m2=0.0, clean=False)
         # support along the recorded walk: how many cloud points per cell there,
         # the reference for 'enough points' anywhere else
         L = g.labels

@@ -673,6 +673,7 @@ def _scene_env_cfg(args):
         map_res_m=float(getattr(args, "map_res_m", 0.1)),
         map_inflate_m=float(getattr(args, "map_inflate_m", 0.2)),
         map_fill_m=float(getattr(args, "map_fill_m", 0.3)),
+        map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 4.0)),
         timeout_distance_scaled=getattr(args, "timeout_distance_scaled", False),
         reward_scale=getattr(args, "reward_scale", 1.0),
         random_spawn=True,
@@ -1196,6 +1197,7 @@ def main():
     ap.add_argument("--map_res_m", type=float, default=0.1)
     ap.add_argument("--map_inflate_m", type=float, default=0.2)
     ap.add_argument("--map_fill_m", type=float, default=0.3)
+    ap.add_argument("--map_fill_max_area_m2", type=float, default=4.0)
     ap.add_argument("--terrain_speed_scaled", action="store_true",
                     help="terrain cost x |throttle|: driving onto bad ground costs, facing it does not")
     ap.add_argument("--halt_penalty_scale", type=float, default=1.0,
