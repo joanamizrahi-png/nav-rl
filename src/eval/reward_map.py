@@ -48,10 +48,15 @@ def build_label_grid(pts: np.ndarray, labs: np.ndarray, non_trav_mask: np.ndarra
                      res: float = 0.1, z_ground: float = 0.15, z_max: float = 1.2,
                      min_points: int = 2, min_nontrav_points: int = 3,
                      clean: bool = True, inflate_m: float = 0.2, fill_m: float = 0.3,
-                     fill_max_area_m2: float = 4.0) -> LabelGrid:
+                     fill_max_area_m2: float = 10.0, ignore_classes=(12, 13),
+                     walk_xy=None, walk_halfwidth_m: float = 0.4) -> LabelGrid:
     pts = np.asarray(pts, dtype=np.float32)
     labs = np.asarray(labs).astype(int)
     keep = (pts[:, 2] < z_max) & (labs >= 0) & (labs < len(non_trav_mask))
+    # dynamic agents (person, vehicle) captured mid-walk are frozen into the
+    # cloud at wherever they stood; they are not terrain and do not vote
+    if ignore_classes:
+        keep &= ~np.isin(labs, list(ignore_classes))
     pts, labs = pts[keep], labs[keep]
     x0, y0 = float(pts[:, 0].min()) - res, float(pts[:, 1].min()) - res
     W = int(np.ceil((pts[:, 0].max() - x0) / res)) + 2
@@ -102,6 +107,13 @@ def build_label_grid(pts: np.ndarray, labs: np.ndarray, non_trav_mask: np.ndarra
         # the robot's half-width so the footprint sees the wall the way the
         # projected image does (a wall fills the view).
         labels = _inflate(labels, non_trav_mask, int(round(inflate_m / res)))
+    if walk_xy is not None and walk_halfwidth_m > 0:
+        # The recorded walk is proof of traversability: a person carried the
+        # camera through these cells. Whatever SAM3 called them, and whatever
+        # inflation did to them, a corridor of walk_halfwidth_m each side is
+        # walkable. Applied LAST so nothing above can undo it.
+        labels = _walk_corridor(labels, non_trav_mask, np.asarray(walk_xy, dtype=float),
+                                x0, y0, res, int(round(walk_halfwidth_m / res)))
     return LabelGrid(x0=x0, y0=y0, res=res, labels=labels, n_points=n_points)
 
 
@@ -180,6 +192,34 @@ def _fill_enclosed(labels: np.ndarray, max_cells: int) -> np.ndarray:
         if not rim.any():
             continue
         out[m] = np.bincount(labels[rim]).argmax()
+    return out
+
+
+def _walk_corridor(labels: np.ndarray, non_trav_mask: np.ndarray, walk_xy: np.ndarray,
+                   x0: float, y0: float, res: float, r: int) -> np.ndarray:
+    H, W = labels.shape
+    n_cls = len(non_trav_mask)
+    mask = np.zeros((H, W), dtype=bool)
+    # densify the walk so consecutive frames a metre apart still leave a solid strip
+    seg = np.concatenate([np.linspace(walk_xy[i], walk_xy[i + 1], 8, endpoint=False)
+                          for i in range(len(walk_xy) - 1)] + [walk_xy[-1:]])
+    ix = np.round((seg[:, 0] - x0) / res).astype(int)
+    iy = np.round((seg[:, 1] - y0) / res).astype(int)
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            if dx * dx + dy * dy > r * r:
+                continue
+            xx, yy = ix + dx, iy + dy
+            ok = (xx >= 0) & (yy >= 0) & (xx < W) & (yy < H)
+            mask[yy[ok], xx[ok]] = True
+    known = labels >= 0
+    walkable = known & ~non_trav_mask[np.clip(labels, 0, n_cls - 1)]
+    # the class to paint: the walkable class most common under the corridor,
+    # sidewalk if the corridor has none
+    under = labels[mask & walkable]
+    paint = int(np.bincount(under).argmax()) if len(under) else 6
+    out = labels.copy()
+    out[mask & ~walkable] = paint
     return out
 
 

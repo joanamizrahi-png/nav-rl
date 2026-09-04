@@ -144,7 +144,9 @@ def build_env(args):
         map_res_m=float(getattr(args, "map_res_m", 0.1)),
         map_inflate_m=float(getattr(args, "map_inflate_m", 0.2)),
         map_fill_m=float(getattr(args, "map_fill_m", 0.3)),
-        map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 4.0)),
+        map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 10.0)),
+        map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
+        map_ignore_classes=str(getattr(args, "map_ignore_classes", "12,13")),
         random_spawn=True,
         trav_path=args.trav_path,
         collision_terminate_frac=args.collision_terminate_frac,
@@ -244,7 +246,9 @@ def main():
     ap.add_argument("--map_res_m", type=float, default=0.1)
     ap.add_argument("--map_inflate_m", type=float, default=0.2)
     ap.add_argument("--map_fill_m", type=float, default=0.3)
-    ap.add_argument("--map_fill_max_area_m2", type=float, default=4.0)
+    ap.add_argument("--map_fill_max_area_m2", type=float, default=10.0)
+    ap.add_argument("--map_walk_halfwidth_m", type=float, default=0.4)
+    ap.add_argument("--map_ignore_classes", default="12,13")
     ap.add_argument("--goal_radius", type=float, default=None,
                     help="arrival radius; training's FINAL value, not its start")
     ap.add_argument("--semantic_weight", type=float, default=None)

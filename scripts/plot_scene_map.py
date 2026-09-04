@@ -34,7 +34,9 @@ def main():
     ap.add_argument("--res", type=float, default=0.1)
     ap.add_argument("--inflate", type=float, default=0.2)
     ap.add_argument("--fill", type=float, default=0.3)
-    ap.add_argument("--fill_area", type=float, default=4.0, help="fill enclosed void regions up to this many m2")
+    ap.add_argument("--fill_area", type=float, default=10.0, help="fill enclosed void regions up to this many m2")
+    ap.add_argument("--walk", type=float, default=0.4, help="half-width of the walkable corridor along the recorded walk")
+    ap.add_argument("--ignore", default="12,13", help="classes that do not vote (person, vehicle)")
     ap.add_argument("--out_dir", default="/scratch/m000204-pm06b/joana/outputs/scene_maps")
     ap.add_argument("--suffix", default="", help="appended to the file names, e.g. filled")
     args = ap.parse_args()
@@ -51,14 +53,16 @@ def main():
     for sc in args.scenes:
         c = np.load(Path(args.clouds_dir) / f"{sc}_cloud.npz")
         pts, labs = c["points"], c["labels"].astype(int)
-        g = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=args.inflate, fill_m=args.fill, fill_max_area_m2=args.fill_area)
+        path = (np.asarray(c["traj_positions"], float) * np.array([1.0, -1.0, 1.0]))[:, :2]
+        ign = tuple(int(v) for v in args.ignore.split(",") if v.strip())
+        g = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=args.inflate, fill_m=args.fill, fill_max_area_m2=args.fill_area, ignore_classes=ign,
+                             walk_xy=path, walk_halfwidth_m=args.walk)
         g_raw = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=0.0, fill_m=0.0, fill_max_area_m2=0.0, clean=False)
         # support along the recorded walk: how many cloud points per cell there,
         # the reference for 'enough points' anywhere else
         L = g.labels
         known = L >= 0
         nt = known & nontrav[np.clip(L, 0, len(nontrav) - 1)]
-        path = (np.asarray(c["traj_positions"], float) * np.array([1.0, -1.0, 1.0]))[:, :2]
         # support along the recorded walk: cloud points per cell where we KNOW
         # the ground is walkable. The reference for 'enough points' elsewhere.
         ix = np.clip(((path[:, 0] - g.x0) / g.res).astype(int), 0, L.shape[1] - 1)
@@ -97,13 +101,23 @@ def main():
         chg[(~kr) & known] = 2                                 # FILLED: was void, now known
         chg[kr & ~ntr & nt] = 3                                # INFLATED or overridden: was walkable, now non-trav
         chg[ntr & known & ~nt] = 4                             # DESPECKLED: was non-trav, now walkable
-        cm = ListedColormap(["#ffffff", "#000000", "#00bcd4", "#ff9800", "#8bc34a"])
-        axes[2].imshow(np.ma.masked_invalid(chg), origin="lower", extent=ext, cmap=cm, vmin=-0.5, vmax=4.5, interpolation="nearest")
+        # cells the recorded-walk corridor made walkable (raw said non-trav or void)
+        wk = np.zeros(L.shape, dtype=bool)
+        ix_ = np.round((path[:, 0] - g.x0) / g.res).astype(int); iy_ = np.round((path[:, 1] - g.y0) / g.res).astype(int)
+        rr = int(round(args.walk / g.res))
+        for dy in range(-rr, rr + 1):
+            for dx in range(-rr, rr + 1):
+                if dx * dx + dy * dy <= rr * rr:
+                    xx, yy = ix_ + dx, iy_ + dy; ok = (xx >= 0) & (yy >= 0) & (xx < L.shape[1]) & (yy < L.shape[0]); wk[yy[ok], xx[ok]] = True
+        chg[wk & (ntr | ~kr) & known & ~nt] = 5                # WALK CORRIDOR: raw non-trav/void, now walkable
+        cm = ListedColormap(["#ffffff", "#000000", "#00bcd4", "#ff9800", "#8bc34a", "#e91e63"])
+        axes[2].imshow(np.ma.masked_invalid(chg), origin="lower", extent=ext, cmap=cm, vmin=-0.5, vmax=5.5, interpolation="nearest")
         axes[2].plot(path[:, 0], path[:, 1], "-", c="tab:red", lw=1.0)
         n_fill, n_infl, n_desp = int(((~kr) & known).sum()), int((kr & ~ntr & nt).sum()), int((ntr & known & ~nt).sum())
         axes[2].legend(handles=[Patch(color="#00bcd4", label=f"filled void ({n_fill} cells)"),
                                 Patch(color="#ff9800", label=f"inflated / wall override ({n_infl} cells)"),
-                                Patch(color="#8bc34a", label=f"despeckled to walkable ({n_desp} cells)")], fontsize=8, loc="best")
+                                Patch(color="#8bc34a", label=f"despeckled to walkable ({n_desp} cells)"),
+                                Patch(color="#e91e63", label=f"recorded-walk corridor ({int((wk & (ntr | ~kr) & known & ~nt).sum())} cells)")], fontsize=8, loc="best")
         axes[2].set_title("what the cleanups changed (raw cloud vote -> final map)")
         for ax in axes:
             ax.set_aspect("equal"); ax.grid(alpha=0.2)

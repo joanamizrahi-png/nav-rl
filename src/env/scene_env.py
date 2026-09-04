@@ -266,7 +266,9 @@ class SceneEnvConfig:
     map_res_m: float = 0.1
     map_inflate_m: float = 0.2        # grow non-traversable cells by the robot half-width
     map_fill_m: float = 0.3           # fill void holes up to this radius from their neighbours
-    map_fill_max_area_m2: float = 4.0 # fill ENCLOSED void regions up to this area entirely
+    map_fill_max_area_m2: float = 10.0  # fill ENCLOSED void regions up to this area entirely
+    map_walk_halfwidth_m: float = 0.4   # the recorded walk is walkable, this far each side
+    map_ignore_classes: str = "12,13" # person, vehicle: dynamic, frozen in the cloud, not terrain
     # Trajectory output (plan-B arm, 2026-08-25): the policy emits k action
     # pairs per decision and only observes again after all k execute. Rewards
     # still accrue per sub-step, so the world stays action-conditioned; only
@@ -672,7 +674,11 @@ class SceneEnv(gym.Env if gym is not None else object):
                 self._label_grids = {}
             g = build_label_grid(pts, labs, self._non_trav, res=self.cfg.map_res_m,
                                  inflate_m=self.cfg.map_inflate_m, fill_m=self.cfg.map_fill_m,
-                                 fill_max_area_m2=self.cfg.map_fill_max_area_m2)
+                                 fill_max_area_m2=self.cfg.map_fill_max_area_m2,
+                                 ignore_classes=tuple(int(v) for v in str(self.cfg.map_ignore_classes).split(",") if v.strip()),
+                                 walk_xy=(np.asarray(d["traj_positions"], dtype=float) * np.array([1.0, -1.0, 1.0]))[:, :2]
+                                 if "traj_positions" in d else None,
+                                 walk_halfwidth_m=self.cfg.map_walk_halfwidth_m)
             self._label_grids[scene_id] = g
             known = g.labels >= 0
             nt = known & self._non_trav[np.clip(g.labels, 0, len(self._non_trav) - 1)]
