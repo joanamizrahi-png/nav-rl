@@ -662,18 +662,21 @@ def main():
         A = np.array(agree_rows, dtype=float)
         thr = max(float(getattr(args, "collision_terminate_frac", 0.35) or 0.35), 1e-9)
         cov, fg, fm, cg, cm, mv = A[:, 0], A[:, 1], A[:, 2], A[:, 3].astype(int), A[:, 4].astype(int), A[:, 5]
+        inframe = np.isfinite(fg)          # image crash box below the frame -> no traversability comparison
         def stats(sel):
             n = int(sel.sum())
             if n == 0:
                 return None
-            gen_bad, map_bad = fg[sel] >= thr, fm[sel] >= thr
+            sel_t = sel & inframe
+            gen_bad, map_bad = fg[sel_t] >= thr, fm[sel_t] >= thr
             mvs = mv[sel]
             return {"steps": n,
                     "semantic_agree": round(float((cg[sel] == cm[sel]).mean()), 3),
-                    "traversability_agree": round(float((gen_bad == map_bad).mean()), 3),
-                    "phantom": round(float((gen_bad & ~map_bad).mean()), 3),
-                    "missed": round(float((~gen_bad & map_bad).mean()), 3),
-                    "mean_abs_frac_gap": round(float(np.abs(fg[sel] - fm[sel]).mean()), 3),
+                    "steps_with_image_box_in_frame": int(sel_t.sum()),
+                    "traversability_agree": (round(float((gen_bad == map_bad).mean()), 3) if sel_t.any() else None),
+                    "phantom": (round(float((gen_bad & ~map_bad).mean()), 3) if sel_t.any() else None),
+                    "missed": (round(float((~gen_bad & map_bad).mean()), 3) if sel_t.any() else None),
+                    "mean_abs_frac_gap": (round(float(np.abs(fg[sel_t] - fm[sel_t]).mean()), 3) if sel_t.any() else None),
                     "map_void_share": (round(float(np.nanmean(mvs)), 3) if np.isfinite(mvs).any() else None)}
         by_alpha = {}
         for lo, hi in ((0.0, 0.1), (0.1, 0.4), (0.4, 0.7), (0.7, 1.01)):
@@ -691,10 +694,11 @@ def main():
         print("\n=== FOOTPRINT: generator vs map, per step, by alpha ===")
         print("  %9s %6s %10s %11s %8s %7s %6s %9s" % ("alpha", "steps", "sem agree", "trav agree", "phantom", "missed", "|gap|", "map void"))
         for name, st in list(by_alpha.items()) + [("all", st_all)]:
-            mvp = (100 * st["map_void_share"]) if st["map_void_share"] is not None else float("nan")
-            print("  %9s %6d %9.1f%% %10.1f%% %7.1f%% %6.1f%% %6.2f %8.1f%%" % (
-                name, st["steps"], 100 * st["semantic_agree"], 100 * st["traversability_agree"],
-                100 * st["phantom"], 100 * st["missed"], st["mean_abs_frac_gap"], mvp))
+            f = lambda v, k=100: (k * v) if v is not None else float("nan")
+            print("  %9s %6d %9.1f%% %10.1f%% %7.1f%% %6.1f%% %6.2f %8.1f%%   (image box in frame on %d steps)" % (
+                name, st["steps"], f(st["semantic_agree"]), f(st["traversability_agree"]),
+                f(st["phantom"]), f(st["missed"]), f(st["mean_abs_frac_gap"], 1), f(st["map_void_share"]),
+                st["steps_with_image_box_in_frame"]))
         if top:
             print("  where they disagree, generator / map: " + ", ".join("%s x%d" % (k, v) for k, v in top))
     with open(args.out_dir / "metrics.json", "w") as f:

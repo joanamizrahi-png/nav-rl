@@ -831,10 +831,16 @@ class SceneEnv(gym.Env if gym is not None else object):
             _w = max(self.cfg.reward.collision, 1e-6)
             _fg = -float(breakdown.collision) / _w
             _fm = -float(breakdown_map.collision) / _w
+            # If the image's crash box fell below the frame, its collision
+            # reading is the FAR box's (compute_reward's fallback) and no
+            # longer the same box as the map's: exclude the step from the
+            # traversability comparison (NaN is skipped by the loggers).
+            _off = float(getattr(breakdown, "collision_off_frame", 0.0)) > 0.0
+            _nan = float("nan")
             self._map_vs_gen = {
-                "gen_collision_frac": _fg, "map_collision_frac": _fm,
-                "phantom": float(_fg >= _thr and _fm < _thr),
-                "missed": float(_fm >= _thr and _fg < _thr),
+                "gen_collision_frac": _nan if _off else _fg, "map_collision_frac": _fm,
+                "phantom": _nan if _off else float(_fg >= _thr and _fm < _thr),
+                "missed": _nan if _off else float(_fm >= _thr and _fg < _thr),
                 "label_agree": float(int(breakdown.dominant_class_id) == int(breakdown_map.dominant_class_id)),
                 "gen_dominant_class_id": int(breakdown.dominant_class_id),
                 "map_dominant_class_id": int(breakdown_map.dominant_class_id),

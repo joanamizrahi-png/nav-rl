@@ -27,7 +27,7 @@ set -euo pipefail
 # of them was -- the .out files do not echo the command, env_config.json is
 # only written after the hour-long pipeline load, and shell history had scrolled
 # away. An unrecorded experiment is not an experiment.
-KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|CKPTFREQ|SPEEDCOST|REWSRC|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
+KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|CKPTFREQ|SPEEDCOST|REWSRC|MAPINFL|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
 # Whitelist, not a blacklist. The first version excluded known-noisy prefixes
 # and still emitted lmod shell functions, base64 module tables and every SLURM
 # variable -- thousands of unreadable characters per entry (2026-09-03, first
@@ -360,6 +360,7 @@ fi
 [ -n "${HALTEPS:-}" ] && LABEL="${LABEL}-he${HALTEPS}"
 [ "${SPEEDCOST:-0}" = "1" ] && LABEL="${LABEL}-spd"
 [ -n "${REWSRC:-}" ] && LABEL="${LABEL}-r${REWSRC/map_then_generated/hyb}"
+[ -n "${MAPINFL:-}" ] && LABEL="${LABEL}-mi${MAPINFL}"
 [ -n "${ENT:-}" ] && LABEL="${LABEL}-ent${ENT}"
 LABEL="${LABEL}-s${SEED:-0}"
 echo "==> wandb label: $LABEL"
@@ -527,6 +528,13 @@ fi
 if [ -n "${REWSRC:-}" ]; then
     BC_ARGS="$BC_ARGS --reward_source ${REWSRC}"
     OUT="${OUT}_r${REWSRC/map_then_generated/hyb}"
+fi
+# MAPINFL: how far non-traversable map cells grow (m). Default 0.2 = the robot
+# half-width; 0.1 still trips the 0.35 crash test on a one-cell wall (3 of 6
+# footprint rows) while narrowing walkways by only 10 cm a side.
+if [ -n "${MAPINFL:-}" ]; then
+    BC_ARGS="$BC_ARGS --map_inflate_m ${MAPINFL}"
+    OUT="${OUT}_mi${MAPINFL}"
 fi
 # HALTSCALE: what a HALTED episode pays, as a multiple of the distance-scaled
 # timeout. 1 (default) = the tie; 0.3 = refusing an unreachable goal is the

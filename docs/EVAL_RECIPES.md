@@ -71,6 +71,7 @@ Both pairs had to be rerun.
 | tonight's B / C (+speed) | `HALT=3 HALTEPS=0.15 HALTSCALE=0.3 COLLPEN=2500 SPEEDCOST=1` |
 | map-reward arms (`_rmap` in the dir) | add `REWSRC=map` to whatever the arm's other knobs are |
 | map-reward arms with the near crash box (`_ca0.6` in the dir) | `REWSRC=map COLLAHEAD=0.6` plus the arm's other knobs |
+| map-reward arms with `_mi<x>` in the dir | add `MAPINFL=<x>` |
 | warm arms | `GOALRADIUS` from the run's `curriculum_state.json` (automatic) |
 
 The run's own record is `outputs/<run>/launch.txt` (the ledger entry):
