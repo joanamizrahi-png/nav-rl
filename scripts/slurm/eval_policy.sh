@@ -128,6 +128,15 @@ fi
 [ -n "${GOALSUPPORT:-}" ] && EXTRA_ARGS+=(--goal_support_radius "$GOALSUPPORT")
 [ -n "${GOALSUPPORTFRAC:-}" ] && EXTRA_ARGS+=(--goal_support_min_frac "$GOALSUPPORTFRAC")
 
+# The SEMANTICS MODEL goes in the output name. Two evals of the same policy
+# checkpoint under different world models (v21 vs v26) resolved to the same
+# directory and the second silently overwrote the first (2026-09-03, jobs
+# 464345 -> 464601). Identity = the run directory the checkpoint came from.
+if [[ -n "${LIVECKPT:-}" ]]; then
+    _semid="$(basename "$(dirname "$LIVECKPT")" | sed 's/^train_semantic_//')_$(basename "$LIVECKPT" .safetensors | sed 's/checkpoint-//; s/epoch-/e/')"
+    OUT_SUFFIX="${OUT_SUFFIX}_${_semid}"
+fi
+
 # COH / COHTAU / COHTERM: coherence termination, matching training. Without
 # these the eval never ends an episode for leaving the reconstructed world,
 # while training does -- which is exactly the train/eval mismatch that made

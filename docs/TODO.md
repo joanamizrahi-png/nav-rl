@@ -13,10 +13,12 @@ Edit freely. Dates are hard: results freeze **Sept 9**, submit **Sept 15** (2026
 - [ ] Eval: pin a goal past the bend (`GOAL_XY`), spawn before it, blind vs sighted, overhead paths with outcome symbols
 - [ ] Only if present-but-weak: warm-start the best arm on that one scene (`SCENES=<one>`); `gnd_AUw60` loads alone if it is the corner scene. **No new data — no time.**
 
-## Real robot (timeboxed: 2 days, decide by evening of Sept 7)
-- [ ] `deploy_go2.py`: camera → crop/resize 224×336 → policy → cmd_vel ~2 Hz, joystick override. Odometry→cmd_vel pipeline already proven on this robot; the camera is the unknown.
-- [ ] One qualitative run: best policy, one sidewalk with a grass edge, a few trials, video; blind vs sighted if smooth
-- [ ] If not walking under policy control by end of day 2: stop, paper goes sim-only
+## Real robot
+- [ ] Inference wrapper: camera frame -> crop/resize 224x336 -> policy -> (throttle, yaw) at ~2 Hz; goal vector in the policy's frame from odometry; joystick override
+- [ ] Course: one sidewalk with a flat grass verge, so geometry alone says "traversable" and semantics says "no" -- the case the reward exists for
+- [ ] Same (start, goal) set for every method tested; same arrival radius; same safety-stop rule
+- [ ] Blind vs sighted on the robot: same wrapper, image zeroed
+- [ ] Metrics per trial: reached / steps to goal / fraction of steps on non-walkable ground / interventions
 
 ## Paper (start now; these do not wait on results)
 - [ ] Method section (reward spec artifact is the source)
