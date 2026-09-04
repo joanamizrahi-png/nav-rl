@@ -261,26 +261,61 @@ def overview(args, s_eps, b_eps, gxy, glab, path=None):
         # each goal by the dominant class within the arrival radius; if none
         # of them is grass, this eval could not have tested grass avoidance
         # no matter what the policy did (Joana's question, 2026-09-03).
+        # Grass FRACTION under each goal, not just the dominant class: a goal
+        # on the grass edge can be 40% grass and still vote "traversable",
+        # which is how a figure showing stars on green got reported as
+        # "GRASS 0" (Joana caught it by eye, 2026-09-03).
         r = 0.5
-        kinds = {"traversable": 0, "GRASS": 0, "other non-trav": 0, "no support": 0}
+        gfrac = []
         for g in gl:
             d = np.linalg.norm(gxy - g[None, :], axis=1)
             near = glab[d < r]
-            if len(near) < 5:
-                kinds["no support"] += 1; continue
-            dom = int(np.bincount(near).argmax())
-            if dom == 3:
-                kinds["GRASS"] += 1
-            elif dom in NONTRAV_DEFAULT:
-                kinds["other non-trav"] += 1
-            else:
-                kinds["traversable"] += 1
-        print("    ground under the goals (dominant class within %.1f m): %s"
-              % (r, ", ".join("%s %d" % kv for kv in kinds.items())))
-        if kinds["GRASS"] == 0:
+            gfrac.append(float(np.mean(near == 3)) if len(near) >= 5 else float("nan"))
+        gfrac = np.array(gfrac)
+        on = np.where(gfrac > 0.2)[0]
+        print("    grass fraction under each goal (cloud labels, %.1f m): "
+              % r + " ".join("%d:%.0f%%" % (i, 100 * v) for i, v in enumerate(gfrac)))
+        print("    goals with >20%% grass under them: %d/%d  -> episodes %s"
+              % (len(on), len(gfrac), list(on)))
+        if len(on) == 0:
             print("    !!! no goal sits on grass -- this eval cannot show grass "
                   "avoidance regardless of the policy. Pin goals on the grass "
                   "(GOAL_XY) or use a scene/range where the sampler lands there.")
+
+        # THE WORLD-MODEL CHECK. The reward reads the GENERATED semantics; this
+        # map shows the CLOUD's. traj row 4 is the generated dominant class in
+        # the footprint at each step; the footprint sits 1.5 m ahead along the
+        # heading. Look up what the cloud says at that same spot and count the
+        # disagreements. "Walks on grass and does not crash" = cloud says grass,
+        # generator says something else.
+        agree = {"cloud grass, gen grass": 0, "cloud grass, gen OTHER": 0,
+                 "cloud walkable, gen grass": 0, "cloud walkable, gen walkable": 0}
+        for eps_ in (s_eps, b_eps):
+            for e in eps_:
+                for row in e["traj"]:
+                    if len(row) < 5:
+                        continue
+                    x, y, yaw, _, gen = row[:5]
+                    fx, fy = x + 1.5 * np.cos(yaw), y + 1.5 * np.sin(yaw)
+                    d = np.linalg.norm(gxy - np.array([[fx, fy]]), axis=1)
+                    near = glab[d < 0.4]
+                    if len(near) < 5:
+                        continue
+                    cloud_grass = float(np.mean(near == 3)) > 0.5
+                    gen_grass = int(gen) == 3
+                    key = ("cloud grass, " if cloud_grass else "cloud walkable, ") + \
+                          ("gen grass" if gen_grass else ("gen OTHER" if cloud_grass else "gen walkable"))
+                    agree[key] = agree.get(key, 0) + 1
+        tot_cg = agree["cloud grass, gen grass"] + agree["cloud grass, gen OTHER"]
+        print("    footprint steps where the CLOUD says grass: %d; of those the "
+              "GENERATED semantics also said grass: %d (%.0f%%)"
+              % (tot_cg, agree["cloud grass, gen grass"],
+                 100.0 * agree["cloud grass, gen grass"] / max(tot_cg, 1)))
+        if tot_cg and agree["cloud grass, gen grass"] / tot_cg < 0.5:
+            print("    !!! the world model is NOT painting grass where the "
+                  "reconstruction has it. The reward cannot see terrain the "
+                  "generator does not draw -- this is a semantics-model "
+                  "problem, not a policy one.")
         if len(gr):
             # distance from each spawn to the nearest grass point -- if this is
             # large for every spawn, the robot was never given the chance to
