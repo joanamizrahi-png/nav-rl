@@ -241,7 +241,7 @@ if [[ "${VIDEOS:-}" != "" ]]; then EXTRA_ARGS+=(--videos "$VIDEOS"); fi
 echo "==> eval: $RUN_NAME / $(basename "$CKPT") scene=$SCENE spawn_max=${SPAWN_MAX:-default} goal=${GOAL_FRAME:-train(30)}"
 python scripts/eval_policy.py \
     --checkpoint "$CKPT" \
-    --scene "$SCENE" --episodes 20 \
+    --scene "$SCENE" --episodes "${EPISODES:-20}" \
     --clips_dir "${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}" \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
     --labels_dir $LABELS_DIR \
