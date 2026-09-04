@@ -36,7 +36,7 @@ def main():
     ap.add_argument("--fill", type=float, default=0.3)
     ap.add_argument("--fill_area", type=float, default=10.0, help="fill enclosed void regions up to this many m2")
     ap.add_argument("--walk", type=float, default=0.4, help="half-width of the walkable corridor along the recorded walk")
-    ap.add_argument("--ignore", default="12,13", help="classes that do not vote (person, vehicle)")
+    ap.add_argument("--ignore", default="", help="classes that do not vote, e.g. 12,13 for person, vehicle")
     ap.add_argument("--out_dir", default="/scratch/m000204-pm06b/joana/outputs/scene_maps")
     ap.add_argument("--suffix", default="", help="appended to the file names, e.g. filled")
     args = ap.parse_args()

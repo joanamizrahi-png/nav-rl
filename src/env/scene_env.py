@@ -268,7 +268,9 @@ class SceneEnvConfig:
     map_fill_m: float = 0.3           # fill void holes up to this radius from their neighbours
     map_fill_max_area_m2: float = 10.0  # fill ENCLOSED void regions up to this area entirely
     map_walk_halfwidth_m: float = 0.4   # the recorded walk is walkable, this far each side
-    map_ignore_classes: str = "12,13" # person, vehicle: dynamic, frozen in the cloud, not terrain
+    map_ignore_classes: str = ""      # e.g. "12,13" to keep person/vehicle from voting; default: they
+    #                                   count, since the generator renders them too and the walk corridor
+    #                                   already clears the ones standing on the recorded path
     # Trajectory output (plan-B arm, 2026-08-25): the policy emits k action
     # pairs per decision and only observes again after all k execute. Rewards
     # still accrue per sub-step, so the world stays action-conditioned; only
