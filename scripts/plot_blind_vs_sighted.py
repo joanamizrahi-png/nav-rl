@@ -256,6 +256,31 @@ def overview(args, s_eps, b_eps, gxy, glab, path=None):
         gr = gxy[glab == 3]
         print(f"    grass points in scene: {len(gr)} "
               f"({100.0 * len(gr) / max(len(gxy), 1):.1f}% of ground)")
+        # WHAT IS UNDER EACH GOAL. "20/20 GOAL" is only informative if some
+        # of those goals sat on ground the robot should have refused. Label
+        # each goal by the dominant class within the arrival radius; if none
+        # of them is grass, this eval could not have tested grass avoidance
+        # no matter what the policy did (Joana's question, 2026-09-03).
+        r = 0.5
+        kinds = {"traversable": 0, "GRASS": 0, "other non-trav": 0, "no support": 0}
+        for g in gl:
+            d = np.linalg.norm(gxy - g[None, :], axis=1)
+            near = glab[d < r]
+            if len(near) < 5:
+                kinds["no support"] += 1; continue
+            dom = int(np.bincount(near).argmax())
+            if dom == 3:
+                kinds["GRASS"] += 1
+            elif dom in NONTRAV_DEFAULT:
+                kinds["other non-trav"] += 1
+            else:
+                kinds["traversable"] += 1
+        print("    ground under the goals (dominant class within %.1f m): %s"
+              % (r, ", ".join("%s %d" % kv for kv in kinds.items())))
+        if kinds["GRASS"] == 0:
+            print("    !!! no goal sits on grass -- this eval cannot show grass "
+                  "avoidance regardless of the policy. Pin goals on the grass "
+                  "(GOAL_XY) or use a scene/range where the sampler lands there.")
         if len(gr):
             # distance from each spawn to the nearest grass point -- if this is
             # large for every spawn, the robot was never given the chance to
