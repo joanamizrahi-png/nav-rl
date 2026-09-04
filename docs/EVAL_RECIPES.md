@@ -73,6 +73,7 @@ Both pairs had to be rerun.
 | map-reward arms with the near crash box (`_ca0.6` in the dir) | `REWSRC=map COLLAHEAD=0.6` plus the arm's other knobs |
 | map-reward arms with `_mi<x>` in the dir | add `MAPINFL=<x>` |
 | halt-curriculum arms (`_hc<start>` in the dir) | eval with `HALTSCALE=` the arm's END value (0.3), like the radius |
+| goal-mix arms (`_gm<p>` in the dir) | add `GOALMIX=<p>` so the eval samples the same mix |
 | warm arms | `GOALRADIUS` from the run's `curriculum_state.json` (automatic) |
 
 The run's own record is `outputs/<run>/launch.txt` (the ledger entry):

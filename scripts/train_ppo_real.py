@@ -482,6 +482,7 @@ def _dump_env_config(args, cfg):
             "map_diagnostics": bool(getattr(cfg, "map_diagnostics", True)),
             "map_fallback_void_frac": getattr(cfg, "map_fallback_void_frac", 0.5),
             "map_fallback_min_alpha": getattr(cfg, "map_fallback_min_alpha", 0.4),
+            "goal_traversable_mix": getattr(cfg, "goal_traversable_mix", 0.0),
             "map_res_m": getattr(cfg, "map_res_m", 0.1),
         }, indent=2))
         print(f"[train] env recorded for eval: {out}", flush=True)
@@ -717,6 +718,7 @@ def _scene_env_cfg(args):
         map_inflate_m=float(getattr(args, "map_inflate_m", 0.1)),
         map_fill_m=float(getattr(args, "map_fill_m", 0.3)),
         map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 10.0)),
+        goal_traversable_mix=float(getattr(args, "goal_traversable_mix", 0.0)),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
         timeout_distance_scaled=getattr(args, "timeout_distance_scaled", False),
@@ -1245,6 +1247,8 @@ def main():
     ap.add_argument("--map_inflate_m", type=float, default=0.1)
     ap.add_argument("--map_fill_m", type=float, default=0.3)
     ap.add_argument("--map_fill_max_area_m2", type=float, default=10.0)
+    ap.add_argument("--goal_traversable_mix", type=float, default=0.0,
+                    help="P(goal on traversable ground by the map); 0 = the sampler's natural mix")
     ap.add_argument("--map_walk_halfwidth_m", type=float, default=0.4)
     ap.add_argument("--map_ignore_classes", default="")
     ap.add_argument("--terrain_speed_scaled", action="store_true",

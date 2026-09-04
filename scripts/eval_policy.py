@@ -147,6 +147,7 @@ def build_env(args):
         map_inflate_m=float(getattr(args, "map_inflate_m", 0.1)),
         map_fill_m=float(getattr(args, "map_fill_m", 0.3)),
         map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 10.0)),
+        goal_traversable_mix=float(getattr(args, "goal_traversable_mix", 0.0)),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
         random_spawn=True,
@@ -251,6 +252,8 @@ def main():
     ap.add_argument("--map_inflate_m", type=float, default=0.1)
     ap.add_argument("--map_fill_m", type=float, default=0.3)
     ap.add_argument("--map_fill_max_area_m2", type=float, default=10.0)
+    ap.add_argument("--goal_traversable_mix", type=float, default=0.0,
+                    help="P(goal on traversable ground by the map); 0 = the sampler's natural mix")
     ap.add_argument("--map_walk_halfwidth_m", type=float, default=0.4)
     ap.add_argument("--map_ignore_classes", default="")
     ap.add_argument("--goal_radius", type=float, default=None,

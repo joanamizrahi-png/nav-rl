@@ -118,6 +118,13 @@ class SceneEnvConfig:
     # reach this fraction of it. Self-scaling across scenes of different
     # density. 0 = fall back to the any-point test.
     goal_support_min_frac: float = 0.25
+    # 2026-09-04 (Joana): the goal MIX. Probability that an episode's goal
+    # sits on traversable ground by the map (edge goals count as
+    # traversable: the robot can stand on the walkable part). 0 = off, the
+    # sampler's natural mix (a lawn scene at 8 m is ~all grass, a corridor
+    # scene ~none). The sampler only; the policy never sees it.
+    goal_traversable_mix: float = 0.0
+    goal_mix_tries: int = 12
     goal_radius: float = 0.5            # meters; within this counts as "reached goal"
     collision_threshold: float = 0.1    # class score at/below which counts as collision
     spin_cost: float = 0.0              # shaping v2: penalty * |yaw action| (taxes circling)
@@ -456,6 +463,48 @@ class SceneEnv(gym.Env if gym is not None else object):
 
         self._failure_snaps += 1
 
+    def _draw_supported_goal(self, _yaw) -> np.ndarray:
+        """One goal draw from the backend's sampler, re-drawn up to
+        goal_support_tries times until the reconstruction has points under
+        it. Keeps the LAST draw if every try fails, so a scene whose goals are
+        mostly off-cloud degrades gracefully. Says nothing about
+        traversability -- that is the goal MIX's job."""
+        goal = self.world_backend.sample_goal_position(
+            self._scene_id, self.np_random, self._robot_pose_world[:2, 3], cone_yaw=_yaw).copy()
+        r = self.cfg.goal_support_radius_m
+        if r > 0.0:
+            gp = getattr(self, "_ground_pts", {}).get(self._scene_id)
+            if gp is not None and len(gp):
+                ref = getattr(self, "_support_ref", {}).get(self._scene_id, 0.0)
+                need = max(1, int(self.cfg.goal_support_min_frac * ref))
+                for _try in range(max(1, self.cfg.goal_support_tries)):
+                    d2 = np.abs(gp - goal[:2]).max(axis=1)
+                    near = gp[d2 <= r]
+                    if len(near) >= need and float(np.linalg.norm(near - goal[:2], axis=1).min()) <= r:
+                        break
+                    goal = self.world_backend.sample_goal_position(
+                        self._scene_id, self.np_random, self._robot_pose_world[:2, 3], cone_yaw=_yaw).copy()
+        return goal
+
+    def _goal_walkable_share(self, goal_world) -> float:
+        """Walkable share of the arrival disc on the map; nan if no map or
+        less than half the disc is reconstructed. Used by the goal mix at
+        sampling time and by the refusal metric."""
+        _g = getattr(self, "_label_grids", {}).get(self._scene_id)
+        if _g is None:
+            return float("nan")
+        _r = max(float(self.cfg.goal_radius), 0.3)
+        _a = np.arange(-_r, _r + 1e-6, _g.res / 2.0)
+        _X, _Y = np.meshgrid(_a, _a, indexing="ij")
+        _pts = np.c_[_X.ravel(), _Y.ravel()]
+        _pts = _pts[np.linalg.norm(_pts, axis=1) <= _r] + np.asarray(goal_world)[:2][None, :]
+        _lab = _g.lookup(_pts).astype(int)
+        _known = _lab >= 0
+        if _known.mean() < 0.5:
+            return float("nan")
+        _nt = self._non_trav[np.clip(_lab[_known], 0, len(self._non_trav) - 1)]
+        return float(1.0 - _nt.mean())
+
     # ---------------- gym API ----------------
 
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
@@ -486,34 +535,30 @@ class SceneEnv(gym.Env if gym is not None else object):
             if _yaw is None:
                 _yaw = float(np.arctan2(self._robot_pose_world[1, 0],
                                         self._robot_pose_world[0, 0]))
-            self._goal_world = self.world_backend.sample_goal_position(
-                self._scene_id, self.np_random,
-                self._robot_pose_world[:2, 3], cone_yaw=_yaw).copy()
-            # Reject goals with no reconstruction under them and draw again.
-            # Keeps the LAST draw if every try fails, so a scene whose goals
-            # are mostly off-cloud degrades to the old behaviour instead of
-            # looping forever or crashing.
-            r = self.cfg.goal_support_radius_m
-            if r > 0.0:
-                gp = getattr(self, "_ground_pts", {}).get(self._scene_id)
-                if gp is not None and len(gp):
-                    ref = getattr(self, "_support_ref", {}).get(self._scene_id, 0.0)
-                    need = max(1, int(self.cfg.goal_support_min_frac * ref))
-                    for _try in range(max(1, self.cfg.goal_support_tries)):
-                        d2 = np.abs(gp - self._goal_world[:2]).max(axis=1)
-                        near = gp[d2 <= r]
-                        # `need` points inside the radius, not merely one --
-                        # and NOTE this deliberately says nothing about
-                        # traversability: a goal ON GRASS is legitimate and is
-                        # the whole stop-at-the-boundary curriculum. The test
-                        # is only "does this place exist in the reconstruction".
-                        if len(near) >= need and float(np.linalg.norm(
-                                near - self._goal_world[:2], axis=1).min()) <= r:
+            self._goal_world = self._draw_supported_goal(_yaw)
+            # ---- the goal MIX (2026-09-04): choose the KIND of goal first ----
+            p_mix = float(self.cfg.goal_traversable_mix)
+            if 0.0 < p_mix < 1.0 and getattr(self, "_label_grids", {}).get(self._scene_id) is not None:
+                want_trav = bool(self.np_random.random() < p_mix)
+                got = None
+                for _try in range(max(1, int(self.cfg.goal_mix_tries))):
+                    wf = self._goal_walkable_share(self._goal_world)
+                    if wf == wf:                       # known ground under the disc
+                        is_trav = wf > 0.25            # edge goals count as reachable
+                        if is_trav == want_trav:
+                            got = is_trav
                             break
-                        self._goal_world = self.world_backend.sample_goal_position(
-                            self._scene_id, self.np_random,
-                            self._robot_pose_world[:2, 3],
-                            cone_yaw=_yaw).copy()
+                    self._goal_world = self._draw_supported_goal(_yaw)
+                if not hasattr(self, "_mix_misses"):
+                    self._mix_misses = {}
+                if got is None:
+                    k = (self._scene_id, want_trav)
+                    self._mix_misses[k] = self._mix_misses.get(k, 0) + 1
+                    if self._mix_misses[k] in (1, 50, 500):
+                        print(f"[goal mix] {self._scene_id}: wanted a "
+                              f"{'traversable' if want_trav else 'NON-traversable'} goal, none in "
+                              f"{self.cfg.goal_mix_tries} draws (x{self._mix_misses[k]}); kept the last draw",
+                              flush=True)
         else:
             self._goal_world = self.world_backend.goal_position(self._scene_id).copy()
         self._prev_position = None
@@ -530,24 +575,15 @@ class SceneEnv(gym.Env if gym is not None else object):
         # halting on a traversable one is the freeze, arriving on a
         # non-traversable one is trespass.
         self._goal_traversable = float("nan")
-        _g = getattr(self, "_label_grids", {}).get(self._scene_id)
-        if _g is not None:
-            _r = max(float(self.cfg.goal_radius), 0.3)
-            _a = np.arange(-_r, _r + 1e-6, _g.res / 2.0)
-            _X, _Y = np.meshgrid(_a, _a, indexing="ij")
-            _pts = np.c_[_X.ravel(), _Y.ravel()]
-            _pts = _pts[np.linalg.norm(_pts, axis=1) <= _r] + self._goal_world[:2][None, :]
-            _lab = _g.lookup(_pts).astype(int)
-            _known = _lab >= 0
-            if _known.mean() >= 0.5:
-                _nt = self._non_trav[np.clip(_lab[_known], 0, len(self._non_trav) - 1)]
-                _walk = float(1.0 - _nt.mean())         # walkable share of the arrival disc
-                # Joana 2026-09-04: a goal on grass with part of its disc on the
-                # walkway is REACHABLE (the robot stands on the walkable part).
-                # Three-way: 1 = traversable (>= 75% walkable), 0 = non-traversable
-                # (<= 25%), 0.5 = edge goal. The refusal flags use the extremes.
-                self._goal_walkable_frac = _walk
-                self._goal_traversable = 1.0 if _walk >= 0.75 else (0.0 if _walk <= 0.25 else 0.5)
+        self._goal_walkable_frac = float("nan")
+        _walk = self._goal_walkable_share(self._goal_world)
+        if _walk == _walk:
+            # Joana 2026-09-04: a goal on grass with part of its disc on the
+            # walkway is REACHABLE (the robot stands on the walkable part).
+            # Three-way: 1 = traversable (>= 75% walkable), 0 = non-traversable
+            # (<= 25%), 0.5 = edge goal. The refusal flags use the extremes.
+            self._goal_walkable_frac = _walk
+            self._goal_traversable = 1.0 if _walk >= 0.75 else (0.0 if _walk <= 0.25 else 0.5)
 
         if self.cfg.defer_render:
             self._needs_render = True
