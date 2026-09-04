@@ -901,7 +901,13 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
         panels = []
         if raw is not None and raw is not used:
             panels.append(_colorize(raw, H, W, "sem RAW (model belief)", footprint_uv))
-        panels.append(_colorize(used, H, W, "sem REWARD (gated)" if len(panels) else "sem REWARD", footprint_uv))
+        # Say what this panel IS: under a map reward the generated semantics
+        # are an observation, not the reward, and the panel used to say REWARD.
+        _src = str(getattr(getattr(base_env, "cfg", None), "reward_source", "generated"))
+        _lab = ("sem REWARD" if _src == "generated" else
+                "sem GENERATED (reward = MAP)" if _src == "map" else
+                "sem GENERATED (reward = map, gen fallback)")
+        panels.append(_colorize(used, H, W, (_lab + " (gated)") if len(panels) else _lab, footprint_uv))
         return np.concatenate(panels, axis=1)
 
     base_env = env.unwrapped if hasattr(env, "unwrapped") else env
@@ -996,6 +1002,25 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
         obs, r, terminated, truncated, info = env.step(action)
         traj.append(_xyyaw() +
                     [round(float(max(0.0, -info.get("collision", 0.0))), 3)])
+        # Stamp the frame we just saved with what the crash box read AT THAT
+        # POSE (the reward of this step is charged before the move). Without
+        # it a map-reward crash is invisible: the robot stands on the walk and
+        # the box 1.5 m ahead is on the lawn (2026-09-04, eval 466977).
+        try:
+            import cv2 as _cv
+            _cf = float(max(0.0, -info.get("collision", 0.0)))
+            _mf = float(info.get("map_collision_frac", float("nan")))
+            _gf = float(info.get("gen_collision_frac", float("nan")))
+            _thr = float(getattr(base_env.cfg, "collision_terminate_frac", 0.35))
+            _ahead = float(getattr(base_env.cfg, "collision_look_ahead_m", 0.0) or 0.0) or float(base_env.cfg.look_ahead_dist)
+            _txt = (f"crash box {_ahead:.1f}m ahead: reward {_cf:.2f}"
+                    + (f"  map {_mf:.2f}" if _mf == _mf else "")
+                    + (f"  gen {_gf:.2f}" if _gf == _gf else "")
+                    + ("  CRASH" if (_thr > 0 and _cf >= _thr) else ""))
+            _cv.putText(frames[-1], _txt, (4, 30), _cv.FONT_HERSHEY_SIMPLEX, 0.45,
+                        (255, 60, 60) if (_thr > 0 and _cf >= _thr) else (255, 255, 255), 1, _cv.LINE_AA)
+        except Exception:
+            pass
         done = terminated or truncated
 
     # Arrival frame: the loop above draws BEFORE stepping, so the terminal pose

@@ -563,6 +563,9 @@ class SceneEnv(gym.Env if gym is not None else object):
         else:
             self._goal_world = self.world_backend.goal_position(self._scene_id).copy()
         self._prev_position = None
+        # Stale from the previous episode otherwise: the rollout video drew the
+        # spawn frame's footprint with the LAST episode's final heading (09-04).
+        self._last_fp_heading = None
         # a reset teleports the robot, so the first frame difference of an
         # episode is meaningless -- drop it rather than log a false jump
         self._rgb_delta = float("nan")
