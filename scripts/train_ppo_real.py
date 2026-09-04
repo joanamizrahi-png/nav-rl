@@ -187,6 +187,9 @@ class RewardComponentsCallback(BaseCallback):
                  # 2026-09-04: generator vs map reading of the same footprint
                  "phantom", "missed", "label_agree", "gen_collision_frac", "map_collision_frac",
                  "used_generated", "map_void_frac",
+                 # refusal metric (per episode end): goal on traversable ground?
+                 # halted on a non-traversable goal = correct; on a traversable one = the freeze
+                 "goal_traversable", "halt_correct", "halt_wrong", "reach_on_nontrav",
                  # 1.0 on the step a HALTED-SAFELY terminal fires, so
                  # diag/halted is the RATE of correct stops -- the first
                  # metric for the behaviour this project is about.
@@ -679,7 +682,7 @@ def _scene_env_cfg(args):
         map_res_m=float(getattr(args, "map_res_m", 0.1)),
         map_fallback_void_frac=float(getattr(args, "map_fallback_void_frac", 0.5)),
         map_fallback_min_alpha=float(getattr(args, "map_fallback_min_alpha", 0.4)),
-        map_inflate_m=float(getattr(args, "map_inflate_m", 0.2)),
+        map_inflate_m=float(getattr(args, "map_inflate_m", 0.1)),
         map_fill_m=float(getattr(args, "map_fill_m", 0.3)),
         map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 10.0)),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
@@ -1207,7 +1210,7 @@ def main():
     ap.add_argument("--map_res_m", type=float, default=0.1)
     ap.add_argument("--map_fallback_void_frac", type=float, default=0.5)
     ap.add_argument("--map_fallback_min_alpha", type=float, default=0.4)
-    ap.add_argument("--map_inflate_m", type=float, default=0.2)
+    ap.add_argument("--map_inflate_m", type=float, default=0.1)
     ap.add_argument("--map_fill_m", type=float, default=0.3)
     ap.add_argument("--map_fill_max_area_m2", type=float, default=10.0)
     ap.add_argument("--map_walk_halfwidth_m", type=float, default=0.4)

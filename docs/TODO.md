@@ -33,29 +33,39 @@ Edit freely. Dates are hard: results freeze **Sept 9**, submit **Sept 15** (2026
 - [ ] Merge the video rollout into the metrics loop (double rollout is wasted compute; sampler is seed=0 so not a mismatch)
 - [ ] `void_terminate_frac` — off by choice; revisit if unsupported-ground-under-coherent-view keeps showing up
 
-## 2026-09-04 morning checklist (written 01:20)
+## 2026-09-04 morning checklist (written 01:45)
 
-1. `git status` on the Mac: the 01:20 commit ("Report view alpha on the eval
-   path; refuse evals whose coherence terms would be inert") must be pushed
-   before any eval is launched.
-2. Queue: which of A 465184/465185, B 465186/465187, W 465661, T1 465662,
-   T3 465663, T2 465666 started. For each running one:
-   `grep -E 'map reward|crash=|reward_source|map_inflate|collision_look_ahead|halt_terminate_steps|halt_penalty_scale|REFUSED|Error' slurm-ppo-real-<id>.out | head -14`
-   Expect six `[map reward]` lines on every arm (diagnostics build the map
-   on A and B too), `crash=2500.0`, `halt_terminate_steps 3`,
-   `halt_penalty_scale 0.3`; `reward_source map` on W/T3/T2,
-   `map_then_generated` on T1, `map_inflate_m 0.1` on the map arms,
-   `collision_look_ahead_m 0.6` on T2 only, `terrain_speed_scaled True` on B.
-3. 465642 (grass sighted, warm, r0.65): read `crashes_that_were_phantoms`
-   and the by-alpha table (alpha will be unknown -- launched before the fix).
-4. Rerun on the fixed code once 465642 is gone from the queue: the grass
-   sighted line (GOALRADIUS=0.65) and 463170@32k sighted (GOALRADIUS=0.75).
-   Both must print `mean_coverage` as a number now; a REFUSED means alpha
-   still does not arrive -- stop and look.
-5. Dashboard with the new arms appended to the id list; panels 14/15
-   (phantom rate, label agreement) fill as soon as any new arm dumps.
-6. Semantics epoch 15 (~mid-morning): the render + grade + panel commands
-   from the night, unchanged; compare the grass/sidewalk/obstacle rows.
-7. Corner probe: verify the gnd_AUd210 pair on the map
-   (`plot_goal_on_map.py --scene gnd_AUd210 --goal_xy 16.1,-26.4 --spawn_frames 45,49`).
+Ids now: 465703 A warm, 465704 A cold, 465705 B warm, 465706 B cold, 465707 W,
+465708 T1 hybrid, 465709 T3 W-cold, 465710 T2 W-near-box. All 12 h wall.
+Still running from the first batch (48 h, end Sep 5 ~01:10): 463164, 463165,
+463168, 463170; 464143 ends Sep 5 13:11; semantics 463197/463198 finish
+their 20 epochs ~Sep 4 20:30.
 
+1. `git status` on the Mac -- every commit of the night is pushed (last:
+   "Report view alpha on the eval path; refuse evals whose coherence terms
+   would be inert").
+2. `squeue -u jmizrahi`: which of the eight started. For each running one:
+   `grep -E 'map reward|crash=|reward_source|map_inflate|collision_look_ahead|halt_terminate_steps|halt_penalty_scale|terrain_speed|REFUSED|Error' /scratch/m000204-pm06b/joana/slurm-ppo-real-<id>.out | head -14`
+   Expect on every arm: six `[map reward]` lines, `crash=2500.0`,
+   `halt_terminate_steps 3`, `halt_penalty_scale 0.3`. Then per arm:
+   A -> `reward_source generated`; B -> also `terrain_speed_scaled True`;
+   W/T3 -> `reward_source map`, `map_inflate_m 0.1`; T1 -> `map_then_generated`;
+   T2 -> also `collision_look_ahead_m 0.6`. Anything missing: scancel it, paste.
+3. First wandb dump of each: reward/collision and reward/semantic in A's
+   range; diag/phantom, diag/label_agree, diag/map_void_frac visible;
+   diag/used_generated on T1; diag/collision_off_frame on T2 (expected high).
+4. Eval 465642 (grass sighted warm): `crashes_that_were_phantoms` + the
+   by-alpha table (alpha unknown -- pre-fix). Then rerun on the fixed code:
+   the grass sighted line (GOALRADIUS=0.65) and 463170@32k sighted
+   (GOALRADIUS=0.75). Both must print `mean_coverage` as a number.
+   `REFUSED` = alpha still missing -> stop and look.
+5. Dashboard: neoverse python, id list = 463164 463165 463168 463170 464143
+   465703 465704 465705 465706 465707 465708 465709 465710. Panels 14/15
+   fill from the first new dump.
+6. Semantics epoch 15 (~09:30): render + grade + panels, unchanged commands;
+   rows grass / sidewalk / obstacle; decide whether either model replaces
+   v26 e10 for the next launches.
+7. Corner probe on gnd_AUd210 (`plot_goal_on_map.py --scene gnd_AUd210
+   --goal_xy 16.1,-26.4 --spawn_frames 45,49`).
+8. When a 12-h arm ends: decide continue (WARMSTART from its last
+   checkpoint, curricula restart) or stop.

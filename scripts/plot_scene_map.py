@@ -32,7 +32,7 @@ def main():
     ap.add_argument("--trav", default="config/traversability_v14_walkway.yaml")
     ap.add_argument("--collision_threshold", type=float, default=0.1)
     ap.add_argument("--res", type=float, default=0.1)
-    ap.add_argument("--inflate", type=float, default=0.2)
+    ap.add_argument("--inflate", type=float, default=0.1)
     ap.add_argument("--fill", type=float, default=0.3)
     ap.add_argument("--fill_area", type=float, default=10.0, help="fill enclosed void regions up to this many m2")
     ap.add_argument("--walk", type=float, default=0.4, help="half-width of the walkable corridor along the recorded walk")

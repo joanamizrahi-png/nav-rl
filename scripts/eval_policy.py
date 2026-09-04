@@ -144,7 +144,7 @@ def build_env(args):
         map_res_m=float(getattr(args, "map_res_m", 0.1)),
         map_fallback_void_frac=float(getattr(args, "map_fallback_void_frac", 0.5)),
         map_fallback_min_alpha=float(getattr(args, "map_fallback_min_alpha", 0.4)),
-        map_inflate_m=float(getattr(args, "map_inflate_m", 0.2)),
+        map_inflate_m=float(getattr(args, "map_inflate_m", 0.1)),
         map_fill_m=float(getattr(args, "map_fill_m", 0.3)),
         map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 10.0)),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
@@ -248,7 +248,7 @@ def main():
     ap.add_argument("--map_res_m", type=float, default=0.1)
     ap.add_argument("--map_fallback_void_frac", type=float, default=0.5)
     ap.add_argument("--map_fallback_min_alpha", type=float, default=0.4)
-    ap.add_argument("--map_inflate_m", type=float, default=0.2)
+    ap.add_argument("--map_inflate_m", type=float, default=0.1)
     ap.add_argument("--map_fill_m", type=float, default=0.3)
     ap.add_argument("--map_fill_max_area_m2", type=float, default=10.0)
     ap.add_argument("--map_walk_halfwidth_m", type=float, default=0.4)
@@ -529,6 +529,7 @@ def main():
         d_start = float(getattr(env.unwrapped, "_initial_goal_dist", 0.0) or 0.0)
         comps = {k: 0.0 for k in EVAL_COMPONENTS}
         cov_sum, cov_n, trespass, min_dist = 0.0, 0, 0, float("inf")
+        goal_trav = float("nan")
         phantom = missed = 0
         last_phantom = 0.0
         while not done:
@@ -563,6 +564,7 @@ def main():
             phantom += int(float(info.get("phantom", 0.0)) > 0)
             missed += int(float(info.get("missed", 0.0)) > 0)
             last_phantom = float(info.get("phantom", 0.0))
+            goal_trav = float(info.get("goal_traversable", float("nan")))
             if "map_collision_frac" in info:
                 agree_rows.append((float(info.get("coverage", float("nan"))),
                                    float(info["gen_collision_frac"]), float(info["map_collision_frac"]),
@@ -605,6 +607,7 @@ def main():
                         "min_dist": round(min_dist, 2),
                         "trespass_steps": trespass,
                         "phantom_steps": phantom, "missed_steps": missed,
+                        "goal_traversable": (None if goal_trav != goal_trav else bool(goal_trav > 0.5)),
                         # the crash that ended this episode was one the map did not see
                         "crash_was_phantom": bool(outcome == "CRASH" and last_phantom > 0),
                         "mean_coverage": (round(cov_sum / cov_n, 3)
@@ -666,6 +669,18 @@ def main():
         "reward_components_mean": comp_mean,
         "ground_share": ground_share,
     }
+    # ---- refusal metric: what the policy did, by what ground the goal sat on (Joana, 2026-09-04) ----
+    by_ground = {}
+    for r in results:
+        k = {True: "goal on traversable ground", False: "goal on NON-traversable ground", None: "goal ground unknown"}[r.get("goal_traversable")]
+        by_ground.setdefault(k, {})
+        by_ground[k][r["outcome"]] = by_ground[k].get(r["outcome"], 0) + 1
+    summary["outcomes_by_goal_ground"] = by_ground
+    print("\n=== OUTCOMES BY GOAL GROUND (map) ===")
+    for k, v in by_ground.items():
+        n = sum(v.values())
+        print("  %-34s n=%2d  " % (k, n) + "  ".join("%s %d" % (o, c) for o, c in sorted(v.items(), key=lambda kv: -kv[1])))
+    print("  correct refusals = HALTED on non-traversable; freezes = HALTED on traversable; trespass arrivals = GOAL on non-traversable")
     # ---- generator vs map, per step, as a function of alpha (Joana, 2026-09-04) ----
     if agree_rows:
         A = np.array(agree_rows, dtype=float)

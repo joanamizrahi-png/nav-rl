@@ -47,7 +47,7 @@ class LabelGrid:
 def build_label_grid(pts: np.ndarray, labs: np.ndarray, non_trav_mask: np.ndarray,
                      res: float = 0.1, z_ground: float = 0.15, z_max: float = 1.2,
                      min_points: int = 2, min_nontrav_points: int = 3,
-                     clean: bool = True, inflate_m: float = 0.2, fill_m: float = 0.3,
+                     clean: bool = True, inflate_m: float = 0.1, fill_m: float = 0.3,
                      fill_max_area_m2: float = 10.0, ignore_classes=(),
                      walk_xy=None, walk_halfwidth_m: float = 0.4) -> LabelGrid:
     pts = np.asarray(pts, dtype=np.float32)

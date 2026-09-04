@@ -276,7 +276,7 @@ class SceneEnvConfig:
     # 'unknown' stands and the coherence machinery does its job.
     map_fallback_void_frac: float = 0.5
     map_fallback_min_alpha: float = 0.4
-    map_inflate_m: float = 0.2        # grow non-traversable cells by the robot half-width
+    map_inflate_m: float = 0.1        # grow non-traversable cells; 0.1 = a one-cell wall still trips 0.35, verges cost nothing (measured 2026-09-04)
     map_fill_m: float = 0.3           # fill void holes up to this radius from their neighbours
     map_fill_max_area_m2: float = 10.0  # fill ENCLOSED void regions up to this area entirely
     map_walk_halfwidth_m: float = 0.4   # the recorded walk is walkable, this far each side
@@ -524,6 +524,24 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._halt_run = 0
         self._initial_goal_dist = float(np.linalg.norm(
             self._robot_pose_world[:3, 3] - self._goal_world))
+        # 2026-09-04 (Joana): is THIS goal on traversable ground, by the map?
+        # 1 = yes, 0 = no, nan = no map or nothing reconstructed there. The
+        # refusal metric: halting on a non-traversable goal is correct,
+        # halting on a traversable one is the freeze, arriving on a
+        # non-traversable one is trespass.
+        self._goal_traversable = float("nan")
+        _g = getattr(self, "_label_grids", {}).get(self._scene_id)
+        if _g is not None:
+            _r = max(float(self.cfg.goal_radius), 0.3)
+            _a = np.arange(-_r, _r + 1e-6, _g.res / 2.0)
+            _X, _Y = np.meshgrid(_a, _a, indexing="ij")
+            _pts = np.c_[_X.ravel(), _Y.ravel()]
+            _pts = _pts[np.linalg.norm(_pts, axis=1) <= _r] + self._goal_world[:2][None, :]
+            _lab = _g.lookup(_pts).astype(int)
+            _known = _lab >= 0
+            if _known.mean() >= 0.5:
+                _nt = self._non_trav[np.clip(_lab[_known], 0, len(self._non_trav) - 1)]
+                self._goal_traversable = float(_nt.mean() < 0.5)
 
         if self.cfg.defer_render:
             self._needs_render = True
@@ -1007,6 +1025,15 @@ class SceneEnv(gym.Env if gym is not None else object):
             if getattr(self, "_initial_goal_dist", 0.0) else float("nan"))
         info["crash"] = crash
         info["halted"] = float(halted)
+        _gt = float(getattr(self, "_goal_traversable", float("nan")))
+        info["goal_traversable"] = _gt
+        # end-of-episode flags, nan on every other step so per-rollout means
+        # are over episode ENDS: the refusal metric
+        _end = bool(terminated or truncated)
+        _nan = float("nan")
+        info["halt_correct"] = (float(halted and _gt == 0.0) if _end and _gt == _gt else _nan)
+        info["halt_wrong"] = (float(halted and _gt == 1.0) if _end and _gt == _gt else _nan)
+        info["reach_on_nontrav"] = (float(bool(terminated) and _gt == 0.0) if _end and _gt == _gt else _nan)
         if getattr(self, "_map_vs_gen", None):
             info.update(self._map_vs_gen)
         info["proximity"] = prox_term
