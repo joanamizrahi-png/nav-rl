@@ -186,7 +186,7 @@ class RewardComponentsCallback(BaseCallback):
     DIAG_KEYS = ("coverage", "collision_off_frame", "goal_dist_frac",
                  # 2026-09-04: generator vs map reading of the same footprint
                  "phantom", "missed", "label_agree", "gen_collision_frac", "map_collision_frac",
-                 "used_generated",
+                 "used_generated", "map_void_frac",
                  # 1.0 on the step a HALTED-SAFELY terminal fires, so
                  # diag/halted is the RATE of correct stops -- the first
                  # metric for the behaviour this project is about.
