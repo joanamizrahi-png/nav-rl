@@ -88,7 +88,14 @@ def main():
     ax.set_xlim(c0[0] - span / 2, c0[0] + span / 2)
     ax.set_ylim(c0[1] - span / 2, c0[1] + span / 2)
     ax.set_aspect("equal")
-    ax.legend(fontsize=8, markerscale=3, loc="best")
+    from matplotlib.lines import Line2D
+    hs = [Line2D([], [], marker="s", ls="", mfc="#dedede", mec="none", ms=8, label="walkable"),
+          Line2D([], [], marker="s", ls="", mfc="#9ecae1", mec="none", ms=8, label="other non-traversable"),
+          Line2D([], [], marker="s", ls="", mfc="#74c476", mec="none", ms=8, label="GRASS"),
+          Line2D([], [], color="0.35", lw=1.2, label="recorded walk"),
+          Line2D([], [], marker="o", ls="", mfc="k", mec="w", ms=6, label="spawn frames %s" % args.spawn_frames),
+          Line2D([], [], marker="*", ls="", mfc="tab:red", mec="k", ms=10, label="proposed goal")]
+    ax.legend(handles=hs, fontsize=8, loc="best")
     ax.set_title(f"{args.scene}: proposed goal ({goal[0]:.1f}, {goal[1]:.1f}), "
                  f"grass under it {100 * gfrac:.0f}%")
     ax.grid(alpha=0.25)

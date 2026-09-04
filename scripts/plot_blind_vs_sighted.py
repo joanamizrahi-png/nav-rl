@@ -236,7 +236,17 @@ def overview(args, s_eps, b_eps, gxy, glab, path=None):
                     xytext=(5, 4), textcoords="offset points")
 
     ax.set_aspect("equal")
-    leg = ax.legend(fontsize=9, markerscale=3, loc="upper left")
+    from matplotlib.lines import Line2D
+    hs = [Line2D([], [], marker="s", ls="", mfc="#dedede", mec="none", ms=8, label="traversable"),
+          Line2D([], [], marker="s", ls="", mfc="#9ecae1", mec="none", ms=8, label="other non-traversable"),
+          Line2D([], [], marker="s", ls="", mfc="#74c476", mec="none", ms=8, label="GRASS"),
+          Line2D([], [], color="0.35", lw=1.2, label="recorded walk"),
+          Line2D([], [], ls="--", color="0.55", lw=0.8, label="spawn to its goal"),
+          Line2D([], [], color="tab:blue", lw=1.6, label="sighted"),
+          Line2D([], [], color="tab:orange", lw=1.6, label="blind"),
+          Line2D([], [], marker="o", ls="", mfc="k", mec="w", ms=6, label="spawn"),
+          Line2D([], [], marker="*", ls="", mfc="tab:red", mec="k", ms=10, label="goal")]
+    leg = ax.legend(handles=hs, fontsize=8, loc="upper left")
     ax.add_artist(leg)
     outcome_legend(ax, seen)
     ax.set_title(f"{args.scene}: every episode, whole scene\n"
@@ -290,6 +300,9 @@ def overview(args, s_eps, b_eps, gxy, glab, path=None):
         # generator says something else.
         agree = {"cloud grass, gen grass": 0, "cloud grass, gen OTHER": 0,
                  "cloud walkable, gen grass": 0, "cloud walkable, gen walkable": 0}
+        # what the generator painted where the cloud has grass -- vegetation
+        # (score 0) would still penalise; road/pavement means the reward is blind
+        gen_at_grass: dict = {}
         for eps_ in (s_eps, b_eps):
             for e in eps_:
                 for row in e["traj"]:
@@ -303,6 +316,8 @@ def overview(args, s_eps, b_eps, gxy, glab, path=None):
                         continue
                     cloud_grass = float(np.mean(near == 3)) > 0.5
                     gen_grass = int(gen) == 3
+                    if cloud_grass:
+                        gen_at_grass[int(gen)] = gen_at_grass.get(int(gen), 0) + 1
                     key = ("cloud grass, " if cloud_grass else "cloud walkable, ") + \
                           ("gen grass" if gen_grass else ("gen OTHER" if cloud_grass else "gen walkable"))
                     agree[key] = agree.get(key, 0) + 1
@@ -311,6 +326,16 @@ def overview(args, s_eps, b_eps, gxy, glab, path=None):
               "GENERATED semantics also said grass: %d (%.0f%%)"
               % (tot_cg, agree["cloud grass, gen grass"],
                  100.0 * agree["cloud grass, gen grass"] / max(tot_cg, 1)))
+        V14 = {0: "void", 1: "sky", 2: "trail", 3: "grass", 4: "rough", 5: "water",
+               6: "sidewalk", 7: "road", 8: "pavement", 9: "stairs", 10: "obstacle",
+               11: "vegetation", 12: "person", 13: "vehicle", -1: "none"}
+        NONTRAV_SCORE0 = {0, 1, 3, 5, 10, 11, 12, 13}
+        if gen_at_grass:
+            top = sorted(gen_at_grass.items(), key=lambda kv: -kv[1])[:4]
+            still_pen = sum(v for k, v in gen_at_grass.items() if k in NONTRAV_SCORE0)
+            print("    what the generator painted there instead: "
+                  + ", ".join("%s %d" % (V14.get(k, k), v) for k, v in top)
+                  + "  -> still penalised (any score-0 class): %d/%d" % (still_pen, tot_cg))
         if tot_cg and agree["cloud grass, gen grass"] / tot_cg < 0.5:
             print("    !!! the world model is NOT painting grass where the "
                   "reconstruction has it. The reward cannot see terrain the "
