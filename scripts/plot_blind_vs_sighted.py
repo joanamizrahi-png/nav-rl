@@ -88,12 +88,13 @@ def main():
     s_sum, s_eps = load(Path(args.sighted))
     b_sum, b_eps = load(Path(args.blind))
 
-    gxy = glab = axy = alab = None
+    gxy = glab = axy = alab = az = None
     cp = Path(args.clouds_dir) / f"{args.scene}_cloud.npz"
     if cp.exists():
         c = np.load(cp)
         pts, labs = c["points"], c["labels"].astype(int)
         axy, alab = pts[:, :2], labs          # every point, for the crash buckets
+        az = pts[:, 2]
         m = pts[:, 2] < args.z_max
         gxy, glab = pts[m][:, :2], labs[m]
         # subsample: 150k points is unreadable and slow to render
@@ -159,7 +160,7 @@ def main():
     outcome_legend(axes[n] if n < len(axes) else axes[0], seen)
 
     if args.overview_out:
-        overview(args, s_eps, b_eps, gxy, glab, _recorded_path, axy=axy, alab=alab)
+        overview(args, s_eps, b_eps, gxy, glab, _recorded_path, axy=axy, alab=alab, az=az)
 
     fig.suptitle(
         f"{args.scene}: same weights, same spawn, same goal — with and without vision\n"
@@ -182,7 +183,7 @@ def main():
               f"c={be['closed_frac']!s:>6}   {se['d_start']}")
 
 
-def overview(args, s_eps, b_eps, gxy, glab, path=None, axy=None, alab=None):
+def overview(args, s_eps, b_eps, gxy, glab, path=None, axy=None, alab=None, az=None):
     """Every episode on one map of the whole scene."""
     import matplotlib
     matplotlib.use("Agg")
@@ -288,12 +289,21 @@ def overview(args, s_eps, b_eps, gxy, glab, path=None, axy=None, alab=None):
                 row = e["traj"][-1]
                 x, y, yaw = float(row[0]), float(row[1]), float(row[2]) if len(row) > 2 else 0.0
                 fx, fy = x + 1.5 * np.cos(yaw), y + 1.5 * np.sin(yaw)
-                near = clab[np.linalg.norm(cxy - np.array([[fx, fy]]), axis=1) < 0.6]
+                inside = np.linalg.norm(cxy - np.array([[fx, fy]]), axis=1) < 0.6
+                near = clab[inside]
+                # a wall clipped by the footprint is a thin line in x,y and
+                # loses the majority vote to dense ground; count it separately
+                n_vert = int((az[inside] > 0.4).sum()) if az is not None else 0
                 if len(near) < 8:
                     k = "edge of reconstruction"
                 else:
                     dom = int(np.bincount(near).argmax())
-                    k = V14_NAMES.get(dom, str(dom)) + ("" if dom in NONTRAV_DEFAULT else " (walkable)")
+                    if dom in NONTRAV_DEFAULT:
+                        k = V14_NAMES.get(dom, str(dom))
+                    elif n_vert >= 15:
+                        k = V14_NAMES.get(dom, str(dom)) + " but a vertical structure in the disc"
+                    else:
+                        k = V14_NAMES.get(dom, str(dom)) + " (walkable, nothing vertical: PHANTOM if generator said obstacle)"
                 cloud[k] = cloud.get(k, 0) + 1
                 g = V14_NAMES.get(int(row[4]), "?") if len(row) > 4 else "?"
                 gen[g] = gen.get(g, 0) + 1
