@@ -32,3 +32,30 @@ Edit freely. Dates are hard: results freeze **Sept 9**, submit **Sept 15** (2026
 - [ ] Ancestor pair at its OWN range (5–10 m) for a clean train/eval match, if the 2.5–6.5 comparison needs it
 - [ ] Merge the video rollout into the metrics loop (double rollout is wasted compute; sampler is seed=0 so not a mismatch)
 - [ ] `void_terminate_frac` — off by choice; revisit if unsupported-ground-under-coherent-view keeps showing up
+
+## 2026-09-04 morning checklist (written 01:20)
+
+1. `git status` on the Mac: the 01:20 commit ("Report view alpha on the eval
+   path; refuse evals whose coherence terms would be inert") must be pushed
+   before any eval is launched.
+2. Queue: which of A 465184/465185, B 465186/465187, W 465661, T1 465662,
+   T3 465663, T2 465666 started. For each running one:
+   `grep -E 'map reward|crash=|reward_source|map_inflate|collision_look_ahead|halt_terminate_steps|halt_penalty_scale|REFUSED|Error' slurm-ppo-real-<id>.out | head -14`
+   Expect six `[map reward]` lines on every arm (diagnostics build the map
+   on A and B too), `crash=2500.0`, `halt_terminate_steps 3`,
+   `halt_penalty_scale 0.3`; `reward_source map` on W/T3/T2,
+   `map_then_generated` on T1, `map_inflate_m 0.1` on the map arms,
+   `collision_look_ahead_m 0.6` on T2 only, `terrain_speed_scaled True` on B.
+3. 465642 (grass sighted, warm, r0.65): read `crashes_that_were_phantoms`
+   and the by-alpha table (alpha will be unknown -- launched before the fix).
+4. Rerun on the fixed code once 465642 is gone from the queue: the grass
+   sighted line (GOALRADIUS=0.65) and 463170@32k sighted (GOALRADIUS=0.75).
+   Both must print `mean_coverage` as a number now; a REFUSED means alpha
+   still does not arrive -- stop and look.
+5. Dashboard with the new arms appended to the id list; panels 14/15
+   (phantom rate, label agreement) fill as soon as any new arm dumps.
+6. Semantics epoch 15 (~mid-morning): the render + grade + panel commands
+   from the night, unchanged; compare the grass/sidewalk/obstacle rows.
+7. Corner probe: verify the gnd_AUd210 pair on the map
+   (`plot_goal_on_map.py --scene gnd_AUd210 --goal_xy 16.1,-26.4 --spawn_frames 45,49`).
+
