@@ -250,6 +250,15 @@ fi
 # WARMSTART: continue training an existing policy (.zip). Works with any rung
 # (live fine-tune of the cached champion = LIVE=1 WARMSTART=<champion ckpt>).
 # STEPS then counts the ADDITIONAL steps on top of the checkpoint's counter.
+# WARMSTART=<run dir>/checkpoints/LATEST resolves to that run's newest
+# checkpoint WHEN THIS JOB STARTS, so a continuation can be submitted with
+# --dependency=afterany:<job> and pick up the checkpoint the parent ends on.
+if [[ "${WARMSTART:-}" == */LATEST ]]; then
+    _wdir="${WARMSTART%/LATEST}"
+    WARMSTART=$(ls -t "$_wdir"/ppo_*_steps.zip 2>/dev/null | head -1 || true)
+    [[ -f "$WARMSTART" ]] || { echo "REFUSED: no checkpoint under $_wdir to continue from"; exit 2; }
+    echo "==> continuing from $WARMSTART"
+fi
 if [ -n "${WARMSTART:-}" ]; then
     BC_ARGS="$BC_ARGS --warmstart $WARMSTART"
     # The SOURCE goes in the directory name, not just "_warm". Two arms warm
