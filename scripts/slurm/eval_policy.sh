@@ -120,6 +120,7 @@ fi
 [ -n "${SPAWNJLAT:-}" ] && EXTRA_ARGS+=(--spawn_lat_jitter "$SPAWNJLAT")
 [ -n "${VOIDTERM:-}" ]  && EXTRA_ARGS+=(--void_terminate_frac "$VOIDTERM")
 [ -n "${HALT:-}" ] && EXTRA_ARGS+=(--halt_terminate_steps "$HALT")
+[ -n "${HALTSCALE:-}" ] && EXTRA_ARGS+=(--halt_penalty_scale "$HALTSCALE")
 
 # Reward weights, so the reported `return=` is on TRAINING's scale. They do not
 # change a frozen policy's actions, but a return computed with goal_bonus 50

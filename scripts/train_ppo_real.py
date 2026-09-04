@@ -438,6 +438,7 @@ def _dump_env_config(args, cfg):
             "alpha_gate_tau": float(getattr(args, "alpha_gate_tau", 0.5)),
             "halt_terminate_steps": getattr(cfg, "halt_terminate_steps", 0),
             "halt_throttle_eps": getattr(cfg, "halt_throttle_eps", 0.05),
+            "halt_penalty_scale": getattr(cfg, "halt_penalty_scale", 1.0),
         }, indent=2))
         print(f"[train] env recorded for eval: {out}", flush=True)
     except Exception as e:
@@ -663,6 +664,7 @@ def _scene_env_cfg(args):
         timeout_penalty=getattr(args, "timeout_penalty", 0.0),
         halt_terminate_steps=getattr(args, "halt_terminate_steps", 0),
         halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
+        halt_penalty_scale=getattr(args, "halt_penalty_scale", 1.0),
         timeout_distance_scaled=getattr(args, "timeout_distance_scaled", False),
         reward_scale=getattr(args, "reward_scale", 1.0),
         random_spawn=True,
@@ -1178,6 +1180,10 @@ def main():
                          "distance. Pays the same distance-scaled timeout it "
                          "would have received anyway. 0 = off.")
     ap.add_argument("--halt_throttle_eps", type=float, default=0.05)
+    ap.add_argument("--ckpt_every_calls", type=int, default=2000,
+                    help="checkpoint every N env calls (x n_envs = steps); 2000 x 4 = 8000 steps")
+    ap.add_argument("--halt_penalty_scale", type=float, default=1.0,
+                    help="HALTED pays timeout x this (1.0 = same as a timeout)")
     ap.add_argument("--goal_dist_window", type=float, default=None,
                     help="sliding-window distance curriculum: keep the goal "
                          "range this wide instead of pinning its near end. "
@@ -1330,7 +1336,7 @@ def main():
         bc_pretrain(model, args.bc_demos, epochs=args.bc_epochs)
         model.save(str(args.output_dir / "policy_after_bc.zip"))
 
-    callbacks = [CheckpointCallback(save_freq=2_000,
+    callbacks = [CheckpointCallback(save_freq=int(args.ckpt_every_calls),
                                     save_path=str(args.output_dir / "checkpoints"),
                                     name_prefix="ppo"),
                  RewardComponentsCallback(

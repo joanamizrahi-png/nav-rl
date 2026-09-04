@@ -27,7 +27,7 @@ set -euo pipefail
 # of them was -- the .out files do not echo the command, env_config.json is
 # only written after the hour-long pipeline load, and shell history had scrolled
 # away. An unrecorded experiment is not an experiment.
-KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
+KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALTSCALE|CKPTFREQ|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
 # Whitelist, not a blacklist. The first version excluded known-noisy prefixes
 # and still emitted lmod shell functions, base64 module tables and every SLURM
 # variable -- thousands of unreadable characters per entry (2026-09-03, first
@@ -356,6 +356,7 @@ fi
 [ -n "${GOALDIST_START:-}" ] && LABEL="${LABEL}-curD${GOALDIST_START}"
 [ -n "${GOALDISTWIN:-}" ] && LABEL="${LABEL}-win${GOALDISTWIN}"
 [ -n "${HALT:-}" ] && LABEL="${LABEL}-halt${HALT}"
+[ -n "${HALTSCALE:-}" ] && LABEL="${LABEL}-hs${HALTSCALE}"
 [ -n "${ENT:-}" ] && LABEL="${LABEL}-ent${ENT}"
 LABEL="${LABEL}-s${SEED:-0}"
 echo "==> wandb label: $LABEL"
@@ -500,6 +501,19 @@ fi
 if [ -n "${HALT:-}" ]; then
     BC_ARGS="$BC_ARGS --halt_terminate_steps ${HALT}"
     OUT="${OUT}_halt${HALT}"
+fi
+# HALTSCALE: what a HALTED episode pays, as a multiple of the distance-scaled
+# timeout. 1 (default) = the tie; 0.3 = refusing an unreachable goal is the
+# cheapest terminal after reaching it.
+if [ -n "${HALTSCALE:-}" ]; then
+    BC_ARGS="$BC_ARGS --halt_penalty_scale ${HALTSCALE}"
+    OUT="${OUT}_hs${HALTSCALE}"
+fi
+# CKPTFREQ: checkpoint every N env calls (x4 envs = steps). Default 2000
+# (= 8000 steps, ~4.5 h). 500 = every 2000 steps, for arms that must be
+# evaluated the same night they were launched.
+if [ -n "${CKPTFREQ:-}" ]; then
+    BC_ARGS="$BC_ARGS --ckpt_every_calls ${CKPTFREQ}"
 fi
 if [ -n "${GOALDISTWIN:-}" ]; then
     BC_ARGS="$BC_ARGS --goal_dist_window ${GOALDISTWIN}"

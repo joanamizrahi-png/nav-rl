@@ -211,6 +211,11 @@ class SceneEnvConfig:
     # terrain cost, which is a reward-sanctioned freeze.
     halt_terminate_steps: int = 0      # 0 = off
     halt_throttle_eps: float = 0.05
+    # 2026-09-03: a HALTED episode pays the distance-scaled timeout times
+    # this. 1.0 = same as timing out (the tie that made stopping no better
+    # than gambling on the goal). Below 1, refusing is cheaper than waiting
+    # out the clock and far cheaper than crashing.
+    halt_penalty_scale: float = 1.0
     timeout_penalty: float = 0.0
     # PROPORTIONAL TIMEOUT (2026-09-02, her call: "proportional timeout seems
     # genius"). A flat timeout penalty charges the same for stopping 1 m short
@@ -875,6 +880,8 @@ class SceneEnv(gym.Env if gym is not None else object):
                 d0 = float(getattr(self, "_initial_goal_dist", 0.0) or 0.0)
                 frac = 1.0 if d0 <= 1e-6 else min(1.0, max(0.0, dist_to_goal / d0))
                 timeout_term *= frac
+            if halted:
+                timeout_term *= float(self.cfg.halt_penalty_scale)
         reward = (breakdown.total + spin_term + back_term + smooth_term
                   + bonus + crash + prox_term + timeout_term
                   + coh_term + coh_crash)

@@ -138,6 +138,7 @@ def build_env(args):
         void_terminate_penalty=getattr(args, "void_terminate_penalty", 100.0),
         halt_terminate_steps=getattr(args, "halt_terminate_steps", 0),
         halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
+        halt_penalty_scale=getattr(args, "halt_penalty_scale", 1.0),
         random_spawn=True,
         trav_path=args.trav_path,
         collision_terminate_frac=args.collision_terminate_frac,
@@ -230,6 +231,7 @@ def main():
                     help="must match training, or a policy trained to halt is "
                          "scored as if it merely timed out")
     ap.add_argument("--halt_throttle_eps", type=float, default=0.05)
+    ap.add_argument("--halt_penalty_scale", type=float, default=1.0)
     ap.add_argument("--goal_radius", type=float, default=None,
                     help="arrival radius; training's FINAL value, not its start")
     ap.add_argument("--semantic_weight", type=float, default=None)
