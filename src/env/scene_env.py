@@ -125,6 +125,13 @@ class SceneEnvConfig:
     # scene ~none). The sampler only; the policy never sees it.
     goal_traversable_mix: float = 0.0
     goal_mix_tries: int = 12
+    # Spawn support: redraw a spawn whose crash box is already at/above the
+    # crash threshold on the MAP, up to this many times (0 = off). Such a
+    # spawn ends at step 1 whatever the policy does and teaches nothing:
+    # far box 26% of spawns on gnd_AU_180, near box 9% (spawn_doom.py,
+    # 2026-09-04). The whole spawn is redrawn (frame + jitter), so survivors
+    # stay jittered. Needs a map (clouds_dir).
+    spawn_support_tries: int = 0
     goal_radius: float = 0.5            # meters; within this counts as "reached goal"
     collision_threshold: float = 0.1    # class score at/below which counts as collision
     spin_cost: float = 0.0              # shaping v2: penalty * |yaw action| (taxes circling)
@@ -521,6 +528,29 @@ class SceneEnv(gym.Env if gym is not None else object):
         if self.cfg.random_spawn and hasattr(self.world_backend, "sample_start_pose"):
             self._robot_pose_world = self.world_backend.sample_start_pose(
                 self._scene_id, self.np_random).copy()
+            _tries = int(self.cfg.spawn_support_tries)
+            if _tries > 0:
+                _thr = (float(self.cfg.collision_terminate_frac)
+                        if self.cfg.collision_terminate_frac > 0 else 0.35)
+                self._spawn_total = getattr(self, "_spawn_total", 0) + 1
+                self._spawn_redraws = getattr(self, "_spawn_redraws", 0)
+                self._spawn_exhausted = getattr(self, "_spawn_exhausted", 0)
+                for _t in range(_tries + 1):
+                    _f = self._spawn_doomed(self._robot_pose_world)
+                    if _f is None or _f < _thr:
+                        break
+                    if _t == _tries:
+                        self._spawn_exhausted += 1
+                        break
+                    self._spawn_redraws += 1
+                    self._robot_pose_world = self.world_backend.sample_start_pose(
+                        self._scene_id, self.np_random).copy()
+                if self._spawn_total in (50, 500, 5000, 50000):
+                    print(f"[spawn support] {self._spawn_redraws} redraws over "
+                          f"{self._spawn_total} spawns "
+                          f"({100.0 * self._spawn_redraws / self._spawn_total:.1f}% of draws doomed), "
+                          f"{self._spawn_exhausted} episodes kept a doomed spawn after "
+                          f"{_tries} tries", flush=True)
         else:
             self._robot_pose_world = self.world_backend.start_pose(self._scene_id).copy()
         if hasattr(self.world_backend, "sample_goal_position"):
@@ -722,6 +752,23 @@ class SceneEnv(gym.Env if gym is not None else object):
         if coverage is not None:
             self._last_coverage = float(coverage)
         self._needs_render = False
+
+    def _spawn_doomed(self, pose: np.ndarray):
+        """Non-traversable share of THIS arm's crash box on the map at `pose`
+        (void excluded, as the reward). None when the scene has no map."""
+        g = getattr(self, "_label_grids", {}).get(self._scene_id)
+        if g is None:
+            return None
+        from src.eval.reward_map import footprint_samples
+        pos = np.asarray(pose[:2, 3], dtype=float)
+        hd = np.asarray(pose[:2, 0], dtype=float)
+        hd = hd / (np.linalg.norm(hd) + 1e-9)
+        ahead = (float(self.cfg.collision_look_ahead_m) if self.cfg.collision_look_ahead_m > 0.0
+                 else float(self.cfg.look_ahead_dist))
+        fp = footprint_samples(pos + ahead * hd, hd, GO2_BODY_LENGTH, GO2_BODY_WIDTH, g.res / 2.0)
+        cl = g.lookup(fp).astype(int)
+        cl = np.where(cl < 0, 0, cl)
+        return float((self._non_trav[cl] & (cl != 0)).mean())
 
     def _load_obstacle_points(self, scene_id: str) -> None:
         """Body-height obstacle points (xy) from the scene cloud, cached per

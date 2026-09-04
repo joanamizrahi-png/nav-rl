@@ -127,6 +127,7 @@ fi
 [ -n "${MAPINFL:-}" ] && { EXTRA_ARGS+=(--map_inflate_m "$MAPINFL"); OUT_SUFFIX="${OUT_SUFFIX}_mi${MAPINFL}"; }
 [ -n "${MAPINFLCLS:-}" ] && { EXTRA_ARGS+=(--map_inflate_classes "$MAPINFLCLS"); OUT_SUFFIX="${OUT_SUFFIX}_mic${MAPINFLCLS//,/-}"; }
 [ -n "${GOALMIX:-}" ] && { EXTRA_ARGS+=(--goal_traversable_mix "$GOALMIX"); OUT_SUFFIX="${OUT_SUFFIX}_gm${GOALMIX}"; }
+[ -n "${SPAWNSUPPORT:-}" ] && { EXTRA_ARGS+=(--spawn_support_tries "$SPAWNSUPPORT"); OUT_SUFFIX="${OUT_SUFFIX}_ss${SPAWNSUPPORT}"; }
 
 # Reward weights, so the reported `return=` is on TRAINING's scale. They do not
 # change a frozen policy's actions, but a return computed with goal_bonus 50
