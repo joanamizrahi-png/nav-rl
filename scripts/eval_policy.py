@@ -142,6 +142,8 @@ def build_env(args):
         terrain_speed_scaled=bool(getattr(args, "terrain_speed_scaled", False)),
         reward_source=getattr(args, "reward_source", "generated"),
         map_res_m=float(getattr(args, "map_res_m", 0.1)),
+        map_fallback_void_frac=float(getattr(args, "map_fallback_void_frac", 0.5)),
+        map_fallback_min_alpha=float(getattr(args, "map_fallback_min_alpha", 0.4)),
         map_inflate_m=float(getattr(args, "map_inflate_m", 0.2)),
         map_fill_m=float(getattr(args, "map_fill_m", 0.3)),
         map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 10.0)),
@@ -244,6 +246,8 @@ def main():
     ap.add_argument("--reward_source", default="generated",
                     choices=("generated", "map", "map_then_generated"))
     ap.add_argument("--map_res_m", type=float, default=0.1)
+    ap.add_argument("--map_fallback_void_frac", type=float, default=0.5)
+    ap.add_argument("--map_fallback_min_alpha", type=float, default=0.4)
     ap.add_argument("--map_inflate_m", type=float, default=0.2)
     ap.add_argument("--map_fill_m", type=float, default=0.3)
     ap.add_argument("--map_fill_max_area_m2", type=float, default=10.0)

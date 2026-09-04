@@ -269,6 +269,13 @@ class SceneEnvConfig:
     # diag/missed = map says crash, generator says clear; diag/label_agree.
     map_diagnostics: bool = True
     map_res_m: float = 0.1
+    # map_then_generated: fall back to the generated labels only when the
+    # map has nothing under the footprint (void share >= this) AND the view
+    # is still well supported (mean alpha >= this), i.e. the generator is
+    # still grounded. Off the reconstruction with low alpha the map's
+    # 'unknown' stands and the coherence machinery does its job.
+    map_fallback_void_frac: float = 0.5
+    map_fallback_min_alpha: float = 0.4
     map_inflate_m: float = 0.2        # grow non-traversable cells by the robot half-width
     map_fill_m: float = 0.3           # fill void holes up to this radius from their neighbours
     map_fill_max_area_m2: float = 10.0  # fill ENCLOSED void regions up to this area entirely
@@ -833,10 +840,17 @@ class SceneEnv(gym.Env if gym is not None else object):
         if self.cfg.reward_source == "map":
             breakdown = breakdown_map
         elif self.cfg.reward_source == "map_then_generated":
-            # the map where it has support; the image where the footprint is
-            # mostly off the reconstruction
-            if breakdown_map.void_frac < 0.5:
+            # the map where it has support; the image only where the footprint
+            # is mostly off the reconstruction AND the view is still well
+            # supported (alpha), so a grounded generator fills the gap and an
+            # ungrounded one does not
+            _cov = getattr(self, "_last_coverage", None)
+            _use_gen = (breakdown_map.void_frac >= self.cfg.map_fallback_void_frac
+                        and (_cov is None or float(_cov) >= self.cfg.map_fallback_min_alpha))
+            if not _use_gen:
                 breakdown = breakdown_map
+            if self._map_vs_gen is not None:
+                self._map_vs_gen["used_generated"] = float(_use_gen)
 
         # Collision snapshot: the view + semantics + numbers behind every
         # non-traversable footprint, saved BEFORE the pose advances so the

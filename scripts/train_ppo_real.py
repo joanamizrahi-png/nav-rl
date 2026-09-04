@@ -186,6 +186,7 @@ class RewardComponentsCallback(BaseCallback):
     DIAG_KEYS = ("coverage", "collision_off_frame", "goal_dist_frac",
                  # 2026-09-04: generator vs map reading of the same footprint
                  "phantom", "missed", "label_agree", "gen_collision_frac", "map_collision_frac",
+                 "used_generated",
                  # 1.0 on the step a HALTED-SAFELY terminal fires, so
                  # diag/halted is the RATE of correct stops -- the first
                  # metric for the behaviour this project is about.
@@ -444,6 +445,8 @@ def _dump_env_config(args, cfg):
             "terrain_speed_scaled": bool(getattr(cfg, "terrain_speed_scaled", False)),
             "reward_source": getattr(cfg, "reward_source", "generated"),
             "map_diagnostics": bool(getattr(cfg, "map_diagnostics", True)),
+            "map_fallback_void_frac": getattr(cfg, "map_fallback_void_frac", 0.5),
+            "map_fallback_min_alpha": getattr(cfg, "map_fallback_min_alpha", 0.4),
             "map_res_m": getattr(cfg, "map_res_m", 0.1),
         }, indent=2))
         print(f"[train] env recorded for eval: {out}", flush=True)
@@ -674,6 +677,8 @@ def _scene_env_cfg(args):
         terrain_speed_scaled=bool(getattr(args, "terrain_speed_scaled", False)),
         reward_source=getattr(args, "reward_source", "generated"),
         map_res_m=float(getattr(args, "map_res_m", 0.1)),
+        map_fallback_void_frac=float(getattr(args, "map_fallback_void_frac", 0.5)),
+        map_fallback_min_alpha=float(getattr(args, "map_fallback_min_alpha", 0.4)),
         map_inflate_m=float(getattr(args, "map_inflate_m", 0.2)),
         map_fill_m=float(getattr(args, "map_fill_m", 0.3)),
         map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 10.0)),
@@ -1200,6 +1205,8 @@ def main():
                     choices=("generated", "map", "map_then_generated"),
                     help="labels the reward reads: the generated image, or the scene cloud map")
     ap.add_argument("--map_res_m", type=float, default=0.1)
+    ap.add_argument("--map_fallback_void_frac", type=float, default=0.5)
+    ap.add_argument("--map_fallback_min_alpha", type=float, default=0.4)
     ap.add_argument("--map_inflate_m", type=float, default=0.2)
     ap.add_argument("--map_fill_m", type=float, default=0.3)
     ap.add_argument("--map_fill_max_area_m2", type=float, default=10.0)

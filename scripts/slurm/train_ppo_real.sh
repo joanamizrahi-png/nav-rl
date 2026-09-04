@@ -359,7 +359,7 @@ fi
 [ -n "${HALTSCALE:-}" ] && LABEL="${LABEL}-hs${HALTSCALE}"
 [ -n "${HALTEPS:-}" ] && LABEL="${LABEL}-he${HALTEPS}"
 [ "${SPEEDCOST:-0}" = "1" ] && LABEL="${LABEL}-spd"
-[ -n "${REWSRC:-}" ] && LABEL="${LABEL}-r${REWSRC}"
+[ -n "${REWSRC:-}" ] && LABEL="${LABEL}-r${REWSRC/map_then_generated/hyb}"
 [ -n "${ENT:-}" ] && LABEL="${LABEL}-ent${ENT}"
 LABEL="${LABEL}-s${SEED:-0}"
 echo "==> wandb label: $LABEL"
@@ -526,7 +526,7 @@ fi
 # clouds_dir RW5 already passes.
 if [ -n "${REWSRC:-}" ]; then
     BC_ARGS="$BC_ARGS --reward_source ${REWSRC}"
-    OUT="${OUT}_r${REWSRC}"
+    OUT="${OUT}_r${REWSRC/map_then_generated/hyb}"
 fi
 # HALTSCALE: what a HALTED episode pays, as a multiple of the distance-scaled
 # timeout. 1 (default) = the tie; 0.3 = refusing an unreachable goal is the
