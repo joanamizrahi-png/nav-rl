@@ -337,10 +337,11 @@ def overview(args, s_eps, b_eps, gxy, glab, path=None):
                   + ", ".join("%s %d" % (V14.get(k, k), v) for k, v in top)
                   + "  -> still penalised (any score-0 class): %d/%d" % (still_pen, tot_cg))
         if tot_cg and agree["cloud grass, gen grass"] / tot_cg < 0.5:
-            print("    !!! the world model is NOT painting grass where the "
-                  "reconstruction has it. The reward cannot see terrain the "
-                  "generator does not draw -- this is a semantics-model "
-                  "problem, not a policy one.")
+            print("    at footprint positions the cloud labels grass, the generated "
+                  "DOMINANT class was walkable. The generator does draw grass "
+                  "elsewhere in the frame; at the verge its boundary sits inside "
+                  "the cloud's, or the cloud over-segments (SAM3 labels, not GT). "
+                  "Either way the reward at the footprint did not see grass here.")
         if len(gr):
             # distance from each spawn to the nearest grass point -- if this is
             # large for every spawn, the robot was never given the chance to
