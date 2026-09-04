@@ -252,6 +252,12 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
             self._pending_labels = lab_last
         self._last_semantic_raw = lab_last
         self._live_alpha = alpha_last
+        # 2026-09-04: the view's mean alpha, the SAME statistic the batched
+        # training path reports (vec_live_env.last_alpha[i].mean()). Until now
+        # the single-env path -- every eval -- reported nothing, so the
+        # coherence cost and the incoherent terminal were INERT in evals
+        # while live in training (the env printed a WARNING nobody grepped).
+        self.last_coverage = float(target_alpha[0, -1].detach().float().mean().item())
         t["decode"] = time.perf_counter() - t2
         t["total"] = time.perf_counter() - t0
         self.last_timings = t

@@ -1052,6 +1052,9 @@ class SceneEnv(gym.Env if gym is not None else object):
 
     def _render_current(self) -> None:
         rgb, K, w2c = self.world_backend.render(self._robot_pose_world)
+        _cov = getattr(self.world_backend, "last_coverage", None)
+        if _cov is not None:
+            self._last_coverage = float(_cov)      # coherence terms + by-alpha table in evals
         # Frame-to-frame |dRGB|: Joana's measure of world-model coherence
         # (2026-09-02). Alpha coverage is a proxy -- it says how much geometry
         # backs the view -- but the failure she actually cares about is the

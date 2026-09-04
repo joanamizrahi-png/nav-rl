@@ -544,6 +544,15 @@ def main():
             if _c == _c:
                 cov_sum += _c
                 cov_n += 1
+            elif steps == 1 and ep == 0 and (float(getattr(args, "coherence_cost_weight", 0.0) or 0.0) > 0.0
+                                             or float(getattr(args, "coherence_terminate_tau", 0.0) or 0.0) > 0.0):
+                # 2026-09-04: every eval before today ran with the coherence
+                # terms silently INERT because this path reported no alpha.
+                # An eval that asks for coherence and gets no coverage is not
+                # the eval that was requested: stop, do not print numbers.
+                raise SystemExit("REFUSED: coherence requested but the backend reports no view alpha "
+                                 "(coverage is NaN on the first step). The coherence cost and terminal "
+                                 "would be inert and this eval would not match training.")
             min_dist = min(min_dist, float(info.get("dist_to_goal", min_dist)))
             # trespass = the footprint's dominant class is grass. This is the
             # number that says whether "did not reach the goal" means restraint

@@ -46,7 +46,7 @@ recognised on sight:
 | symptom | reading |
 |---|---|
 | `Elapsed` about a minute | the diffusion pipeline was never loaded (it alone takes 25-40 min) |
-| `mean_coverage: None` | no alpha, so no generated view |
+| `mean_coverage: None` | no alpha reached the env: either the rasterizer ran, or (before 2026-09-04) the live single-env path never reported alpha and the coherence terms were INERT. Either way: not the requested eval |
 | `ground_share` with `rough`, `water`, `person`, or bare ids like `15` | raw cloud labels, not the campus palette |
 
 The launcher now refuses a `ppo_live_*` checkpoint without `LIVE=1`, and
