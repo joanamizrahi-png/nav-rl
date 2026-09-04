@@ -21,7 +21,7 @@ actually trained with.
 ```bash
 export EV="LIVE=1 NOGATE=1 \
 LIVECKPT=/scratch/m000204-pm06b/joana/runs/train_semantic_v26_campus/checkpoint-epoch-10.safetensors \
-SEMPAL=4 GOAL360=1 GOALCONE=50 GOALFRAMERANGE=15,70 GOALSUPPORT=0.6 VIDEOS=6 \
+SEMPAL=4 GOAL360=1 GOALCONE=50 GOALFRAMERANGE=15,70 GOALSUPPORT=0.6 VIDEOS=20 \
 SCENE=gnd_AUw360 TRAV=config/traversability_v14_walkway.yaml \
 COLLTERM=0.35 COLLPEN=1000 COH=10 COHTAU=0.4 \
 SEMW=5 REWSCALE=0.01 SMOOTHCOST=1 MAXSTEPS=90 FWDONLY=1 \
@@ -36,6 +36,11 @@ override two:
 ```bash
 LIVECKPT=/scratch/m000204-pm06b/joana/runs/train_semantic_v21/checkpoint-epoch-12.safetensors SEMPAL=1
 ```
+
+`VIDEOS=20` records every episode. Each video episode is rolled out twice (the
+video pass, then the metrics pass -- same seed, and the sampler is `seed=0`, so
+they are the same episode), which adds ~10-15 min to an eval. The episode you
+want to watch is always the one that was not recorded; record them all.
 
 ## 2. The per-arm tail
 
