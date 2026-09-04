@@ -284,6 +284,7 @@ class SceneEnvConfig:
     map_fallback_void_frac: float = 0.5
     map_fallback_min_alpha: float = 0.4
     map_inflate_m: float = 0.1        # grow non-traversable cells; 0.1 = a one-cell wall still trips 0.35, verges cost nothing (measured 2026-09-04)
+    map_inflate_classes: str = ""     # comma list of class ids that inflate; "" = every non-traversable class. "10,11,13" = walls/vegetation/vehicles only, grass keeps its true edge
     map_fill_m: float = 0.3           # fill void holes up to this radius from their neighbours
     map_fill_max_area_m2: float = 10.0  # fill ENCLOSED void regions up to this area entirely
     map_walk_halfwidth_m: float = 0.4   # the recorded walk is walkable, this far each side
@@ -760,7 +761,8 @@ class SceneEnv(gym.Env if gym is not None else object):
                                  ignore_classes=tuple(int(v) for v in str(self.cfg.map_ignore_classes).split(",") if v.strip()),
                                  walk_xy=(np.asarray(d["traj_positions"], dtype=float) * np.array([1.0, -1.0, 1.0]))[:, :2]
                                  if "traj_positions" in d else None,
-                                 walk_halfwidth_m=self.cfg.map_walk_halfwidth_m)
+                                 walk_halfwidth_m=self.cfg.map_walk_halfwidth_m,
+                                 inflate_classes=tuple(int(v) for v in str(self.cfg.map_inflate_classes).split(",") if v.strip()))
             self._label_grids[scene_id] = g
             known = g.labels >= 0
             nt = known & self._non_trav[np.clip(g.labels, 0, len(self._non_trav) - 1)]

@@ -66,6 +66,7 @@ def main():
     ap.add_argument("--fill", type=float, default=0.3)
     ap.add_argument("--fill_area", type=float, default=10.0)
     ap.add_argument("--walk", type=float, default=0.4)
+    ap.add_argument("--inflate_classes", default="", help="comma list; empty = all non-traversable")
     ap.add_argument("--out_dir", required=True)
     args = ap.parse_args()
     out = Path(args.out_dir)
@@ -81,7 +82,8 @@ def main():
     walk = (np.asarray(c["traj_positions"], float) * np.array([1.0, -1.0, 1.0]))[:, :2]
     g = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=args.inflate,
                          fill_m=args.fill, fill_max_area_m2=args.fill_area,
-                         walk_xy=walk, walk_halfwidth_m=args.walk)
+                         walk_xy=walk, walk_halfwidth_m=args.walk,
+                         inflate_classes=tuple(int(v) for v in args.inflate_classes.split(",") if v.strip()))
     L = g.labels
     known = L >= 0
     nt = known & nontrav[np.clip(L, 0, len(nontrav) - 1)]
@@ -90,20 +92,31 @@ def main():
     b[known & ~nt] = 1.0
     b[nt] = 0.0
 
-    # ---- table: logged vs recomputed collision fraction at the final pose ----
+    # ---- table: logged vs recomputed collision fraction at the REWARD pose ----
+    # The reward of step k is charged at the pose BEFORE action k. traj holds
+    # the poses AFTER each action, so the last reward pose is traj[-2], and for
+    # a one-step episode it is the spawn (recorded as 'spawn' since 09-04;
+    # older metrics lack it -> marked 'late', box drawn one action late).
+    def reward_pose(e, tr):
+        if len(tr) >= 2:
+            return tr[-2, :3], ""
+        if e.get("spawn") is not None:
+            return np.asarray(e["spawn"], float)[:3], ""
+        return tr[-1, :3], "late"
+
     print(f"{'ep':>3} {'outcome':<8} {'steps':>5} {'logged':>7} {'far1.5':>7} {'near0.6':>8} "
-          f"{'void':>5}  box classes (far)")
+          f"{'void':>5}  box classes (far)   [pose]")
     rows = []
     for e in eps:
         tr = np.asarray(e["traj"], float)
-        x, y, yaw = tr[-1, 0], tr[-1, 1], tr[-1, 2]
+        (x, y, yaw), late = reward_pose(e, tr)
         logged = tr[-1, 3]
         far, vfar, cl = box_frac(g, nontrav, np.array([x, y]), yaw, 1.0 * 1.5)
         near, _, _ = box_frac(g, nontrav, np.array([x, y]), yaw, 0.6)
         cnt = np.bincount(cl, minlength=14)
         top = ", ".join(f"{int(k)}x{cnt[k]}" for k in np.argsort(-cnt)[:3] if cnt[k] > 0)
         print(f"{e['episode']:>3} {e['outcome']:<8} {e['steps']:>5} {logged:>7.2f} {far:>7.2f} "
-              f"{near:>8.2f} {vfar:>5.2f}  {top}")
+              f"{near:>8.2f} {vfar:>5.2f}  {top}   {late}")
         rows.append((e, tr))
 
     import matplotlib
@@ -123,9 +136,13 @@ def main():
         # heading at the first recorded pose
         ax.annotate("", xy=(tr[0, 0] + 0.8 * np.cos(tr[0, 2]), tr[0, 1] + 0.8 * np.sin(tr[0, 2])),
                     xytext=(tr[0, 0], tr[0, 1]), arrowprops=dict(arrowstyle="->", color=col, lw=1))
-        bx = box_corners(tr[-1, :2], tr[-1, 2], args.collahead)
-        ax.plot(bx[:, 0], bx[:, 1], "-", c=col, lw=1.2)
+        (px, py, pyaw), late = reward_pose(e, tr)
+        bx = box_corners(np.array([px, py]), pyaw, args.collahead)
+        ax.plot(bx[:, 0], bx[:, 1], "--" if late else "-", c=col, lw=1.2)
         ax.fill(bx[:, 0], bx[:, 1], color=col, alpha=0.25)
+        if e.get("spawn") is not None:
+            sp = np.asarray(e["spawn"], float)
+            ax.plot(sp[0], sp[1], "s", c=col, ms=4, mec="w", mew=0.5)
         gx, gy = e["goal_xy"]
         ax.plot(gx, gy, "*", c=col, ms=12, mec="k", mew=0.5)
         if label:
@@ -169,9 +186,11 @@ def main():
         r = 4.0
         ax.set_xlim(cx - r, cx + r)
         ax.set_ylim(cy - r, cy + r)
-        far, vfar, _ = box_frac(g, nontrav, tr[-1, :2], tr[-1, 2], args.collahead)
+        (px, py, pyaw), late = reward_pose(e, tr)
+        far, vfar, _ = box_frac(g, nontrav, np.array([px, py]), pyaw, args.collahead)
         ax.set_title(f"ep {e['episode']} {e['outcome']} {e['steps']} steps\n"
-                     f"logged {tr[-1, 3]:.2f}  map@{args.collahead}m {far:.2f}  void {vfar:.2f}", fontsize=9)
+                     f"logged {tr[-1, 3]:.2f}  map@{args.collahead}m {far:.2f}  void {vfar:.2f}"
+                     + ("  (box 1 action LATE: spawn not recorded)" if late else ""), fontsize=9)
         ax.set_xticks([]); ax.set_yticks([])
     for ax in axes[n:]:
         ax.axis("off")

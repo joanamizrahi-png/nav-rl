@@ -49,7 +49,8 @@ def build_label_grid(pts: np.ndarray, labs: np.ndarray, non_trav_mask: np.ndarra
                      min_points: int = 2, min_nontrav_points: int = 3,
                      clean: bool = True, inflate_m: float = 0.1, fill_m: float = 0.3,
                      fill_max_area_m2: float = 10.0, ignore_classes=(),
-                     walk_xy=None, walk_halfwidth_m: float = 0.4) -> LabelGrid:
+                     walk_xy=None, walk_halfwidth_m: float = 0.4,
+                     inflate_classes=()) -> LabelGrid:
     pts = np.asarray(pts, dtype=np.float32)
     labs = np.asarray(labs).astype(int)
     keep = (pts[:, 2] < z_max) & (labs >= 0) & (labs < len(non_trav_mask))
@@ -106,7 +107,8 @@ def build_label_grid(pts: np.ndarray, labs: np.ndarray, non_trav_mask: np.ndarra
         # trips the 0.35 crash terminal. Grow every non-traversable cell by
         # the robot's half-width so the footprint sees the wall the way the
         # projected image does (a wall fills the view).
-        labels = _inflate(labels, non_trav_mask, int(round(inflate_m / res)))
+        labels = _inflate(labels, non_trav_mask, int(round(inflate_m / res)),
+                          inflate_classes=tuple(inflate_classes))
     if walk_xy is not None and walk_halfwidth_m > 0:
         # The recorded walk is proof of traversability: a person carried the
         # camera through these cells. Whatever SAM3 called them, and whatever
@@ -223,16 +225,23 @@ def _walk_corridor(labels: np.ndarray, non_trav_mask: np.ndarray, walk_xy: np.nd
     return out
 
 
-def _inflate(labels: np.ndarray, non_trav_mask: np.ndarray, r: int) -> np.ndarray:
+def _inflate(labels: np.ndarray, non_trav_mask: np.ndarray, r: int,
+             inflate_classes=()) -> np.ndarray:
+    """Grow non-traversable cells by r cells. With `inflate_classes` only
+    those classes grow (walls, vegetation, vehicles); the others keep their
+    true edge (grass beside a walk is not a wall)."""
     if r <= 0:
         return labels
     H, W = labels.shape
     n_cls = len(non_trav_mask)
     known = labels >= 0
     nt = known & non_trav_mask[np.clip(labels, 0, n_cls - 1)]
+    src_nt = nt
+    if inflate_classes:
+        src_nt = nt & np.isin(labels, list(inflate_classes))
     out = labels.copy()
     pad = np.pad(labels, r, constant_values=VOID)
-    padnt = np.pad(nt, r, constant_values=False)
+    padnt = np.pad(src_nt, r, constant_values=False)
     for dy in range(-r, r + 1):
         for dx in range(-r, r + 1):
             if dx * dx + dy * dy > r * r:

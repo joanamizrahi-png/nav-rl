@@ -125,6 +125,7 @@ fi
 [ "${SPEEDCOST:-0}" = "1" ] && EXTRA_ARGS+=(--terrain_speed_scaled)
 [ -n "${REWSRC:-}" ] && { EXTRA_ARGS+=(--reward_source "$REWSRC"); OUT_SUFFIX="${OUT_SUFFIX}_r${REWSRC/map_then_generated/hyb}"; }
 [ -n "${MAPINFL:-}" ] && { EXTRA_ARGS+=(--map_inflate_m "$MAPINFL"); OUT_SUFFIX="${OUT_SUFFIX}_mi${MAPINFL}"; }
+[ -n "${MAPINFLCLS:-}" ] && { EXTRA_ARGS+=(--map_inflate_classes "$MAPINFLCLS"); OUT_SUFFIX="${OUT_SUFFIX}_mic${MAPINFLCLS//,/-}"; }
 [ -n "${GOALMIX:-}" ] && { EXTRA_ARGS+=(--goal_traversable_mix "$GOALMIX"); OUT_SUFFIX="${OUT_SUFFIX}_gm${GOALMIX}"; }
 
 # Reward weights, so the reported `return=` is on TRAINING's scale. They do not

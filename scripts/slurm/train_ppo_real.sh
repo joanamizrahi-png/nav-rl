@@ -27,7 +27,7 @@ set -euo pipefail
 # of them was -- the .out files do not echo the command, env_config.json is
 # only written after the hour-long pipeline load, and shell history had scrolled
 # away. An unrecorded experiment is not an experiment.
-KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|CKPTFREQ|SPEEDCOST|REWSRC|MAPINFL|HALTCUR|GOALMIX|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
+KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|CKPTFREQ|SPEEDCOST|REWSRC|MAPINFL|MAPINFLCLS|HALTCUR|GOALMIX|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
 # Whitelist, not a blacklist. The first version excluded known-noisy prefixes
 # and still emitted lmod shell functions, base64 module tables and every SLURM
 # variable -- thousands of unreadable characters per entry (2026-09-03, first
@@ -371,6 +371,7 @@ fi
 [ "${SPEEDCOST:-0}" = "1" ] && LABEL="${LABEL}-spd"
 [ -n "${REWSRC:-}" ] && LABEL="${LABEL}-r${REWSRC/map_then_generated/hyb}"
 [ -n "${MAPINFL:-}" ] && LABEL="${LABEL}-mi${MAPINFL}"
+[ -n "${MAPINFLCLS:-}" ] && LABEL="${LABEL}-mic${MAPINFLCLS//,/-}"
 [ -n "${GOALMIX:-}" ] && LABEL="${LABEL}-gm${GOALMIX}"
 [ -n "${ENT:-}" ] && LABEL="${LABEL}-ent${ENT}"
 LABEL="${LABEL}-s${SEED:-0}"
@@ -553,6 +554,13 @@ fi
 if [ -n "${MAPINFL:-}" ]; then
     BC_ARGS="$BC_ARGS --map_inflate_m ${MAPINFL}"
     OUT="${OUT}_mi${MAPINFL}"
+fi
+# MAPINFLCLS: which classes inflate, e.g. 10,11,13 = obstacle/vegetation/vehicle
+# only; grass and the other ground classes keep the edge SAM3 saw. Empty =
+# every non-traversable class (the 2026-09-03/04 arms).
+if [ -n "${MAPINFLCLS:-}" ]; then
+    BC_ARGS="$BC_ARGS --map_inflate_classes ${MAPINFLCLS}"
+    OUT="${OUT}_mic${MAPINFLCLS//,/-}"
 fi
 # GOALMIX=<p>: P(goal on traversable ground by the map). Needs a map (clouds
 # dir), which RW5 passes. Evals of such arms must carry the same GOALMIX.

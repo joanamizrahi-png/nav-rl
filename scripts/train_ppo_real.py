@@ -716,6 +716,7 @@ def _scene_env_cfg(args):
         map_fallback_void_frac=float(getattr(args, "map_fallback_void_frac", 0.5)),
         map_fallback_min_alpha=float(getattr(args, "map_fallback_min_alpha", 0.4)),
         map_inflate_m=float(getattr(args, "map_inflate_m", 0.1)),
+        map_inflate_classes=str(getattr(args, "map_inflate_classes", "") or ""),
         map_fill_m=float(getattr(args, "map_fill_m", 0.3)),
         map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 10.0)),
         goal_traversable_mix=float(getattr(args, "goal_traversable_mix", 0.0)),
@@ -1245,6 +1246,8 @@ def main():
     ap.add_argument("--map_fallback_void_frac", type=float, default=0.5)
     ap.add_argument("--map_fallback_min_alpha", type=float, default=0.4)
     ap.add_argument("--map_inflate_m", type=float, default=0.1)
+    ap.add_argument("--map_inflate_classes", type=str, default="",
+                    help="comma list of class ids that inflate; empty = all non-traversable")
     ap.add_argument("--map_fill_m", type=float, default=0.3)
     ap.add_argument("--map_fill_max_area_m2", type=float, default=10.0)
     ap.add_argument("--goal_traversable_mix", type=float, default=0.0,

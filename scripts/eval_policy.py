@@ -145,6 +145,7 @@ def build_env(args):
         map_fallback_void_frac=float(getattr(args, "map_fallback_void_frac", 0.5)),
         map_fallback_min_alpha=float(getattr(args, "map_fallback_min_alpha", 0.4)),
         map_inflate_m=float(getattr(args, "map_inflate_m", 0.1)),
+        map_inflate_classes=str(getattr(args, "map_inflate_classes", "") or ""),
         map_fill_m=float(getattr(args, "map_fill_m", 0.3)),
         map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 10.0)),
         goal_traversable_mix=float(getattr(args, "goal_traversable_mix", 0.0)),
@@ -250,6 +251,8 @@ def main():
     ap.add_argument("--map_fallback_void_frac", type=float, default=0.5)
     ap.add_argument("--map_fallback_min_alpha", type=float, default=0.4)
     ap.add_argument("--map_inflate_m", type=float, default=0.1)
+    ap.add_argument("--map_inflate_classes", type=str, default="",
+                    help="comma list of class ids that inflate; empty = all non-traversable")
     ap.add_argument("--map_fill_m", type=float, default=0.3)
     ap.add_argument("--map_fill_max_area_m2", type=float, default=10.0)
     ap.add_argument("--goal_traversable_mix", type=float, default=0.0,
@@ -518,6 +521,9 @@ def main():
         # identical spawns and goals. Unseeded, blind and sighted runs drew
         # different goals and could only be compared in aggregate.
         obs, _ = env.reset(seed=args.eval_seed * 10000 + ep)
+        # The reward of step k is charged at the pose BEFORE action k; traj
+        # records poses AFTER each action. Keep the spawn so step 1 is drawable.
+        spawn_pose = _pose_xyyaw(env)
         goal = env.unwrapped._goal_world
         # 5 fields, matching every later row: [x, y, yaw, collision_frac,
         # dominant_class]. It used to be 4 here and 5 below, which made `traj`
@@ -621,7 +627,7 @@ def main():
                         "goal_xy": [round(float(goal[0]), 3), round(float(goal[1]), 3)],
                         "ground_class_counts": {str(k): v for k, v
                                                 in sorted(ground_counts.items())},
-                        "traj": traj})
+                        "traj": traj, "spawn": spawn_pose})
         print(f"ep {ep:2d}: {outcome:<10} steps={steps:3d} "
               f"d {d_start:5.1f} -> {d_final:5.1f} m  closest {min_dist:5.1f}  "
               f"grass {trespass:3d}  return={total_r:+.1f}", flush=True)
