@@ -166,7 +166,15 @@ if [[ -n "${COH:-}" || -n "${COHTERM:-}" ]]; then
                  --coherence_terminate_penalty "${COHPEN:-100}")
     OUT_SUFFIX="${OUT_SUFFIX}_coh${COH:-0}t${COHTAU:-0.4}ct${COHTERM:-0}"
 fi
-[ -n "${GOALRADIUS:-}" ] && EXTRA_ARGS+=(--goal_radius "$GOALRADIUS")
+# 2026-09-03 22:20: a radius-1.0 diagnostic OVERWROTE the radius-0.75 eval of
+# the same checkpoint because none of these knobs reached the directory name.
+# Every knob that changes the task now does.
+[ -n "${GOALRADIUS:-}" ] && { EXTRA_ARGS+=(--goal_radius "$GOALRADIUS"); OUT_SUFFIX="${OUT_SUFFIX}_r${GOALRADIUS}"; }
+[ -n "${HALT:-}" ] && OUT_SUFFIX="${OUT_SUFFIX}_halt${HALT}"
+[ -n "${HALTEPS:-}" ] && OUT_SUFFIX="${OUT_SUFFIX}_he${HALTEPS}"
+[ -n "${HALTSCALE:-}" ] && OUT_SUFFIX="${OUT_SUFFIX}_hs${HALTSCALE}"
+[ "${SPEEDCOST:-0}" = "1" ] && OUT_SUFFIX="${OUT_SUFFIX}_spd"
+[ -n "${COLLPEN:-}" ] && [ "${COLLPEN}" != "1000" ] && OUT_SUFFIX="${OUT_SUFFIX}_cp${COLLPEN}"
 [ -n "${SEMW:-}" ]       && EXTRA_ARGS+=(--semantic_weight "$SEMW")
 [ -n "${REWSCALE:-}" ]   && EXTRA_ARGS+=(--reward_scale "$REWSCALE")
 [ -n "${SMOOTHCOST:-}" ] && EXTRA_ARGS+=(--action_smooth_cost "$SMOOTHCOST")

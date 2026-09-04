@@ -266,6 +266,39 @@ def overview(args, s_eps, b_eps, gxy, glab, path=None):
         gr = gxy[glab == 3]
         print(f"    grass points in scene: {len(gr)} "
               f"({100.0 * len(gr) / max(len(gxy), 1):.1f}% of ground)")
+        # WHERE THE CRASHES HAPPENED (Joana, 2026-09-03 22:20: "I don't know
+        # how to start evaluating the behaviours"). The reading by eye is:
+        # sort each red cross into a bucket by what the CLOUD says under it.
+        #   edge of reconstruction  -- too few cloud points near the crash:
+        #                              the robot drove out of the world
+        #                              (overshoot past the goal, past frame 80)
+        #   grass verge             -- cloud says grass under the crash
+        #   obstacle / other        -- cloud says another non-traversable class
+        #   walkable ground         -- cloud says walkable: the GENERATOR called
+        #                              it non-traversable, the cloud disagrees
+        def crash_buckets(eps):
+            b = {"edge of reconstruction": 0, "grass verge": 0,
+                 "obstacle / other non-traversable": 0, "walkable ground (generator disagreed)": 0}
+            for e in eps:
+                if e["outcome"] != "CRASH":
+                    continue
+                xy = np.array(e["traj"][-1][:2], dtype=float)
+                near = glab[np.linalg.norm(gxy - xy[None, :], axis=1) < 0.6]
+                if len(near) < 8:
+                    b["edge of reconstruction"] += 1
+                    continue
+                dom = int(np.bincount(near).argmax())
+                if dom == 3:
+                    b["grass verge"] += 1
+                elif dom in NONTRAV_DEFAULT:
+                    b["obstacle / other non-traversable"] += 1
+                else:
+                    b["walkable ground (generator disagreed)"] += 1
+            return b
+        for name, eps in (("sighted", s_eps), ("blind", b_eps)):
+            b = crash_buckets(eps)
+            print(f"    where {name} crashed: " + ", ".join(f"{k} {v}" for k, v in b.items() if v)
+                  + ("" if any(b.values()) else "no crashes"))
         # WHAT IS UNDER EACH GOAL. "20/20 GOAL" is only informative if some
         # of those goals sat on ground the robot should have refused. Label
         # each goal by the dominant class within the arrival radius; if none
