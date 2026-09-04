@@ -139,6 +139,7 @@ def build_env(args):
         halt_terminate_steps=getattr(args, "halt_terminate_steps", 0),
         halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
         halt_penalty_scale=getattr(args, "halt_penalty_scale", 1.0),
+        terrain_speed_scaled=bool(getattr(args, "terrain_speed_scaled", False)),
         random_spawn=True,
         trav_path=args.trav_path,
         collision_terminate_frac=args.collision_terminate_frac,
@@ -158,7 +159,7 @@ def build_env(args):
 # shows WHY a return is what it is -- a -1000 return from one crash and a -1000
 # return from a hundred bad steps are different diagnoses.
 EVAL_COMPONENTS = ("semantic", "goal", "collision", "step", "spin", "backward",
-                   "smooth", "timeout", "crash", "proximity", "goal_bonus",
+                   "smooth", "timeout", "crash", "proximity", "goal_bonus", "speed_refund",
                    "coherence", "coherence_crash")
 
 
@@ -232,6 +233,7 @@ def main():
                          "scored as if it merely timed out")
     ap.add_argument("--halt_throttle_eps", type=float, default=0.05)
     ap.add_argument("--halt_penalty_scale", type=float, default=1.0)
+    ap.add_argument("--terrain_speed_scaled", action="store_true")
     ap.add_argument("--goal_radius", type=float, default=None,
                     help="arrival radius; training's FINAL value, not its start")
     ap.add_argument("--semantic_weight", type=float, default=None)

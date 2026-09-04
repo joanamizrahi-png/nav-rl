@@ -149,7 +149,7 @@ class RewardComponentsCallback(BaseCallback):
 
     KEYS = ("semantic", "goal", "collision", "step", "void", "spin",
             "backward", "smooth", "timeout", "crash", "proximity",
-            "goal_bonus", "total",
+            "goal_bonus", "speed_refund", "total",
             # 2026-09-01: the world model's own uncertainty, logged from day
             # one so any void THRESHOLD gets chosen from the measured
             # distribution instead of guessed. void_frac = footprint support;
@@ -439,6 +439,7 @@ def _dump_env_config(args, cfg):
             "halt_terminate_steps": getattr(cfg, "halt_terminate_steps", 0),
             "halt_throttle_eps": getattr(cfg, "halt_throttle_eps", 0.05),
             "halt_penalty_scale": getattr(cfg, "halt_penalty_scale", 1.0),
+            "terrain_speed_scaled": bool(getattr(cfg, "terrain_speed_scaled", False)),
         }, indent=2))
         print(f"[train] env recorded for eval: {out}", flush=True)
     except Exception as e:
@@ -665,6 +666,7 @@ def _scene_env_cfg(args):
         halt_terminate_steps=getattr(args, "halt_terminate_steps", 0),
         halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
         halt_penalty_scale=getattr(args, "halt_penalty_scale", 1.0),
+        terrain_speed_scaled=bool(getattr(args, "terrain_speed_scaled", False)),
         timeout_distance_scaled=getattr(args, "timeout_distance_scaled", False),
         reward_scale=getattr(args, "reward_scale", 1.0),
         random_spawn=True,
@@ -1182,6 +1184,8 @@ def main():
     ap.add_argument("--halt_throttle_eps", type=float, default=0.05)
     ap.add_argument("--ckpt_every_calls", type=int, default=2000,
                     help="checkpoint every N env calls (x n_envs = steps); 2000 x 4 = 8000 steps")
+    ap.add_argument("--terrain_speed_scaled", action="store_true",
+                    help="terrain cost x |throttle|: driving onto bad ground costs, facing it does not")
     ap.add_argument("--halt_penalty_scale", type=float, default=1.0,
                     help="HALTED pays timeout x this (1.0 = same as a timeout)")
     ap.add_argument("--goal_dist_window", type=float, default=None,

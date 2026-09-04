@@ -52,6 +52,29 @@ recognised on sight:
 The launcher now refuses a `ppo_live_*` checkpoint without `LIVE=1`, and
 `LIVE=1` without `LIVECKPT`.
 
+## Per-arm overrides -- the block above is the SHARED config only
+
+Every arm isolates one knob, and the eval must carry it or it measures a
+different task. On 2026-09-03 a wave of evals carried COHTERM per arm and
+nothing else: 463879 was scored with crash terminal 0.35 (trains at 0.5) and
+the halt arms were scored WITHOUT the halt terminal (halts became timeouts).
+Both pairs had to be rerun.
+
+| arm | add to the launch |
+|---|---|
+| 463170 | `COHTERM=0.05` |
+| 463879 | `COLLTERM=0.5` |
+| 463224 | `COLLPEN=200` |
+| 464143 | `SMOOTHCOST=5` |
+| 464428 / 464429 | `HALT=5` |
+| tonight's A (halt+tie) | `HALT=3 HALTEPS=0.15 HALTSCALE=0.3 COLLPEN=2500` |
+| tonight's B / C (+speed) | `HALT=3 HALTEPS=0.15 HALTSCALE=0.3 COLLPEN=2500 SPEEDCOST=1` |
+| warm arms | `GOALRADIUS` from the run's `curriculum_state.json` (automatic) |
+
+The run's own record is `outputs/<run>/launch.txt` (the ledger entry):
+`grep knobs` it before every eval and copy every knob that is not in the
+shared block.
+
 For a policy trained on **v21** semantics (e.g. the ancestor `ppo_240704`),
 override two:
 

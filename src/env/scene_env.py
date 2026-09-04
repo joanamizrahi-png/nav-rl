@@ -216,6 +216,13 @@ class SceneEnvConfig:
     # than gambling on the goal). Below 1, refusing is cheaper than waiting
     # out the clock and far cheaper than crashing.
     halt_penalty_scale: float = 1.0
+    # 2026-09-03: charge the per-step terrain cost (semantic + collision)
+    # in proportion to |throttle|. Driving onto bad ground costs; standing
+    # still facing it does not. Implemented as a REFUND on top of the
+    # unscaled terms so the crash / halt tests, which read
+    # breakdown.collision, are untouched and the logged components stay
+    # comparable across arms.
+    terrain_speed_scaled: bool = False
     timeout_penalty: float = 0.0
     # PROPORTIONAL TIMEOUT (2026-09-02, her call: "proportional timeout seems
     # genius"). A flat timeout penalty charges the same for stopping 1 m short
@@ -882,9 +889,13 @@ class SceneEnv(gym.Env if gym is not None else object):
                 timeout_term *= frac
             if halted:
                 timeout_term *= float(self.cfg.halt_penalty_scale)
+        speed_refund = 0.0
+        if self.cfg.terrain_speed_scaled:
+            _thr = min(1.0, abs(float(action[0])))
+            speed_refund = -(float(breakdown.semantic) + float(breakdown.collision)) * (1.0 - _thr)
         reward = (breakdown.total + spin_term + back_term + smooth_term
                   + bonus + crash + prox_term + timeout_term
-                  + coh_term + coh_crash)
+                  + coh_term + coh_crash + speed_refund)
 
         info = breakdown.to_dict()
         info["spin"] = spin_term
@@ -894,6 +905,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         # the policy actually experiences is visible in wandb from day one.
         info["image_void_frac"] = image_void_frac
         info["timeout"] = timeout_term
+        info["speed_refund"] = speed_refund
         info["goal_dist_frac"] = (
             dist_to_goal / self._initial_goal_dist
             if getattr(self, "_initial_goal_dist", 0.0) else float("nan"))
