@@ -55,6 +55,9 @@ def main():
         # support along the recorded walk: how many cloud points per cell there,
         # the reference for 'enough points' anywhere else
         L = g.labels
+        known = L >= 0
+        nt = known & nontrav[np.clip(L, 0, len(nontrav) - 1)]
+        path = (np.asarray(c["traj_positions"], float) * np.array([1.0, -1.0, 1.0]))[:, :2]
         # support along the recorded walk: cloud points per cell where we KNOW
         # the ground is walkable. The reference for 'enough points' elsewhere.
         ix = np.clip(((path[:, 0] - g.x0) / g.res).astype(int), 0, L.shape[1] - 1)
@@ -62,9 +65,6 @@ def main():
         on_path = g.n_points[iy, ix]
         print(f"    {sc}: points per cell on the recorded walk: median {np.median(on_path):.0f}, "
               f"10th pct {np.percentile(on_path, 10):.0f}, cells with none {(on_path == 0).mean():.0%}")
-        known = L >= 0
-        nt = known & nontrav[np.clip(L, 0, len(nontrav) - 1)]
-        path = (np.asarray(c["traj_positions"], float) * np.array([1.0, -1.0, 1.0]))[:, :2]
         ext = (g.x0, g.x0 + L.shape[1] * g.res, g.y0, g.y0 + L.shape[0] * g.res)
 
         fig, axes = plt.subplots(1, 3, figsize=(27, 9))
