@@ -30,6 +30,10 @@ NONTRAV_DEFAULT = (0, 1, 3, 5, 10, 11, 12, 13)   # void sky grass water obstacle
 
 # How each episode ENDED, drawn at the last pose. Reading "12 GOAL 4 CRASH" off
 # a summary tells you nothing about WHERE things went wrong; the symbol does.
+V14_NAMES = {0: "void", 1: "sky", 2: "trail", 3: "grass", 4: "rough", 5: "water",
+             6: "sidewalk", 7: "road", 8: "pavement", 9: "stairs", 10: "obstacle",
+             11: "vegetation", 12: "person", 13: "vehicle", -1: "none"}
+
 OUTCOME_MARK = {
     "GOAL":       ("*", "#1a9850", 15),
     "CRASH":      ("X", "#d73027", 11),
@@ -84,11 +88,12 @@ def main():
     s_sum, s_eps = load(Path(args.sighted))
     b_sum, b_eps = load(Path(args.blind))
 
-    gxy = glab = None
+    gxy = glab = axy = alab = None
     cp = Path(args.clouds_dir) / f"{args.scene}_cloud.npz"
     if cp.exists():
         c = np.load(cp)
         pts, labs = c["points"], c["labels"].astype(int)
+        axy, alab = pts[:, :2], labs          # every point, for the crash buckets
         m = pts[:, 2] < args.z_max
         gxy, glab = pts[m][:, :2], labs[m]
         # subsample: 150k points is unreadable and slow to render
@@ -154,7 +159,7 @@ def main():
     outcome_legend(axes[n] if n < len(axes) else axes[0], seen)
 
     if args.overview_out:
-        overview(args, s_eps, b_eps, gxy, glab, _recorded_path)
+        overview(args, s_eps, b_eps, gxy, glab, _recorded_path, axy=axy, alab=alab)
 
     fig.suptitle(
         f"{args.scene}: same weights, same spawn, same goal — with and without vision\n"
@@ -177,7 +182,7 @@ def main():
               f"c={be['closed_frac']!s:>6}   {se['d_start']}")
 
 
-def overview(args, s_eps, b_eps, gxy, glab, path=None):
+def overview(args, s_eps, b_eps, gxy, glab, path=None, axy=None, alab=None):
     """Every episode on one map of the whole scene."""
     import matplotlib
     matplotlib.use("Agg")
@@ -267,38 +272,41 @@ def overview(args, s_eps, b_eps, gxy, glab, path=None):
         print(f"    grass points in scene: {len(gr)} "
               f"({100.0 * len(gr) / max(len(gxy), 1):.1f}% of ground)")
         # WHERE THE CRASHES HAPPENED (Joana, 2026-09-03 22:20: "I don't know
-        # how to start evaluating the behaviours"). The reading by eye is:
-        # sort each red cross into a bucket by what the CLOUD says under it.
-        #   edge of reconstruction  -- too few cloud points near the crash:
-        #                              the robot drove out of the world
-        #                              (overshoot past the goal, past frame 80)
-        #   grass verge             -- cloud says grass under the crash
-        #   obstacle / other        -- cloud says another non-traversable class
-        #   walkable ground         -- cloud says walkable: the GENERATOR called
-        #                              it non-traversable, the cloud disagrees
+        # how to start evaluating the behaviours"). The crash fires on the
+        # FOOTPRINT, 1.5 m ahead along the heading, not under the robot; and a
+        # wall is not a ground point. So: look up the footprint position in the
+        # FULL cloud and name what the reconstruction has there. Two lines per
+        # side: what the CLOUD has at the footprint, and what the GENERATOR
+        # said there (traj row 4 at the last step) -- if the cloud says
+        # walkable and the generator says obstacle, that crash is a phantom.
+        cxy, clab = (axy, alab) if axy is not None else (gxy, glab)
         def crash_buckets(eps):
-            b = {"edge of reconstruction": 0, "grass verge": 0,
-                 "obstacle / other non-traversable": 0, "walkable ground (generator disagreed)": 0}
+            cloud, gen = {}, {}
             for e in eps:
                 if e["outcome"] != "CRASH":
                     continue
-                xy = np.array(e["traj"][-1][:2], dtype=float)
-                near = glab[np.linalg.norm(gxy - xy[None, :], axis=1) < 0.6]
+                row = e["traj"][-1]
+                x, y, yaw = float(row[0]), float(row[1]), float(row[2]) if len(row) > 2 else 0.0
+                fx, fy = x + 1.5 * np.cos(yaw), y + 1.5 * np.sin(yaw)
+                near = clab[np.linalg.norm(cxy - np.array([[fx, fy]]), axis=1) < 0.6]
                 if len(near) < 8:
-                    b["edge of reconstruction"] += 1
-                    continue
-                dom = int(np.bincount(near).argmax())
-                if dom == 3:
-                    b["grass verge"] += 1
-                elif dom in NONTRAV_DEFAULT:
-                    b["obstacle / other non-traversable"] += 1
+                    k = "edge of reconstruction"
                 else:
-                    b["walkable ground (generator disagreed)"] += 1
-            return b
+                    dom = int(np.bincount(near).argmax())
+                    k = V14_NAMES.get(dom, str(dom)) + ("" if dom in NONTRAV_DEFAULT else " (walkable)")
+                cloud[k] = cloud.get(k, 0) + 1
+                g = V14_NAMES.get(int(row[4]), "?") if len(row) > 4 else "?"
+                gen[g] = gen.get(g, 0) + 1
+            return cloud, gen
         for name, eps in (("sighted", s_eps), ("blind", b_eps)):
-            b = crash_buckets(eps)
-            print(f"    where {name} crashed: " + ", ".join(f"{k} {v}" for k, v in b.items() if v)
-                  + ("" if any(b.values()) else "no crashes"))
+            cloud, gen = crash_buckets(eps)
+            if not cloud:
+                print(f"    {name}: no crashes")
+                continue
+            print(f"    {name} crashed where the CLOUD has: "
+                  + ", ".join(f"{k} {v}" for k, v in sorted(cloud.items(), key=lambda kv: -kv[1])))
+            print(f"    {name} crashed where the GENERATOR said: "
+                  + ", ".join(f"{k} {v}" for k, v in sorted(gen.items(), key=lambda kv: -kv[1])))
         # WHAT IS UNDER EACH GOAL. "20/20 GOAL" is only informative if some
         # of those goals sat on ground the robot should have refused. Label
         # each goal by the dominant class within the arrival radius; if none
