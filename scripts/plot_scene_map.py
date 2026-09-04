@@ -33,7 +33,9 @@ def main():
     ap.add_argument("--collision_threshold", type=float, default=0.1)
     ap.add_argument("--res", type=float, default=0.1)
     ap.add_argument("--inflate", type=float, default=0.2)
+    ap.add_argument("--fill", type=float, default=0.3)
     ap.add_argument("--out_dir", default="/scratch/m000204-pm06b/joana/outputs/scene_maps")
+    ap.add_argument("--suffix", default="", help="appended to the file names, e.g. filled")
     args = ap.parse_args()
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
     scores = load_traversability(args.trav)
@@ -48,14 +50,24 @@ def main():
     for sc in args.scenes:
         c = np.load(Path(args.clouds_dir) / f"{sc}_cloud.npz")
         pts, labs = c["points"], c["labels"].astype(int)
-        g = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=args.inflate)
+        g = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=args.inflate, fill_m=args.fill)
+        g_raw = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=0.0, fill_m=0.0, clean=False)
+        # support along the recorded walk: how many cloud points per cell there,
+        # the reference for 'enough points' anywhere else
         L = g.labels
+        # support along the recorded walk: cloud points per cell where we KNOW
+        # the ground is walkable. The reference for 'enough points' elsewhere.
+        ix = np.clip(((path[:, 0] - g.x0) / g.res).astype(int), 0, L.shape[1] - 1)
+        iy = np.clip(((path[:, 1] - g.y0) / g.res).astype(int), 0, L.shape[0] - 1)
+        on_path = g.n_points[iy, ix]
+        print(f"    {sc}: points per cell on the recorded walk: median {np.median(on_path):.0f}, "
+              f"10th pct {np.percentile(on_path, 10):.0f}, cells with none {(on_path == 0).mean():.0%}")
         known = L >= 0
         nt = known & nontrav[np.clip(L, 0, len(nontrav) - 1)]
         path = (np.asarray(c["traj_positions"], float) * np.array([1.0, -1.0, 1.0]))[:, :2]
         ext = (g.x0, g.x0 + L.shape[1] * g.res, g.y0, g.y0 + L.shape[0] * g.res)
 
-        fig, axes = plt.subplots(1, 2, figsize=(18, 9))
+        fig, axes = plt.subplots(1, 3, figsize=(27, 9))
         # classes
         cmap = ListedColormap([COL.get(i, "#000000") for i in range(14)])
         img = np.ma.masked_where(~known, L)
@@ -71,15 +83,34 @@ def main():
         b[nt] = 0.0
         axes[1].imshow(b, origin="lower", extent=ext, cmap="gray", vmin=0, vmax=1, interpolation="nearest")
         axes[1].plot(path[:, 0], path[:, 1], "-", c="tab:red", lw=1.2, label="recorded walk")
-        axes[1].set_title(f"traversable (white) / non-traversable (black) / void (grey)\n"
+        axes[1].set_title(f"traversable (white) / non-traversable (black) / void = UNKNOWN, not obstacle (grey)\n"
                           f"known {known.mean():.0%} of cells, non-traversable {nt.sum() / max(known.sum(), 1):.0%} of known")
         axes[1].legend(fontsize=8)
+        # what the cleanups changed, cell by cell
+        Lr = g_raw.labels
+        kr = Lr >= 0
+        ntr = kr & nontrav[np.clip(Lr, 0, len(nontrav) - 1)]
+        chg = np.full(L.shape, np.nan)
+        chg[known & ~nt] = 0                                   # walkable, final
+        chg[nt] = 1                                            # non-traversable, final
+        chg[(~kr) & known] = 2                                 # FILLED: was void, now known
+        chg[kr & ~ntr & nt] = 3                                # INFLATED or overridden: was walkable, now non-trav
+        chg[ntr & known & ~nt] = 4                             # DESPECKLED: was non-trav, now walkable
+        cm = ListedColormap(["#ffffff", "#000000", "#00bcd4", "#ff9800", "#8bc34a"])
+        axes[2].imshow(np.ma.masked_invalid(chg), origin="lower", extent=ext, cmap=cm, vmin=-0.5, vmax=4.5, interpolation="nearest")
+        axes[2].plot(path[:, 0], path[:, 1], "-", c="tab:red", lw=1.0)
+        n_fill, n_infl, n_desp = int(((~kr) & known).sum()), int((kr & ~ntr & nt).sum()), int((ntr & known & ~nt).sum())
+        axes[2].legend(handles=[Patch(color="#00bcd4", label=f"filled void ({n_fill} cells)"),
+                                Patch(color="#ff9800", label=f"inflated / wall override ({n_infl} cells)"),
+                                Patch(color="#8bc34a", label=f"despeckled to walkable ({n_desp} cells)")], fontsize=8, loc="best")
+        axes[2].set_title("what the cleanups changed (raw cloud vote -> final map)")
         for ax in axes:
             ax.set_aspect("equal"); ax.grid(alpha=0.2)
         fig.tight_layout()
-        out = Path(args.out_dir) / f"{sc}_reward_map.png"
+        sfx = ("_" + args.suffix) if args.suffix else ""
+        out = Path(args.out_dir) / f"{sc}_reward_map{sfx}.png"
         fig.savefig(out, dpi=130); plt.close(fig)
-        np.savez_compressed(Path(args.out_dir) / f"{sc}_reward_map.npz", labels=L, x0=g.x0, y0=g.y0, res=g.res)
+        np.savez_compressed(Path(args.out_dir) / f"{sc}_reward_map{sfx}.npz", labels=L, x0=g.x0, y0=g.y0, res=g.res)
         print(f"==> {out}   known {known.mean():.0%}  non-trav {nt.sum() / max(known.sum(), 1):.0%}")
 
 

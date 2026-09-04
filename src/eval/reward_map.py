@@ -47,7 +47,7 @@ class LabelGrid:
 def build_label_grid(pts: np.ndarray, labs: np.ndarray, non_trav_mask: np.ndarray,
                      res: float = 0.1, z_ground: float = 0.15, z_max: float = 1.2,
                      min_points: int = 2, min_nontrav_points: int = 3,
-                     clean: bool = True, inflate_m: float = 0.2) -> LabelGrid:
+                     clean: bool = True, inflate_m: float = 0.2, fill_m: float = 0.3) -> LabelGrid:
     pts = np.asarray(pts, dtype=np.float32)
     labs = np.asarray(labs).astype(int)
     keep = (pts[:, 2] < z_max) & (labs >= 0) & (labs < len(non_trav_mask))
@@ -81,6 +81,14 @@ def build_label_grid(pts: np.ndarray, labs: np.ndarray, non_trav_mask: np.ndarra
     n_points = n_all.reshape(H, W)
     if clean:
         labels = _clean(labels, non_trav_mask)
+    if fill_m > 0:
+        # reconstruction dropouts on the walkway (textureless pavement) are
+        # void cells surrounded by walkable ones. Fill a void cell from the
+        # majority of its known neighbours within fill_m, only when most of
+        # those neighbours are known -- so a hole gets its surroundings'
+        # label and the real edge of the reconstruction stays void.
+        for _ in range(3):                # close holes from the outside in
+            labels = _fill_holes(labels, int(round(fill_m / res)))
     if inflate_m > 0:
         # costmap inflation: a wall is one cell thick in x,y, so without this a
         # 0.6 m footprint crossing it is only ~1/6 non-traversable and never
@@ -119,6 +127,25 @@ def _clean(labels: np.ndarray, non_trav_mask: np.ndarray) -> np.ndarray:
         repl = walk.argmax(0).astype(np.int16)
         okw = walk.max(0) > 0
         out[iso & okw] = repl[iso & okw]
+    return out
+
+
+def _fill_holes(labels: np.ndarray, r: int, min_known_frac: float = 0.6) -> np.ndarray:
+    if r <= 0:
+        return labels
+    H, W = labels.shape
+    n_cls = int(labels.max()) + 1 if labels.size else 1
+    pad = np.pad(labels, r, constant_values=VOID)
+    offs = [(dy, dx) for dy in range(-r, r + 1) for dx in range(-r, r + 1) if dx * dx + dy * dy <= r * r]
+    stack = np.stack([pad[r + dy:r + dy + H, r + dx:r + dx + W] for dy, dx in offs])   # [K,H,W]
+    known = stack >= 0
+    frac_known = known.mean(0)
+    votes = np.zeros((n_cls, H, W), dtype=np.int32)
+    for c in range(n_cls):
+        votes[c] = ((stack == c) & known).sum(0)
+    fill = (labels == VOID) & (frac_known >= min_known_frac)
+    out = labels.copy()
+    out[fill] = votes.argmax(0)[fill].astype(np.int16)
     return out
 
 

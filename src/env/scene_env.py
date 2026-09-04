@@ -265,6 +265,7 @@ class SceneEnvConfig:
     reward_source: str = "generated"
     map_res_m: float = 0.1
     map_inflate_m: float = 0.2        # grow non-traversable cells by the robot half-width
+    map_fill_m: float = 0.3           # fill void holes up to this radius from their neighbours
     # Trajectory output (plan-B arm, 2026-08-25): the policy emits k action
     # pairs per decision and only observes again after all k execute. Rewards
     # still accrue per sub-step, so the world stays action-conditioned; only
@@ -669,7 +670,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             if not hasattr(self, "_label_grids"):
                 self._label_grids = {}
             g = build_label_grid(pts, labs, self._non_trav, res=self.cfg.map_res_m,
-                                 inflate_m=self.cfg.map_inflate_m)
+                                 inflate_m=self.cfg.map_inflate_m, fill_m=self.cfg.map_fill_m)
             self._label_grids[scene_id] = g
             known = g.labels >= 0
             nt = known & self._non_trav[np.clip(g.labels, 0, len(self._non_trav) - 1)]
