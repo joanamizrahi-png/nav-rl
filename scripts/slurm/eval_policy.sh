@@ -22,6 +22,21 @@ export PYTHONNOUSERSITE=1
 hash -r
 cd /scratch/m000204-pm06b/joana/nav-rl
 CKPT=${CKPT:?set CKPT=/path/to/checkpoint.zip via --export=CKPT=...}
+# 2026-09-03: jobs 464831/464832 ran the cloud RASTERIZER instead of the world
+# model because the launch was `env $EV ...` from a shell where EV was empty
+# (an export does not survive a new login). They finished in one minute,
+# reported mean_coverage None and raw label ids -- and read like a result.
+# A policy trained on live observations is evaluated on live observations,
+# and a live eval always names the semantics checkpoint the policy trained on.
+if [[ "$CKPT" == *ppo_live_* && "${LIVE:-0}" != "1" ]]; then
+    echo "REFUSED: $(basename "$(dirname "$(dirname "$CKPT")")") trained on live observations but LIVE is not 1."
+    echo "         Did the EV export survive this shell? Check: echo \"\$EV\" | wc -w   (expect about 30)"
+    exit 2
+fi
+if [[ "${LIVE:-0}" == "1" && -z "${LIVECKPT:-}" ]]; then
+    echo "REFUSED: LIVE=1 without LIVECKPT. Name the semantics checkpoint the policy trained on."
+    exit 2
+fi
 # eval dir carries the run name (ppo_v4_... vs ppo_v5_...) so evals never collide
 RUN_NAME=$(basename "$(dirname "$(dirname "$CKPT")")")
 # 2026-09-02: eval_<run>_<ckpt><flags> blew past the 255-byte filename limit

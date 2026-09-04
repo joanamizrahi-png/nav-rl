@@ -30,6 +30,28 @@ GOALWEIGHT=10 GOALBONUS=1000 TIMEOUTPEN=100 TIMEOUTDIST=1 \
 PROXW=10 PROXMARGIN=5 PROXDELTA=1 VOIDCOST=0.3 STEPCOST=0.05 COLLWEIGHT=1"
 ```
 
+**Before every `env $EV ...` launch, in every new shell:**
+
+```bash
+echo "$EV" | wc -w
+```
+
+About 30 means the export is alive. `0` means this is a new login and the
+export is gone -- re-run the block above first. On 2026-09-03 jobs
+464831/464832 were launched with an empty `EV`: no `LIVE`, no `LIVECKPT`, no
+`NOGATE`, no reward knobs. They ran the cloud rasterizer, finished in one
+minute, and printed metrics. The signature of that failure, so it is
+recognised on sight:
+
+| symptom | reading |
+|---|---|
+| `Elapsed` about a minute | the diffusion pipeline was never loaded (it alone takes 25-40 min) |
+| `mean_coverage: None` | no alpha, so no generated view |
+| `ground_share` with `rough`, `water`, `person`, or bare ids like `15` | raw cloud labels, not the campus palette |
+
+The launcher now refuses a `ppo_live_*` checkpoint without `LIVE=1`, and
+`LIVE=1` without `LIVECKPT`.
+
 For a policy trained on **v21** semantics (e.g. the ancestor `ppo_240704`),
 override two:
 
