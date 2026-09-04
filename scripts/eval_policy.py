@@ -499,6 +499,7 @@ def main():
     from train_ppo_real import save_rollout_video
 
     results, video_records = [], []
+    agree_rows = []   # per step: alpha, gen frac, map frac, gen class, map class, map void
     for ep in range(args.episodes):
         if ep < args.videos:
             rec = save_rollout_video(model, env,
@@ -553,6 +554,11 @@ def main():
             phantom += int(float(info.get("phantom", 0.0)) > 0)
             missed += int(float(info.get("missed", 0.0)) > 0)
             last_phantom = float(info.get("phantom", 0.0))
+            if "map_collision_frac" in info:
+                agree_rows.append((float(info.get("coverage", float("nan"))),
+                                   float(info["gen_collision_frac"]), float(info["map_collision_frac"]),
+                                   int(info.get("gen_dominant_class_id", -1)), int(info.get("map_dominant_class_id", -1)),
+                                   float(info.get("map_void_frac", float("nan")))))
             # collision magnitude = footprint fraction on non-traversable
             # classes (eval reward weight is 1.0, so |term| = the fraction).
             frac = round(float(max(0.0, -info.get("collision", 0.0))), 3)
@@ -651,6 +657,46 @@ def main():
         "reward_components_mean": comp_mean,
         "ground_share": ground_share,
     }
+    # ---- generator vs map, per step, as a function of alpha (Joana, 2026-09-04) ----
+    if agree_rows:
+        A = np.array(agree_rows, dtype=float)
+        thr = max(float(getattr(args, "collision_terminate_frac", 0.35) or 0.35), 1e-9)
+        cov, fg, fm, cg, cm, mv = A[:, 0], A[:, 1], A[:, 2], A[:, 3].astype(int), A[:, 4].astype(int), A[:, 5]
+        def stats(sel):
+            n = int(sel.sum())
+            if n == 0:
+                return None
+            gen_bad, map_bad = fg[sel] >= thr, fm[sel] >= thr
+            mvs = mv[sel]
+            return {"steps": n,
+                    "semantic_agree": round(float((cg[sel] == cm[sel]).mean()), 3),
+                    "traversability_agree": round(float((gen_bad == map_bad).mean()), 3),
+                    "phantom": round(float((gen_bad & ~map_bad).mean()), 3),
+                    "missed": round(float((~gen_bad & map_bad).mean()), 3),
+                    "mean_abs_frac_gap": round(float(np.abs(fg[sel] - fm[sel]).mean()), 3),
+                    "map_void_share": (round(float(np.nanmean(mvs)), 3) if np.isfinite(mvs).any() else None)}
+        by_alpha = {}
+        for lo, hi in ((0.0, 0.1), (0.1, 0.4), (0.4, 0.7), (0.7, 1.01)):
+            st = stats((cov >= lo) & (cov < hi))
+            if st:
+                by_alpha["%.1f-%.1f" % (lo, min(hi, 1.0))] = st
+        st_all = stats(np.ones(len(A), dtype=bool))
+        dis = cg != cm
+        conf = {}
+        for a_, b_ in zip(cg[dis], cm[dis]):
+            k = "gen %s / map %s" % (class_names.get(str(int(a_)), str(int(a_))), class_names.get(str(int(b_)), str(int(b_))))
+            conf[k] = conf.get(k, 0) + 1
+        top = sorted(conf.items(), key=lambda kv: -kv[1])[:8]
+        summary["footprint_agreement"] = {"all": st_all, "by_alpha": by_alpha, "top_confusions": top}
+        print("\n=== FOOTPRINT: generator vs map, per step, by alpha ===")
+        print("  %9s %6s %10s %11s %8s %7s %6s %9s" % ("alpha", "steps", "sem agree", "trav agree", "phantom", "missed", "|gap|", "map void"))
+        for name, st in list(by_alpha.items()) + [("all", st_all)]:
+            mvp = (100 * st["map_void_share"]) if st["map_void_share"] is not None else float("nan")
+            print("  %9s %6d %9.1f%% %10.1f%% %7.1f%% %6.1f%% %6.2f %8.1f%%" % (
+                name, st["steps"], 100 * st["semantic_agree"], 100 * st["traversability_agree"],
+                100 * st["phantom"], 100 * st["missed"], st["mean_abs_frac_gap"], mvp))
+        if top:
+            print("  where they disagree, generator / map: " + ", ".join("%s x%d" % (k, v) for k, v in top))
     with open(args.out_dir / "metrics.json", "w") as f:
         json.dump({"summary": summary, "episodes": results,
                    "video_episodes": video_records}, f, indent=2)

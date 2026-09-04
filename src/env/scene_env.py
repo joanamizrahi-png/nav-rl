@@ -836,6 +836,9 @@ class SceneEnv(gym.Env if gym is not None else object):
                 "phantom": float(_fg >= _thr and _fm < _thr),
                 "missed": float(_fm >= _thr and _fg < _thr),
                 "label_agree": float(int(breakdown.dominant_class_id) == int(breakdown_map.dominant_class_id)),
+                "gen_dominant_class_id": int(breakdown.dominant_class_id),
+                "map_dominant_class_id": int(breakdown_map.dominant_class_id),
+                "map_void_frac": float(breakdown_map.void_frac),
             }
         if self.cfg.reward_source == "map":
             breakdown = breakdown_map
