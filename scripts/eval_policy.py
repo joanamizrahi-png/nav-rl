@@ -95,6 +95,7 @@ def build_env(args):
         goal_support_radius_m=args.goal_support_radius,
         goal_support_min_frac=args.goal_support_min_frac,
         collision_look_ahead_m=args.collision_look_ahead,
+        collision_box_memory=int(getattr(args, "collision_box_memory", 0)),
         # GND/SCAND clips advance ~1 m per recorded frame vs RUGD's ~0.1 m, so
         # the same goal_frame is a far longer walk there — raise the budget
         # instead of moving the goal (moving it collapses the spawn range).
@@ -282,6 +283,9 @@ def main():
                     help="reject goals with no cloud support within this "
                          "radius, as training does. Adopted from "
                          "env_config.json when present.")
+    ap.add_argument("--force_env_keys", type=str, default="",
+                    help="comma list of env_config keys the CLI overrides instead of adopting from training")
+    ap.add_argument("--collision_box_memory", type=int, default=0)
     ap.add_argument("--collision_look_ahead", type=float, default=0.0,
                     help="0 = collision judged on the same box as shaping")
     ap.add_argument("--goal_dir_360", action="store_true",
@@ -389,6 +393,7 @@ def main():
                       f"{args.goal_dir_360} range={args.goal_dist_range} "
                       f"cone={args.goal_cone_deg} frames={args.goal_frame_range}",
                       flush=True)
+            _force = set(v.strip() for v in str(getattr(args, "force_env_keys", "") or "").split(",") if v.strip())
             for _k in ("step_size_m", "yaw_step_rad", "forward_only",
                        "look_ahead_dist", "goal_radius", "collision_threshold",
                        "collision_terminate_frac", "collision_terminate_penalty",
@@ -398,7 +403,7 @@ def main():
                        # judge collision on its own closer footprint. Eval did
                        # neither, so it was scoring a goal distribution
                        # training never sees.
-                       "goal_support_radius_m", "collision_look_ahead_m",
+                       "goal_support_radius_m", "collision_look_ahead_m", "collision_box_memory",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage
                        # pixels into void -- and void leaves the collision
@@ -424,6 +429,12 @@ def main():
                 if _k not in _tr:
                     continue
                 _have = getattr(args, _k, None)
+                if _k in _force:
+                    # deliberate override, e.g. a near box + frame memory on a
+                    # checkpoint trained with the far box (2026-09-04): the
+                    # eval then measures the BOX, not the policy's training
+                    print(f"[eval] FORCED {_k}: keeping eval {_have} over training {_tr[_k]}", flush=True)
+                    continue
                 if _have is not None and _have != _tr[_k]:
                     print(f"[eval] MISMATCH {_k}: eval {_have} -> training "
                           f"{_tr[_k]} (adopting training)", flush=True)

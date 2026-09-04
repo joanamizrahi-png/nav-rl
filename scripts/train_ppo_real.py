@@ -215,7 +215,7 @@ class RewardComponentsCallback(BaseCallback):
     # did-the-mechanism-fire flag, `goal_dist_frac` is a distance ratio. They
     # go under diag/ so reward/ contains only things that are summed into the
     # return (her ask 2026-09-02).
-    DIAG_KEYS = ("coverage", "collision_off_frame", "goal_dist_frac",
+    DIAG_KEYS = ("coverage", "collision_off_frame", "box_memory_age", "box_memory_hit", "box_memory_miss", "goal_dist_frac",
                  # 2026-09-04: generator vs map reading of the same footprint
                  "phantom", "missed", "label_agree", "trav_agree", "gen_collision_frac", "map_collision_frac",
                  "used_generated", "map_void_frac",
@@ -413,6 +413,7 @@ def _dump_env_config(args, cfg):
             "forward_only": bool(getattr(cfg, "forward_only", False)),
             "look_ahead_dist": cfg.look_ahead_dist,
             "collision_look_ahead_m": cfg.collision_look_ahead_m,
+            "collision_box_memory": getattr(cfg, "collision_box_memory", 0),
             "goal_support_radius_m": cfg.goal_support_radius_m,
             "goal_support_min_frac": getattr(cfg, "goal_support_min_frac", 0.25),
             "goal_radius": cfg.goal_radius,
@@ -679,6 +680,7 @@ def _scene_env_cfg(args):
         # closest FULLY VISIBLE collision box is centred at 0.95 m -- 1.0 is
         # the practical floor, not the 0.4 m the geometry alone would suggest.
         collision_look_ahead_m=getattr(args, "collision_look_ahead", 0.0),
+        collision_box_memory=int(getattr(args, "collision_box_memory", 0)),
         goal_support_radius_m=getattr(args, "goal_support_radius", 0.0),
         goal_support_min_frac=getattr(args, "goal_support_min_frac", 0.25),
         goal_radius=getattr(args, "goal_radius", 0.75),
@@ -1205,6 +1207,8 @@ def main():
                     help="metres; >0 rejects sampled goals with no ground "
                          "points within this radius and draws again. 14.5%% of "
                          "goals were measured off-cloud (goal_audit.py).")
+    ap.add_argument("--collision_box_memory", type=int, default=0,
+                    help="read the near box from the newest of the last N generated frames that contains it (0 = off)")
     ap.add_argument("--collision_look_ahead", type=float, default=0.0,
                     help="metres; 0 = judge collision on the same 1.5 m box as "
                          "the graded semantic score (behaviour before "

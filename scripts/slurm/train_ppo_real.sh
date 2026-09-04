@@ -27,7 +27,7 @@ set -euo pipefail
 # of them was -- the .out files do not echo the command, env_config.json is
 # only written after the hour-long pipeline load, and shell history had scrolled
 # away. An unrecorded experiment is not an experiment.
-KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|CKPTFREQ|SPEEDCOST|REWSRC|MAPINFL|MAPINFLCLS|HALTCUR|GOALMIX|SPAWNSUPPORT|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
+KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|BOXMEM|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|CKPTFREQ|SPEEDCOST|REWSRC|MAPINFL|MAPINFLCLS|HALTCUR|GOALMIX|SPAWNSUPPORT|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
 # Whitelist, not a blacklist. The first version excluded known-noisy prefixes
 # and still emitted lmod shell functions, base64 module tables and every SLURM
 # variable -- thousands of unreadable characters per entry (2026-09-03, first
@@ -350,6 +350,7 @@ fi
 [ -n "${MAXSTEPS:-}" ] && LABEL="${LABEL}-ms${MAXSTEPS}"
 [ -n "${RW5SMOOTH:-}" ] && LABEL="${LABEL}-sm${RW5SMOOTH}"
 [ -n "${COLLAHEAD:-}" ] && LABEL="${LABEL}-ca${COLLAHEAD}"
+[ -n "${BOXMEM:-}" ] && LABEL="${LABEL}-bm${BOXMEM}"
 [ -n "${GOALSUPPORT:-}" ] && LABEL="${LABEL}-gs${GOALSUPPORT}"
 # COHTERM and COLLTERM were MISSING from the label, so on 2026-09-03 three
 # arms that differed only in those (base / cohterm 0.05 / collterm 0.5) all
@@ -422,6 +423,14 @@ if [ -n "${GOALSUPPORT:-}" ]; then
     OUT="${OUT}_gsup${GOALSUPPORT}"
 fi
 
+# BOXMEM=<n>: image path only. The near box (COLLAHEAD) is below the camera in
+# the current view; read it from the newest of the last n generated frames that
+# contains it whole (Joana's t-2 idea, 2026-09-04). diag/box_memory_age says
+# how far back the reading came from; -1 = fell back to the far box.
+if [ -n "${BOXMEM:-}" ]; then
+    BC_ARGS="$BC_ARGS --collision_box_memory ${BOXMEM}"
+    OUT="${OUT}_bm${BOXMEM}"
+fi
 # COLLAHEAD: judge COLLISION (and crash termination) on its own footprint this
 # many metres ahead, while the graded semantic score keeps looking 1.5 m out.
 # Unset = both share the 1.5 m box, the behaviour of every run before

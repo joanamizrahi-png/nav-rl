@@ -101,6 +101,13 @@ class SceneEnvConfig:
     # keeps its 1.5 m of warning. Watch reward/collision_off_frame: if the near
     # box misses the frame it falls back and the split is not in effect.
     collision_look_ahead_m: float = 0.0
+    # Near-box memory (Joana, 2026-09-04): keep the last N generated frames
+    # (labels + camera) and read the near box from the newest stored frame that
+    # contains it whole, since the near box is below the camera in the current
+    # view. 0 = off (far-box fallback, the pre-09-04 behaviour). 12 covers
+    # throttle >= ~0.3 at 0.3 m/step (the box needs ~0.9 m of travel to enter
+    # an old view). Image path only; the map reads the near box directly.
+    collision_box_memory: int = 0
     # 2026-09-02, measured: 14.5% of sampled goals have NO reconstruction under
     # them at all (scripts/goal_audit.py, 2000 episodes x 6 scenes). The goal
     # sampler is pure geometry -- spawn + d*(cos th, sin th) -- and never
@@ -596,6 +603,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         # Stale from the previous episode otherwise: the rollout video drew the
         # spawn frame's footprint with the LAST episode's final heading (09-04).
         self._last_fp_heading = None
+        self._frame_memory = []
         # a reset teleports the robot, so the first frame difference of an
         # episode is meaningless -- drop it rather than log a false jump
         self._rgb_delta = float("nan")
@@ -928,6 +936,8 @@ class SceneEnv(gym.Env if gym is not None else object):
                 body_length=GO2_BODY_LENGTH, body_width=GO2_BODY_WIDTH, weights=self.cfg.reward)
         breakdown = compute_reward(
             semantic_image=semantic_image,
+            frame_memory=(getattr(self, "_frame_memory", None)
+                          if int(self.cfg.collision_box_memory) > 0 else None),
             K=self._last_K,
             w2c=self._last_w2c,
             robot_position=robot_position,
@@ -995,6 +1005,14 @@ class SceneEnv(gym.Env if gym is not None else object):
             self._save_failure_snapshot(breakdown, semantic_image)
 
         # ---- apply the action to advance the robot pose ----
+        if int(self.cfg.collision_box_memory) > 0:
+            # stored AFTER this step's reward: memory holds previous frames only
+            fm = getattr(self, "_frame_memory", None)
+            if fm is None:
+                fm = self._frame_memory = []
+            fm.append((semantic_image, self._last_K, self._last_w2c))
+            if len(fm) > int(self.cfg.collision_box_memory):
+                del fm[0]
         self._prev_position = robot_position
         self._advance_pose(action)
         self._steps += 1
@@ -1119,6 +1137,9 @@ class SceneEnv(gym.Env if gym is not None else object):
                   + coh_term + coh_crash + speed_refund)
 
         info = breakdown.to_dict()
+        _age = float(getattr(breakdown, "box_memory_age", 0.0))
+        info["box_memory_hit"] = float(_age > 0.0)
+        info["box_memory_miss"] = float(_age < 0.0)
         info["spin"] = spin_term
         info["backward"] = back_term
         info["smooth"] = smooth_term

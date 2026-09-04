@@ -68,6 +68,10 @@ class RewardBreakdown:
     void_frac: float = 0.0          # fraction of footprint with NO gaussian support
                                     # (alpha-gated to class 0) — the world model's
                                     # own uncertainty signal; drives void-termination
+    box_memory_age: float = 0.0     # near box read from the frame this many steps
+                                    # back (0 = current view, -1 = no stored frame
+                                    # contained it -> far-box fallback). Joana's
+                                    # t-2 idea, 2026-09-04.
     collision_off_frame: float = 0.0  # 1.0 when the NEAR collision footprint did
                                       # not project into the image and collision
                                       # fell back to the shaping footprint. Must
@@ -154,6 +158,7 @@ def compute_reward(
     collision_look_ahead_dist: Optional[float] = None,
     body_length: float = GO2_BODY_LENGTH,
     body_width: float = GO2_BODY_WIDTH,
+    frame_memory=None,                 # previous frames, oldest first: (semantic_image, K, w2c)
     weights: RewardWeights = RewardWeights(),
 ) -> RewardBreakdown:
     """Compute the reward at one timestep. All world-frame inputs align with the
@@ -262,6 +267,7 @@ def compute_reward(
     # shaping box (current behaviour) and sets collision_off_frame, which is
     # logged. If that rate is not near zero, the near distance is too close.
     collision_off_frame = 0.0
+    box_memory_age = 0.0
     if (collision_look_ahead_dist is not None
             and abs(collision_look_ahead_dist - look_ahead_dist) > 1e-6):
         c_corners = _footprint_corners_world(
@@ -282,8 +288,38 @@ def compute_reward(
                 else:
                     collision_frac = float(non_traversable_mask[c_classes].mean())
                 c_ok = True
+        if not c_ok and frame_memory:
+            # Joana's t-2 idea (2026-09-04): the near box sits below the camera
+            # NOW, but a frame from a few steps back saw that ground from
+            # ~1.2 m away. Project the SAME world box into stored frames,
+            # newest first, and read the first one that contains it whole.
+            # Turning is handled by the projection; if the box left the old
+            # view, or the robot has not moved ~0.9 m within the buffer, no
+            # frame qualifies and the far-box fallback stands (counted).
+            for _age, (m_sem, m_K, m_w2c) in enumerate(reversed(frame_memory), start=1):
+                m_uv, m_front = _project_points(c_corners, m_K, m_w2c)
+                if not m_front.all():
+                    continue
+                mH, mW = m_sem.shape[:2]
+                if ((m_uv[:, 0] < 0).any() or (m_uv[:, 0] > mW - 1).any()
+                        or (m_uv[:, 1] < 0).any() or (m_uv[:, 1] > mH - 1).any()):
+                    continue
+                m_mask = _fill_polygon(mH, mW, m_uv)
+                if int(m_mask.sum()) == 0:
+                    continue
+                m_classes = m_sem[m_mask]
+                if weights.void_cost > 0:
+                    m_void = m_classes == 0
+                    collision_frac = float((non_traversable_mask[m_classes] & ~m_void).mean())
+                else:
+                    collision_frac = float(non_traversable_mask[m_classes].mean())
+                c_ok = True
+                box_memory_age = float(_age)
+                break
         if not c_ok:
             collision_off_frame = 1.0
+            if frame_memory:
+                box_memory_age = -1.0
 
     # --- 2. Goal progress ---
     if previous_position is None:
@@ -313,6 +349,7 @@ def compute_reward(
         n_traversable_pixels=n_traversable_pixels,
         mean_class_score=mean_class_score,
         collision_off_frame=float(collision_off_frame),
+        box_memory_age=float(box_memory_age),
         dominant_class_id=dominant_class_id,
         off_frame_frac=off_frame_frac,
         void_frac=float(void_frac),

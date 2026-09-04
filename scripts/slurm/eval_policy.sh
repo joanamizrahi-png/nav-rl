@@ -128,6 +128,9 @@ fi
 [ -n "${MAPINFLCLS:-}" ] && { EXTRA_ARGS+=(--map_inflate_classes "$MAPINFLCLS"); OUT_SUFFIX="${OUT_SUFFIX}_mic${MAPINFLCLS//,/-}"; }
 [ -n "${GOALMIX:-}" ] && { EXTRA_ARGS+=(--goal_traversable_mix "$GOALMIX"); OUT_SUFFIX="${OUT_SUFFIX}_gm${GOALMIX}"; }
 [ -n "${SPAWNSUPPORT:-}" ] && { EXTRA_ARGS+=(--spawn_support_tries "$SPAWNSUPPORT"); OUT_SUFFIX="${OUT_SUFFIX}_ss${SPAWNSUPPORT}"; }
+[ -n "${COLLAHEAD:-}" ] && { EXTRA_ARGS+=(--collision_look_ahead "$COLLAHEAD"); OUT_SUFFIX="${OUT_SUFFIX}_ca${COLLAHEAD}"; }
+[ -n "${BOXMEM:-}" ] && { EXTRA_ARGS+=(--collision_box_memory "$BOXMEM"); OUT_SUFFIX="${OUT_SUFFIX}_bm${BOXMEM}"; }
+[ -n "${FORCEKEYS:-}" ] && { EXTRA_ARGS+=(--force_env_keys "$FORCEKEYS"); OUT_SUFFIX="${OUT_SUFFIX}_forced"; }
 
 # Reward weights, so the reported `return=` is on TRAINING's scale. They do not
 # change a frozen policy's actions, but a return computed with goal_bonus 50
