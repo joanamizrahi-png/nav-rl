@@ -141,6 +141,13 @@ def main():
     # Job id FIRST. Two arms launched before the label carried COHTERM had
     # byte-identical labels (463164 and 463170), so their legend entries
     # merged and a colour got misread as the wrong arm (2026-09-03).
+    # 2026-09-03: 463224 trains with CRASHPEN=200 and every fraction below
+    # divided by 1000, so its crash rate read 12% when it was ~61%. The
+    # penalty is per arm; read it off the label token -cp<N>.
+    def crash_pen(j) -> float:
+        m = re.search(r"-cp(\d+(?:\.\d+)?)", labels.get(j, ""))
+        return float(m.group(1)) if m else 1000.0
+
     names = {j: "%d %s" % (j, n)
              for j, n in short_names({j: labels.get(j, str(j)) for j in jobs}).items()}
 
@@ -163,11 +170,16 @@ def main():
     def get(s, k):
         return np.array(s.get(k, [float("nan")] * len(s["time/total_timesteps"])), dtype=float)
 
-    fig, axes = plt.subplots(3, 4, figsize=(22, 13))
+    fig, axes = plt.subplots(4, 4, figsize=(22, 17))
     axes = axes.ravel()
     panels = [
         ("curriculum/goal_dist", "goal distance curriculum (m)\nadvances only on >=50% wins", None),
-        ("END", "how episodes end (fraction)\nsolid=goal  dashed=crash  dotted=incoherent  dash-dot=STOPPED (timeout or halted)", None),
+        # how episodes end, ONE outcome per panel (48 lines in one box was
+        # unreadable). Derived from per-step reward means x episode length /
+        # penalty; the two windows differ, so single dumps can overshoot 1.
+        ("END_goal", "episodes ending at the GOAL (fraction)", (0, 1.05)),
+        ("END_crash", "episodes ending in a CRASH (fraction)\nper-arm penalty (1000, or 200 on cp200)", (0, 1.05)),
+        ("END_stopped", "episodes that STOPPED (fraction)\nneither goal nor crash nor incoherent: timeout or halted", (0, 1.05)),
         ("rollout/ep_len_mean", "episode length (steps)", None),
         ("curriculum/recent_success", "recent success (100-ep window)", (0, 1)),
         ("diag/throttle", "mean commanded throttle\n(ppo_240704 crept at 0.28)", (0, 1)),
@@ -184,21 +196,14 @@ def main():
             x = get(s, "time/total_timesteps")
             x = x - x[0]                       # steps THIS run, warm arms included
             c, nm = colors[j], names.get(j, str(j))
-            if key == "END":
+            if key.startswith("END_"):
                 L = get(s, "rollout/ep_len_mean")
                 goal = get(s, "reward/goal_bonus") * L / 1000.0
-                crash = -get(s, "reward/crash") * L / 1000.0
+                crash = -get(s, "reward/crash") * L / crash_pen(j)
                 coh = -get(s, "reward/coherence_crash") * L / 100.0
-                # 2026-09-03 (Joana, after the goal-on-grass pair: "sad that
-                # sighted has not learned timeout or halt"): the remainder --
-                # episodes that ended NEITHER at the goal nor in a crash -- is
-                # the stopping behaviour this project wants, and it was only
-                # implicit. Drawn explicitly so its absence is visible.
-                stopped = np.clip(1.0 - goal - crash - coh, 0.0, 1.0)
-                ax.plot(x, goal, "-", c=c, lw=1.6, label=nm)
-                ax.plot(x, crash, "--", c=c, lw=1.0)
-                ax.plot(x, coh, ":", c=c, lw=1.0)
-                ax.plot(x, stopped, "-.", c=c, lw=1.3)
+                y = {"END_goal": goal, "END_crash": crash,
+                     "END_stopped": np.clip(1.0 - goal - crash - coh, 0.0, 1.0)}[key]
+                ax.plot(x, y, "-o", c=c, lw=1.6, ms=2.5, label=nm)
             elif key == "HALTED_EP":
                 # diag/halted is a PER-STEP rate; times episode length it is
                 # the fraction of episodes that ended halted. Arms without the
@@ -231,23 +236,23 @@ def main():
     # arms that started an hour apart are on different scenes at the same
     # step. All four envs share ONE scene per rollout (vec_live_env rotates
     # it), so diag/scene_idx is a clean integer per dump and this is valid.
-    def by_scene(s, key_fn):
+    def by_scene(s, key_fn, j):
         sc = np.rint(get(s, "diag/scene_idx")).astype(int)
-        vals = key_fn(s)
+        vals = key_fn(s, j)
         out = []
         for k in range(len(scene_names)):
             m = np.where(sc == k)[0][-args.recent:]
             out.append(float(np.nanmean(vals[m])) if len(m) else float("nan"))
         return np.array(out)
 
-    goal_fn = lambda s: get(s, "reward/goal_bonus") * get(s, "rollout/ep_len_mean") / 10.0
-    crash_fn = lambda s: -get(s, "reward/crash") * get(s, "rollout/ep_len_mean") / 10.0
+    goal_fn = lambda s, j: get(s, "reward/goal_bonus") * get(s, "rollout/ep_len_mean") / 10.0
+    crash_fn = lambda s, j: -get(s, "reward/crash") * get(s, "rollout/ep_len_mean") / (crash_pen(j) / 100.0)
     xs = np.arange(len(scene_names))
     narm = max(len(data), 1)
-    for ax, fn, title in ((axes[9], goal_fn, "goal rate BY SCENE (%%), last %d dumps\nblack tick = reachability ceiling" % args.recent),
-                          (axes[10], crash_fn, "crash rate BY SCENE (%%), last %d dumps" % args.recent)):
+    for ax, fn, title in ((axes[11], goal_fn, "goal rate BY SCENE (%%), last %d dumps\nblack tick = reachability ceiling" % args.recent),
+                          (axes[12], crash_fn, "crash rate BY SCENE (%%), last %d dumps" % args.recent)):
         for i, (j, s) in enumerate(data.items()):
-            y = by_scene(s, fn)
+            y = by_scene(s, fn, j)
             off = (i - (narm - 1) / 2) * (0.7 / narm)
             ax.plot(xs + off, y, "o", ms=5, c=colors[j], mec="k", mew=0.3,
                     label=names.get(j, str(j)))
@@ -263,7 +268,7 @@ def main():
     # It is the dotted line in "how episodes end", but Joana asked to see it
     # by itself: on the arms that actually move (463170, 463879) it ends
     # 15-25% of episodes even at tau_kill 0.05.
-    ax = axes[11]
+    ax = axes[13]
     for j, s_ in data.items():
         x = get(s_, "time/total_timesteps"); x = x - x[0]
         y = -get(s_, "reward/coherence_crash") * get(s_, "rollout/ep_len_mean") / 100.0
@@ -271,6 +276,8 @@ def main():
     ax.set_title("episodes ended by the COHERENCE TERMINAL (fraction)\n"
                  "coverage < tau_kill; 0.1 on most arms, 0.05 on 463170", fontsize=10)
     ax.set_xlabel("env steps this run"); ax.set_ylim(0, 1); ax.grid(alpha=0.3)
+    for k in (14, 15):
+        axes[k].axis("off")
     fig.suptitle(f"fleet of {len(data)} arms — {Path(args.out).stem}", fontsize=12)
     fig.tight_layout(rect=(0, 0.05, 1, 0.96))
     fig.savefig(args.out, dpi=130, bbox_inches="tight")
@@ -288,7 +295,7 @@ def main():
         return (f"{names.get(j, str(j))[:34]:<34} {int(x[i]):>7} "
                 f"{get(s, 'curriculum/goal_dist')[i]:>6.1f} "
                 f"{get(s, 'curriculum/recent_success')[i]:>5.2f} {L:>6.1f} "
-                f"{100 * gb * L / 1000:>6.1f} {100 * -cr * L / 1000:>7.1f} "
+                f"{100 * gb * L / 1000:>6.1f} {100 * -cr * L / crash_pen(j):>7.1f} "
                 f"{100 * -ch * L / 100:>7.1f} {100 * get(s, 'diag/halted')[i] * L:>6.1f} "
                 f"{get(s, 'diag/throttle')[i]:>5.2f}")
 
