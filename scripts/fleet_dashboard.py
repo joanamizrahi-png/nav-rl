@@ -113,6 +113,11 @@ def main():
                     help="REACHABLE %% per scene from goal_audit (2-8 m, new cone, "
                          "2026-09-03). A goal rate is only readable against this: "
                          "on gnd_AU_180 nearly half the goals sit on grass.")
+    ap.add_argument("--at_steps", type=int, default=0,
+                    help="also print a table with every arm read at the dump "
+                         "nearest this many steps THIS RUN, so arms launched "
+                         "hours apart are compared at the same training "
+                         "budget rather than at whatever step each is on now")
     ap.add_argument("--recent", type=int, default=6,
                     help="per-scene panels use the last N dumps on each scene")
     args = ap.parse_args()
@@ -239,26 +244,54 @@ def main():
         ax.set_ylim(0, 100)
         ax.set_title(title, fontsize=10)
         ax.grid(alpha=0.3, axis="y")
-    axes[11].axis("off")
+    # 12th panel: fraction of episodes ended by the COHERENCE TERMINAL, alone.
+    # It is the dotted line in "how episodes end", but Joana asked to see it
+    # by itself: on the arms that actually move (463170, 463879) it ends
+    # 15-25% of episodes even at tau_kill 0.05.
+    ax = axes[11]
+    for j, s_ in data.items():
+        x = get(s_, "time/total_timesteps"); x = x - x[0]
+        y = -get(s_, "reward/coherence_crash") * get(s_, "rollout/ep_len_mean") / 100.0
+        ax.plot(x, y, "-o", c=colors[j], lw=1.4, ms=2.5)
+    ax.set_title("episodes ended by the COHERENCE TERMINAL (fraction)\n"
+                 "coverage < tau_kill; 0.1 on most arms, 0.05 on 463170", fontsize=10)
+    ax.set_xlabel("env steps this run"); ax.set_ylim(0, 1); ax.grid(alpha=0.3)
     fig.suptitle(f"fleet of {len(data)} arms — {Path(args.out).stem}", fontsize=12)
     fig.tight_layout(rect=(0, 0.05, 1, 0.96))
     fig.savefig(args.out, dpi=130, bbox_inches="tight")
     print(f"==> {args.out}")
 
     # ---- the latest row per arm, so the picture does not have to be squinted at
-    print(f"\n{'job':>7} {'arm':<28} {'steps':>7} {'gdist':>6} {'succ':>5} "
-          f"{'eplen':>6} {'goal%':>6} {'crash%':>7} {'incoh%':>7} {'thr':>5} {'halt':>6}")
-    for j, s in data.items():
-        L = get(s, "rollout/ep_len_mean")[-1]
-        gb, cr, ch = (get(s, "reward/goal_bonus")[-1], get(s, "reward/crash")[-1],
-                      get(s, "reward/coherence_crash")[-1])
+    def row(j, s, i):
+        """One table row for arm j at dump index i. halt% = halted rate per
+        step x ep_len: the fraction of episodes that ENDED by the halt
+        terminal, on the same footing as goal% and crash%."""
+        L = get(s, "rollout/ep_len_mean")[i]
+        gb, cr, ch = (get(s, "reward/goal_bonus")[i], get(s, "reward/crash")[i],
+                      get(s, "reward/coherence_crash")[i])
         x = get(s, "time/total_timesteps"); x = x - x[0]
-        print(f"{j:>7} {names.get(j, str(j))[:28]:<28} {int(x[-1]):>7} "
-              f"{get(s, 'curriculum/goal_dist')[-1]:>6.1f} "
-              f"{get(s, 'curriculum/recent_success')[-1]:>5.2f} {L:>6.1f} "
-              f"{100 * gb * L / 1000:>6.1f} {100 * -cr * L / 1000:>7.1f} "
-              f"{100 * -ch * L / 100:>7.1f} {get(s, 'diag/throttle')[-1]:>5.2f} "
-              f"{get(s, 'diag/halted')[-1]:>6.3f}")
+        return (f"{names.get(j, str(j))[:34]:<34} {int(x[i]):>7} "
+                f"{get(s, 'curriculum/goal_dist')[i]:>6.1f} "
+                f"{get(s, 'curriculum/recent_success')[i]:>5.2f} {L:>6.1f} "
+                f"{100 * gb * L / 1000:>6.1f} {100 * -cr * L / 1000:>7.1f} "
+                f"{100 * -ch * L / 100:>7.1f} {100 * get(s, 'diag/halted')[i] * L:>6.1f} "
+                f"{get(s, 'diag/throttle')[i]:>5.2f}")
+
+    hdr = (f"{'arm':<34} {'steps':>7} {'gdist':>6} {'succ':>5} {'eplen':>6} "
+           f"{'goal%':>6} {'crash%':>7} {'incoh%':>7} {'halt%':>6} {'thr':>5}")
+    print("\nLATEST dump per arm (arms are at DIFFERENT steps -- see --at_steps):")
+    print(hdr)
+    for j, s in data.items():
+        print(row(j, s, -1))
+    if args.at_steps:
+        print(f"\nEVERY arm at the dump nearest {args.at_steps} steps this run:")
+        print(hdr)
+        for j, s in data.items():
+            x = get(s, "time/total_timesteps"); x = x - x[0]
+            if x[-1] < args.at_steps * 0.8:
+                print(f"{names.get(j, str(j))[:34]:<34}   (only {int(x[-1])} steps so far)")
+                continue
+            print(row(j, s, int(np.argmin(np.abs(x - args.at_steps)))))
 
 
 if __name__ == "__main__":
