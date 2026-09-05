@@ -501,6 +501,7 @@ def _dump_env_config(args, cfg):
             "spawn_support_tries": getattr(cfg, "spawn_support_tries", 0),
             "goal_mix_map_draw": getattr(cfg, "goal_mix_map_draw", False),
             "goal_nontrav_classes": getattr(cfg, "goal_nontrav_classes", "3,4,5"),
+            "goal_nontrav_edge_m": getattr(cfg, "goal_nontrav_edge_m", 1.5),
             "map_res_m": getattr(cfg, "map_res_m", 0.1),
         }, indent=2))
         print(f"[train] env recorded for eval: {out}", flush=True)
@@ -744,6 +745,7 @@ def _scene_env_cfg(args):
         spawn_support_tries=int(getattr(args, "spawn_support_tries", 0)),
         goal_mix_map_draw=bool(getattr(args, "goal_mix_map_draw", False)),
         goal_nontrav_classes=str(getattr(args, "goal_nontrav_classes", "3,4,5") or "3,4,5"),
+        goal_nontrav_edge_m=float(getattr(args, "goal_nontrav_edge_m", 1.5)),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
         timeout_distance_scaled=getattr(args, "timeout_distance_scaled", False),
@@ -1304,6 +1306,8 @@ def main():
     ap.add_argument("--goal_mix_map_draw", action="store_true",
                     help="draw the non-traversable share of the goal mix straight from map cells (grass etc.) in the window and cone")
     ap.add_argument("--goal_nontrav_classes", type=str, default="3,4,5")
+    ap.add_argument("--goal_nontrav_edge_m", type=float, default=1.5,
+                    help="map-direct lawn goals must have walkable ground within this distance (0 = anywhere on the lawn)")
     ap.add_argument("--spawn_support_tries", type=int, default=0,
                     help="redraw a spawn whose crash box is already at the crash threshold on the map, up to N times (0 = off)")
     ap.add_argument("--goal_traversable_mix", type=float, default=0.0,

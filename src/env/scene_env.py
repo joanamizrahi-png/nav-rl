@@ -141,6 +141,12 @@ class SceneEnvConfig:
     # and cone, then support-checked like any goal.
     goal_mix_map_draw: bool = False
     goal_nontrav_classes: str = "3,4,5"   # grass, rough, water: ground you should refuse, not walls
+    # A lawn goal must lie within this distance of walkable map ground, so the
+    # robot can come within refusal_dist_m of it WITHOUT stepping on grass.
+    # Without it the map-direct draw picks cells deep inside lawns (trend
+    # read 2026-09-05): those goals can only end in a crash, and a refusal
+    # bonus 2 m from them is unreachable. 0 = no constraint.
+    goal_nontrav_edge_m: float = 1.5
     # Spawn support: redraw a spawn whose crash box is already at/above the
     # crash threshold on the MAP, up to this many times (0 = off). Such a
     # spawn ends at step 1 whatever the policy does and teaches nothing:
@@ -530,6 +536,25 @@ class SceneEnv(gym.Env if gym is not None else object):
         cells = self._map_goal_cells[key]
         if len(cells) == 0:
             return None
+        edge = float(getattr(self.cfg, "goal_nontrav_edge_m", 0.0) or 0.0)
+        if edge > 0.0:
+            ekey = (self._scene_id, cls, edge)
+            if ekey not in self._map_goal_cells:
+                # keep only lawn cells with walkable known ground within `edge`
+                known = g.labels >= 0
+                walk = known & ~self._non_trav[np.clip(g.labels, 0, len(self._non_trav) - 1)]
+                wy, wx = np.nonzero(walk)
+                wxy = np.c_[g.x0 + (wx + 0.5) * g.res, g.y0 + (wy + 0.5) * g.res].astype(np.float32)
+                keep = np.zeros(len(cells), dtype=bool)
+                if len(wxy):
+                    for i0 in range(0, len(cells), 2048):
+                        blk = cells[i0:i0 + 2048]
+                        d2 = ((blk[:, None, :] - wxy[None, :, :]) ** 2).sum(-1)
+                        keep[i0:i0 + 2048] = d2.min(axis=1) <= edge * edge
+                self._map_goal_cells[ekey] = cells[keep]
+            cells = self._map_goal_cells[ekey]
+            if len(cells) == 0:
+                return None
         bcfg = self.world_backend.cfg
         lo_d, hi_d = getattr(bcfg, "goal_dist_range", None) or (5.0, 10.0)
         spawn = np.asarray(self._robot_pose_world[:2, 3], dtype=np.float32)
