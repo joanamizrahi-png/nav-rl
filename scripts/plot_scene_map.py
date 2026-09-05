@@ -36,6 +36,7 @@ def main():
     ap.add_argument("--fill", type=float, default=0.3)
     ap.add_argument("--fill_area", type=float, default=10.0, help="fill enclosed void regions up to this many m2")
     ap.add_argument("--walk", type=float, default=0.4, help="half-width of the walkable corridor along the recorded walk")
+    ap.add_argument("--inflate_classes", default="", help="comma list of class ids that inflate; empty = every non-traversable class")
     ap.add_argument("--ignore", default="", help="classes that do not vote, e.g. 12,13 for person, vehicle")
     ap.add_argument("--out_dir", default="/scratch/m000204-pm06b/joana/outputs/scene_maps")
     ap.add_argument("--suffix", default="", help="appended to the file names, e.g. filled")
@@ -56,7 +57,8 @@ def main():
         path = (np.asarray(c["traj_positions"], float) * np.array([1.0, -1.0, 1.0]))[:, :2]
         ign = tuple(int(v) for v in args.ignore.split(",") if v.strip())
         g = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=args.inflate, fill_m=args.fill, fill_max_area_m2=args.fill_area, ignore_classes=ign,
-                             walk_xy=path, walk_halfwidth_m=args.walk)
+                             walk_xy=path, walk_halfwidth_m=args.walk,
+                             inflate_classes=tuple(int(v) for v in args.inflate_classes.split(",") if v.strip()))
         g_raw = build_label_grid(pts, labs, nontrav, res=args.res, inflate_m=0.0, fill_m=0.0, fill_max_area_m2=0.0, clean=False)
         # support along the recorded walk: how many cloud points per cell there,
         # the reference for 'enough points' anywhere else
