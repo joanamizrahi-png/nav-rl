@@ -159,6 +159,7 @@ def compute_reward(
     body_length: float = GO2_BODY_LENGTH,
     body_width: float = GO2_BODY_WIDTH,
     frame_memory=None,                 # previous frames, oldest first: (semantic_image, K, w2c)
+    memory_min_visible: float = 0.5,   # share of the box's projected area that must be inside a stored frame
     weights: RewardWeights = RewardWeights(),
 ) -> RewardBreakdown:
     """Compute the reward at one timestep. All world-frame inputs align with the
@@ -301,11 +302,17 @@ def compute_reward(
                 if not m_front.all():
                     continue
                 mH, mW = m_sem.shape[:2]
-                if ((m_uv[:, 0] < 0).any() or (m_uv[:, 0] > mW - 1).any()
-                        or (m_uv[:, 1] < 0).any() or (m_uv[:, 1] > mH - 1).any()):
-                    continue
+                # Accept the frame when at least memory_min_visible of the
+                # box's projected area lies inside the image (the part below
+                # the bottom edge is the near end; what is visible is the far
+                # end, 0.6-0.9 m, which is still the ground under the next
+                # step). Full containment (the first version, 09-04 17:00)
+                # hit on 1.7% of a cold arm's steps: a crawling policy needs
+                # ~0.9 m of travel before ANY old frame contains the box whole.
                 m_mask = _fill_polygon(mH, mW, m_uv)
-                if int(m_mask.sum()) == 0:
+                _x, _y = m_uv[:, 0], m_uv[:, 1]
+                _area = 0.5 * abs(float(np.dot(_x, np.roll(_y, -1)) - np.dot(_y, np.roll(_x, -1))))
+                if _area <= 0.0 or int(m_mask.sum()) < memory_min_visible * _area:
                     continue
                 m_classes = m_sem[m_mask]
                 if weights.void_cost > 0:
