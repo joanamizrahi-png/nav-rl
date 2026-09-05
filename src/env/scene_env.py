@@ -270,7 +270,9 @@ class SceneEnvConfig:
     # radius around the VERGE point (walk point nearest a lawn goal) within
     # which a halt counts; tight, so the robot must arrive at the verge for
     # deep goals (Joana: 2.5 m around a walk point is a 5 m stretch of walk).
-    refusal_verge_m: float = 1.0
+    # 1.5 (09-05 evening): the halt needs the 0.3-0.9 m box clear, so a robot
+    # facing the lawn stops ~0.9 m short of the edge cell; 1.0 left 10 cm.
+    refusal_verge_m: float = 1.5
     # Mirror of the bonus: a halt on a TRAVERSABLE goal pays this flat penalty
     # (on top of the halt price). Without it a wrong halt 2 m from a pavement
     # goal costs -0.3 (scaled) against -10 for trying at a 50% crash rate, so

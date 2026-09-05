@@ -68,7 +68,7 @@ def main():
     ap.add_argument("--walk", type=float, default=0.4)
     ap.add_argument("--inflate_classes", default="", help="comma list; empty = all non-traversable")
     ap.add_argument("--refusal_dist", type=float, default=2.5, help="refusal radius around the goal")
-    ap.add_argument("--verge_dist", type=float, default=1.0, help="refusal radius around the verge point")
+    ap.add_argument("--verge_dist", type=float, default=1.5, help="refusal radius around the verge point")
     ap.add_argument("--out_dir", required=True)
     args = ap.parse_args()
     out = Path(args.out_dir)

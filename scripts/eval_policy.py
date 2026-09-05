@@ -142,7 +142,7 @@ def build_env(args):
         halt_penalty_scale=getattr(args, "halt_penalty_scale", 1.0),
         refusal_bonus=float(getattr(args, "refusal_bonus", 0.0) or 0.0),
         refusal_dist_m=float(getattr(args, "refusal_dist_m", 2.0) or 2.0),
-        refusal_verge_m=float(getattr(args, "refusal_verge_m", 1.0) or 1.0),
+        refusal_verge_m=float(getattr(args, "refusal_verge_m", 1.5) or 1.5),
         halt_wrong_penalty=float(getattr(args, "halt_wrong_penalty", 0.0) or 0.0),
         nontrav_goal_unreachable=bool(getattr(args, "nontrav_goal_unreachable", False)),
         goal_requires_stop=bool(getattr(args, "goal_requires_stop", False)),
@@ -256,7 +256,7 @@ def main():
     ap.add_argument("--halt_throttle_eps", type=float, default=0.05)
     ap.add_argument("--refusal_bonus", type=float, default=0.0)
     ap.add_argument("--refusal_dist_m", type=float, default=2.0)
-    ap.add_argument("--refusal_verge_m", type=float, default=1.0)
+    ap.add_argument("--refusal_verge_m", type=float, default=1.5)
     ap.add_argument("--goal_requires_stop", action="store_true",
                     help="a goal counts as reached only after the robot is still for the halt steps inside its radius")
     ap.add_argument("--nontrav_goal_unreachable", action="store_true",

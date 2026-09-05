@@ -524,7 +524,7 @@ def _dump_env_config(args, cfg):
             "halt_penalty_scale": getattr(cfg, "halt_penalty_scale", 1.0),
             "refusal_bonus": getattr(cfg, "refusal_bonus", 0.0),
             "refusal_dist_m": getattr(cfg, "refusal_dist_m", 2.0),
-            "refusal_verge_m": getattr(cfg, "refusal_verge_m", 1.0),
+            "refusal_verge_m": getattr(cfg, "refusal_verge_m", 1.5),
             "halt_wrong_penalty": getattr(cfg, "halt_wrong_penalty", 0.0),
             "nontrav_goal_unreachable": getattr(cfg, "nontrav_goal_unreachable", False),
             "goal_requires_stop": getattr(cfg, "goal_requires_stop", False),
@@ -768,7 +768,7 @@ def _scene_env_cfg(args):
         halt_penalty_scale=getattr(args, "halt_penalty_scale", 1.0),
         refusal_bonus=float(getattr(args, "refusal_bonus", 0.0) or 0.0),
         refusal_dist_m=float(getattr(args, "refusal_dist_m", 2.0) or 2.0),
-        refusal_verge_m=float(getattr(args, "refusal_verge_m", 1.0) or 1.0),
+        refusal_verge_m=float(getattr(args, "refusal_verge_m", 1.5) or 1.5),
         halt_wrong_penalty=float(getattr(args, "halt_wrong_penalty", 0.0) or 0.0),
         nontrav_goal_unreachable=bool(getattr(args, "nontrav_goal_unreachable", False)),
         goal_requires_stop=bool(getattr(args, "goal_requires_stop", False)),
@@ -1363,7 +1363,7 @@ def main():
     ap.add_argument("--refusal_bonus", type=float, default=0.0,
                     help="reward for HALTING on a non-traversable goal within --refusal_dist_m of it (0 = off)")
     ap.add_argument("--refusal_dist_m", type=float, default=2.0)
-    ap.add_argument("--refusal_verge_m", type=float, default=1.0)
+    ap.add_argument("--refusal_verge_m", type=float, default=1.5)
     ap.add_argument("--verge_start", type=float, default=None,
                     help="verge-radius curriculum: start radius (m), notches by 0.25 to --refusal_verge_m as refusals at the verge pass 50%")
     ap.add_argument("--goal_requires_stop", action="store_true",
