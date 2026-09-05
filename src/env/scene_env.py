@@ -141,8 +141,9 @@ class SceneEnvConfig:
     # and cone, then support-checked like any goal.
     goal_mix_map_draw: bool = False
     goal_nontrav_classes: str = "3,4,5"   # grass, rough, water: ground you should refuse, not walls
-    # A lawn goal must lie within this distance of walkable map ground, so the
-    # robot can come within refusal_dist_m of it WITHOUT stepping on grass.
+    # A lawn goal must lie within this distance of the RECORDED WALK, so the
+    # robot can come within refusal_dist_m of it along pavement (09-05: any
+    # walkable cell was not enough -- the far side of a lawn is walkable too).
     # Without it the map-direct draw picks cells deep inside lawns (trend
     # read 2026-09-05): those goals can only end in a crash, and a refusal
     # bonus 2 m from them is unreachable. 0 = no constraint.
@@ -552,11 +553,18 @@ class SceneEnv(gym.Env if gym is not None else object):
         if edge > 0.0:
             ekey = (self._scene_id, cls, edge)
             if ekey not in self._map_goal_cells:
-                # keep only lawn cells with walkable known ground within `edge`
-                known = g.labels >= 0
-                walk = known & ~self._non_trav[np.clip(g.labels, 0, len(self._non_trav) - 1)]
-                wy, wx = np.nonzero(walk)
-                wxy = np.c_[g.x0 + (wx + 0.5) * g.res, g.y0 + (wy + 0.5) * g.res].astype(np.float32)
+                # keep only lawn cells within `edge` of the RECORDED WALK (Joana,
+                # 09-05 16:00): a cell near walkable ground on the far side of a
+                # lawn is unreachable along pavement, so no ending would pay;
+                # beside the walk the robot can always come within the refusal
+                # radius on pavement. Falls back to any walkable cell if the
+                # cloud carries no walk.
+                wxy = getattr(self, "_walk_xy", {}).get(self._scene_id)
+                if wxy is None or len(wxy) == 0:
+                    known = g.labels >= 0
+                    walk = known & ~self._non_trav[np.clip(g.labels, 0, len(self._non_trav) - 1)]
+                    wy, wx = np.nonzero(walk)
+                    wxy = np.c_[g.x0 + (wx + 0.5) * g.res, g.y0 + (wy + 0.5) * g.res].astype(np.float32)
                 keep = np.zeros(len(cells), dtype=bool)
                 if len(wxy):
                     for i0 in range(0, len(cells), 2048):
@@ -953,6 +961,11 @@ class SceneEnv(gym.Env if gym is not None else object):
                                  walk_halfwidth_m=self.cfg.map_walk_halfwidth_m,
                                  inflate_classes=tuple(int(v) for v in str(self.cfg.map_inflate_classes).split(",") if v.strip()))
             self._label_grids[scene_id] = g
+            if not hasattr(self, "_walk_xy"):
+                self._walk_xy = {}
+            self._walk_xy[scene_id] = ((np.asarray(d["traj_positions"], dtype=np.float32)
+                                        * np.array([1.0, -1.0, 1.0], dtype=np.float32))[:, :2]
+                                       if "traj_positions" in d else None)
             known = g.labels >= 0
             nt = known & self._non_trav[np.clip(g.labels, 0, len(self._non_trav) - 1)]
             print(f"[map reward] {scene_id}: grid {g.labels.shape[1]}x{g.labels.shape[0]} "
