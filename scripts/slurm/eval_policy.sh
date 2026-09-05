@@ -123,6 +123,7 @@ fi
 [ -n "${HALTSCALE:-}" ] && EXTRA_ARGS+=(--halt_penalty_scale "$HALTSCALE")
 [ -n "${REFUSAL:-}" ] && { EXTRA_ARGS+=(--refusal_bonus "$REFUSAL"); OUT_SUFFIX="${OUT_SUFFIX}_rb${REFUSAL}"; }
 [ -n "${REFUSALDIST:-}" ] && { EXTRA_ARGS+=(--refusal_dist_m "$REFUSALDIST"); OUT_SUFFIX="${OUT_SUFFIX}_rd${REFUSALDIST}"; }
+[ -n "${REFUSALVERGE:-}" ] && { EXTRA_ARGS+=(--refusal_verge_m "$REFUSALVERGE"); OUT_SUFFIX="${OUT_SUFFIX}_rv${REFUSALVERGE}"; }
 [ -n "${HALTWRONG:-}" ] && { EXTRA_ARGS+=(--halt_wrong_penalty "$HALTWRONG"); OUT_SUFFIX="${OUT_SUFFIX}_hw${HALTWRONG}"; }
 [ "${NTGOAL:-0}" = "1" ] && { EXTRA_ARGS+=(--nontrav_goal_unreachable); OUT_SUFFIX="${OUT_SUFFIX}_ntu"; }
 [ "${GOALSTOP:-0}" = "1" ] && { EXTRA_ARGS+=(--goal_requires_stop); OUT_SUFFIX="${OUT_SUFFIX}_gstop"; }

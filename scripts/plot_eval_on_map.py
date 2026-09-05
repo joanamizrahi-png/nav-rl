@@ -67,7 +67,8 @@ def main():
     ap.add_argument("--fill_area", type=float, default=10.0)
     ap.add_argument("--walk", type=float, default=0.4)
     ap.add_argument("--inflate_classes", default="", help="comma list; empty = all non-traversable")
-    ap.add_argument("--refusal_dist", type=float, default=2.5, help="refusal radius drawn around lawn goals and their verge point")
+    ap.add_argument("--refusal_dist", type=float, default=2.5, help="refusal radius around the goal")
+    ap.add_argument("--verge_dist", type=float, default=1.0, help="refusal radius around the verge point")
     ap.add_argument("--out_dir", required=True)
     args = ap.parse_args()
     out = Path(args.out_dir)
@@ -151,8 +152,8 @@ def main():
             vp = walk[int(np.argmin(np.linalg.norm(walk - np.array([gx, gy])[None, :], axis=1)))]
             ax.plot(vp[0], vp[1], "s", mfc="none", mec=col, ms=8, mew=1.2)
             ax.plot([gx, vp[0]], [gy, vp[1]], ":", c=col, lw=0.8)
-            for cxy in (vp, (gx, gy)):
-                ax.add_patch(plt.Circle(cxy, args.refusal_dist, fill=False, ec=col, lw=0.6, ls="--", alpha=0.7))
+            ax.add_patch(plt.Circle((vp[0], vp[1]), args.verge_dist, fill=False, ec=col, lw=0.8, ls="--", alpha=0.8))
+            ax.add_patch(plt.Circle((gx, gy), args.refusal_dist, fill=False, ec=col, lw=0.5, ls=":", alpha=0.5))
         if label:
             ax.annotate(str(e["episode"]), (tr[0, 0], tr[0, 1]), fontsize=7, color=col,
                         xytext=(3, 3), textcoords="offset points")

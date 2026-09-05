@@ -141,7 +141,8 @@ def main():
                 ax.plot(gl[0], gl[1], "*", c="tab:red", ms=11, mec="k", mew=0.4)
                 ax.plot(vp[0], vp[1], "s", mfc="none", mec="tab:red", ms=8, mew=1.3)
                 ax.plot([gl[0], vp[0]], [gl[1], vp[1]], ":", c="tab:red", lw=0.8)
-                ax.add_patch(plt.Circle((vp[0], vp[1]), args.refusal_dist, fill=False, ec="tab:red", lw=0.6, ls="--", alpha=0.6))
+                ax.add_patch(plt.Circle((vp[0], vp[1]), args.verge_dist, fill=False, ec="tab:red", lw=0.8, ls="--", alpha=0.8))
+                ax.add_patch(plt.Circle((gl[0], gl[1]), args.refusal_dist, fill=False, ec="tab:red", lw=0.5, ls=":", alpha=0.5))
             # pavement goals: the walk sampler's ring-and-cone draw, kept when the disc is >= 75% walkable
             for _ in range(args.per_frame * 3):
                 d = env.np_random.uniform(lo, hi); th = yaw + np.deg2rad(env.np_random.uniform(-args.cone / 2, args.cone / 2))
@@ -155,7 +156,7 @@ def main():
         ax.set_aspect("equal")
         hs = [Line2D([], [], marker="*", ls="", mfc="tab:red", mec="k", ms=11, label=f"lawn goal ({lawn_n})"),
               Line2D([], [], marker="s", ls="", mfc="none", mec="tab:red", ms=8, label="verge = walk point nearest the goal"),
-              Line2D([], [], ls="--", c="tab:red", label=f"refusal radius {args.refusal_dist} m"),
+              Line2D([], [], ls="--", c="tab:red", label=f"halt counts within {args.verge_dist} m of the verge (dashed) or {args.refusal_dist} m of the goal (dotted)"),
               Line2D([], [], marker="*", ls="", mfc="tab:green", mec="k", ms=9, label=f"pavement goal ({pave_n}), no verge rule"),
               Line2D([], [], marker="o", ls="", mfc="k", mec="w", ms=6, label="spawn frames " + args.frames)]
         ax.legend(handles=hs, fontsize=8, loc="best")

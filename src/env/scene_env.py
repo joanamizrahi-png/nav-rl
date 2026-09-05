@@ -261,6 +261,10 @@ class SceneEnvConfig:
     # 0 = off. Wrong halts keep paying halt_penalty_scale x timeout.
     refusal_bonus: float = 0.0
     refusal_dist_m: float = 2.0
+    # radius around the VERGE point (walk point nearest a lawn goal) within
+    # which a halt counts; tight, so the robot must arrive at the verge for
+    # deep goals (Joana: 2.5 m around a walk point is a 5 m stretch of walk).
+    refusal_verge_m: float = 1.0
     # Mirror of the bonus: a halt on a TRAVERSABLE goal pays this flat penalty
     # (on top of the halt price). Without it a wrong halt 2 m from a pavement
     # goal costs -0.3 (scaled) against -10 for trying at a 50% crash rate, so
@@ -613,7 +617,12 @@ class SceneEnv(gym.Env if gym is not None else object):
             goal = np.array([c[0] + self.np_random.uniform(-half, half),
                              c[1] + self.np_random.uniform(-half, half), 0.0], dtype=np.float32)
             wf = self._goal_walkable_share(goal)
-            if wf == wf and wf <= 0.25 and self._goal_supported(goal):
+            # No goal-support rule here (2026-09-05 funnel): it demands the
+            # walk's point density under the goal, which lawns never have, and
+            # it killed every lawn goal on AUw360/AUd210. A map cell is known
+            # ground by construction, and the share test already refuses a
+            # disc that is less than half reconstructed.
+            if wf == wf and wf <= 0.25:
                 return goal
         return None
 
@@ -1313,7 +1322,8 @@ class SceneEnv(gym.Env if gym is not None else object):
             _gt0 = float(getattr(self, "_goal_traversable", float("nan")))
             _rp = self._refusal_point(self._goal_world) if _gt0 == 0.0 else None
             _d_rp = (float(np.linalg.norm(self._robot_pose_world[:2, 3] - _rp)) if _rp is not None else float("inf"))
-            self._halt_at_verge = bool(_gt0 == 0.0 and min(float(dist_to_goal), _d_rp) <= float(self.cfg.refusal_dist_m))
+            self._halt_at_verge = bool(_gt0 == 0.0 and (float(dist_to_goal) <= float(self.cfg.refusal_dist_m)
+                                                        or _d_rp <= float(self.cfg.refusal_verge_m)))
             if self._halt_at_verge:
                 refusal_term = float(self.cfg.refusal_bonus)
                 timeout_term = 0.0            # a correct refusal pays no halt price
