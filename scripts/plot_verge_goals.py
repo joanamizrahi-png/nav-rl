@@ -83,6 +83,7 @@ def main():
         env.cfg.goal_nontrav_classes = args.classes; env.cfg.goal_mix_tries = 12; env.cfg.goal_radius = 0.5
         env.cfg.goal_support_radius_m = 0.6; env.cfg.goal_support_min_frac = 0.6; env.cfg.goal_support_tries = 8
         env.cfg.goal_nontrav_edge_m = args.edge
+        env.cfg.goal_nontrav_known_min = 0.5
         env.world_backend = types.SimpleNamespace(cfg=Cfg()); env.world_backend.cfg.goal_dist_range = (lo, hi); env.world_backend.cfg.goal_cone_deg = args.cone
         env._label_grids = {sc: g}; env._scene_id = sc; env._non_trav = nontrav; env._ground_pts = {sc: gr}
         env._support_ref = {sc: ref}; env._walk_xy = {sc: walk}; env.np_random = np.random.default_rng(0)
