@@ -394,6 +394,14 @@ def main():
                       f"cone={args.goal_cone_deg} frames={args.goal_frame_range}",
                       flush=True)
             _force = set(v.strip() for v in str(getattr(args, "force_env_keys", "") or "").split(",") if v.strip())
+            # env_config keys whose eval argparse dest has a different name.
+            # 2026-09-04: collision_look_ahead_m was 'adopted' onto an attribute
+            # build_env never reads, so every eval of a near-box arm silently
+            # ran with the FAR box (T2 pair 467271/467272). The hard check
+            # after build_env below makes that class of bug fatal.
+            _dest = {"collision_look_ahead_m": "collision_look_ahead",
+                     "goal_support_radius_m": "goal_support_radius"}
+            args._adopted = {}
             for _k in ("step_size_m", "yaw_step_rad", "forward_only",
                        "look_ahead_dist", "goal_radius", "collision_threshold",
                        "collision_terminate_frac", "collision_terminate_penalty",
@@ -439,6 +447,9 @@ def main():
                     print(f"[eval] MISMATCH {_k}: eval {_have} -> training "
                           f"{_tr[_k]} (adopting training)", flush=True)
                 setattr(args, _k, _tr[_k])
+                if _k in _dest:
+                    setattr(args, _dest[_k], _tr[_k])
+                args._adopted[_k] = _tr[_k]
             print(f"[eval] adopted training env from {_ec}", flush=True)
         else:
             print(f"[eval] WARNING: no env_config.json at {_ec} — this run "
@@ -501,6 +512,27 @@ def main():
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     inner_env = build_env(args)
+    # HARD CHECK: every value adopted from the training env_config must be
+    # what the built env actually carries. An adopted key that build_env
+    # does not read would otherwise pass silently (the 09-04 far-box evals).
+    _cfg = getattr(inner_env.unwrapped, "cfg", None)
+    _bad = []
+    for _k, _v in (getattr(args, "_adopted", {}) or {}).items():
+        _have = getattr(_cfg, _k, None) if _cfg is not None else None
+        if _have is None:
+            continue
+        try:
+            _same = abs(float(_have) - float(_v)) < 1e-6
+        except (TypeError, ValueError):
+            _same = (_have == _v)
+        if not _same:
+            _bad.append(f"{_k}: env has {_have!r}, training had {_v!r}")
+    if _bad:
+        print("[eval] REFUSED: adopted training values did not reach the env:\n  "
+              + "\n  ".join(_bad), flush=True)
+        raise SystemExit(3)
+    if getattr(args, "_adopted", None):
+        print(f"[eval] verified {len(args._adopted)} adopted env values against the built env", flush=True)
     if args.blind:
         import gymnasium as gym
 
