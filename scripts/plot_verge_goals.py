@@ -34,7 +34,7 @@ def env_methods():
     cls = next(n for n in ast.parse(src).body if isinstance(n, ast.ClassDef) and n.name == "SceneEnv")
     ns = {"np": np}
     for n in cls.body:
-        if isinstance(n, ast.FunctionDef) and n.name in ("_goal_supported", "_draw_map_goal", "_goal_walkable_share", "_refusal_point"):
+        if isinstance(n, ast.FunctionDef) and n.name in ("_goal_supported", "_draw_map_goal", "_goal_walkable_share", "_refusal_point", "_disc_known_share"):
             exec(compile(ast.Module([n], []), "scene_env_extract", "exec"), ns)
     return ns
 
@@ -88,6 +88,7 @@ def main():
         env._support_ref = {sc: ref}; env._walk_xy = {sc: walk}; env.np_random = np.random.default_rng(0)
         env._goal_walkable_share = lambda goal, env=env: ns["_goal_walkable_share"](env, goal)
         env._goal_supported = lambda goal, env=env: ns["_goal_supported"](env, goal)
+        env._disc_known_share = lambda goal, env=env: ns["_disc_known_share"](env, goal)
 
         L = g.labels; known = L >= 0; nt = known & nontrav[np.clip(L, 0, len(nontrav) - 1)]
         b = np.full(L.shape, 0.5); b[known & ~nt] = 1.0; b[nt] = 0.0
@@ -156,7 +157,7 @@ def main():
                         break
         ax.set_aspect("equal")
         hs = [Line2D([], [], marker="*", ls="", mfc="tab:red", mec="k", ms=11, label=f"lawn goal ({lawn_n})"),
-              Line2D([], [], marker="s", ls="", mfc="none", mec="tab:red", ms=8, label="verge = walk point nearest the goal"),
+              Line2D([], [], marker="s", ls="", mfc="none", mec="tab:red", ms=8, label="verge = walkable cell nearest the goal (walkway strip)"),
               Line2D([], [], ls="--", c="tab:red", label=f"halt counts within {args.verge_dist} m of the verge (dashed) or {args.refusal_dist} m of the goal (dotted)"),
               Line2D([], [], marker="*", ls="", mfc="tab:green", mec="k", ms=9, label=f"pavement goal ({pave_n}), no verge rule"),
               Line2D([], [], marker="o", ls="", mfc="k", mec="w", ms=6, label="spawn frames " + args.frames)]

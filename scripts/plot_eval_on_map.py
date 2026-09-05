@@ -93,6 +93,14 @@ def main():
     b = np.full(L.shape, 0.5)
     b[known & ~nt] = 1.0
     b[nt] = 0.0
+    # walkway strip: walkable cells within 3 m of the recorded walk (the env's verge candidates)
+    wy, wx = np.nonzero(known & ~nt)
+    _cells = np.c_[g.x0 + (wx + 0.5) * g.res, g.y0 + (wy + 0.5) * g.res].astype(np.float32)
+    _keep = np.zeros(len(_cells), dtype=bool)
+    for i0 in range(0, len(_cells), 4096):
+        _blk = _cells[i0:i0 + 4096]
+        _keep[i0:i0 + 4096] = ((_blk[:, None, :] - walk.astype(np.float32)[None, :, :]) ** 2).sum(-1).min(axis=1) <= 9.0
+    strip = _cells[_keep] if _keep.any() else walk.astype(np.float32)
 
     # ---- table: logged vs recomputed collision fraction at the REWARD pose ----
     # The reward of step k is charged at the pose BEFORE action k. traj holds
@@ -149,7 +157,7 @@ def main():
         ax.plot(gx, gy, "*", c=col, ms=12, mec="k", mew=0.5)
         # lawn goal: mark the VERGE (walk point nearest the goal) and the refusal radius
         if e.get("goal_traversable") is False:
-            vp = walk[int(np.argmin(np.linalg.norm(walk - np.array([gx, gy])[None, :], axis=1)))]
+            vp = strip[int(np.argmin(np.linalg.norm(strip - np.array([gx, gy])[None, :], axis=1)))]
             ax.plot(vp[0], vp[1], "s", mfc="none", mec=col, ms=8, mew=1.2)
             ax.plot([gx, vp[0]], [gy, vp[1]], ":", c=col, lw=0.8)
             ax.add_patch(plt.Circle((vp[0], vp[1]), args.verge_dist, fill=False, ec=col, lw=0.8, ls="--", alpha=0.8))

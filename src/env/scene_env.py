@@ -148,6 +148,9 @@ class SceneEnvConfig:
     # read 2026-09-05): those goals can only end in a crash, and a refusal
     # bonus 2 m from them is unreachable. 0 = no constraint.
     goal_nontrav_edge_m: float = 3.0
+    # minimum reconstructed share of a lawn goal's arrival disc; 0.5 = the share
+    # test's own floor (Joana 09-05: undecided whether void-edge lawn goals are wanted)
+    goal_nontrav_known_min: float = 0.5
     # Spawn support: redraw a spawn whose crash box is already at/above the
     # crash threshold on the MAP, up to this many times (0 = off). Such a
     # spawn ends at step 1 whatever the policy does and teaches nothing:
@@ -525,6 +528,18 @@ class SceneEnv(gym.Env if gym is not None else object):
 
         self._failure_snaps += 1
 
+    def _disc_known_share(self, goal) -> float:
+        """Share of the arrival disc that the map has reconstructed at all."""
+        _g = getattr(self, "_label_grids", {}).get(self._scene_id)
+        if _g is None:
+            return float("nan")
+        _r = max(float(self.cfg.goal_radius), 0.3)
+        _a = np.arange(-_r, _r + 1e-6, _g.res / 2.0)
+        _X, _Y = np.meshgrid(_a, _a, indexing="ij")
+        _pts = np.c_[_X.ravel(), _Y.ravel()]
+        _pts = _pts[np.linalg.norm(_pts, axis=1) <= _r] + np.asarray(goal)[:2][None, :]
+        return float((_g.lookup(_pts) >= 0).mean())
+
     def _refusal_point(self, goal):
         """Where a refusal of THIS goal should happen: the point of the recorded
         walk nearest the goal -- the verge the robot reaches by walking toward
@@ -534,7 +549,29 @@ class SceneEnv(gym.Env if gym is not None else object):
         w = getattr(self, "_walk_xy", {}).get(self._scene_id)
         if w is None or len(w) == 0:
             return None
-        d = np.linalg.norm(w - np.asarray(goal, dtype=np.float32)[None, :2], axis=1)
+        g = getattr(self, "_label_grids", {}).get(self._scene_id)
+        goal2 = np.asarray(goal, dtype=np.float32)[:2]
+        if g is not None:
+            # Joana (09-05): the verge is the sidewalk EDGE nearest the goal, not
+            # the centre line -- the nearest walkable cell, restricted to the
+            # walkway strip (within 3 m of the recorded walk) so it is reachable.
+            if not hasattr(self, "_strip_cells"):
+                self._strip_cells = {}
+            if self._scene_id not in self._strip_cells:
+                known = g.labels >= 0
+                walkable = known & ~self._non_trav[np.clip(g.labels, 0, len(self._non_trav) - 1)]
+                wy, wx = np.nonzero(walkable)
+                cells = np.c_[g.x0 + (wx + 0.5) * g.res, g.y0 + (wy + 0.5) * g.res].astype(np.float32)
+                keep = np.zeros(len(cells), dtype=bool)
+                for i0 in range(0, len(cells), 4096):
+                    blk = cells[i0:i0 + 4096]
+                    keep[i0:i0 + 4096] = ((blk[:, None, :] - w[None, :, :]) ** 2).sum(-1).min(axis=1) <= 9.0
+                self._strip_cells[self._scene_id] = cells[keep]
+            strip = self._strip_cells[self._scene_id]
+            if len(strip):
+                d = np.linalg.norm(strip - goal2[None, :], axis=1)
+                return strip[int(np.argmin(d))].copy()
+        d = np.linalg.norm(w - goal2[None, :], axis=1)
         return w[int(np.argmin(d))].copy()
 
     def _goal_supported(self, goal) -> bool:
@@ -622,7 +659,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             # it killed every lawn goal on AUw360/AUd210. A map cell is known
             # ground by construction, and the share test already refuses a
             # disc that is less than half reconstructed.
-            if wf == wf and wf <= 0.25:
+            if wf == wf and wf <= 0.25 and self._disc_known_share(goal) >= float(self.cfg.goal_nontrav_known_min):
                 return goal
         return None
 
