@@ -78,6 +78,38 @@ class HaltPriceCurriculum(BaseCallback):
                 self.logger.record("curriculum/halt_enabled", float(self._enabled))
 
 
+class VergeRadiusCurriculum(BaseCallback):
+    """The verge radius is earned (2026-09-05, Joana). Starts at `start` m and
+    notches by `notch` toward `end` each time at least half of the last
+    `window` lawn-goal episodes ended with a halt at the verge; holds
+    otherwise. Logs curriculum/verge_radius."""
+
+    def __init__(self, start: float, end: float, window: int = 100,
+                 threshold: float = 0.5, notch: float = 0.25):
+        super().__init__()
+        self.start, self.end, self.window, self.threshold, self.notch = start, end, window, threshold, notch
+        self.r = start
+        self._hits: list = []
+
+    def _on_step(self) -> bool:
+        for info in self.locals.get("infos", []):
+            if "episode" in info and info.get("goal_traversable", float("nan")) == 0.0:
+                v = info.get("halt_at_verge", float("nan"))
+                if v == v:
+                    self._hits.append(1.0 if v > 0 else 0.0)
+        return True
+
+    def _on_rollout_start(self) -> None:
+        recent = self._hits[-self.window:]
+        if (len(recent) >= self.window // 2 and float(np.mean(recent)) >= self.threshold
+                and self.r > self.end):
+            self.r = max(self.end, self.r - self.notch)
+            self._hits.clear()
+        self.training_env.env_method("set_refusal_verge", self.r)
+        if self.logger is not None:
+            self.logger.record("curriculum/verge_radius", self.r)
+
+
 class GoalRadiusCurriculum(BaseCallback):
     """Anneal the goal-capture radius start -> end (advisor spec 2026-08-27).
     Attacks terminal-capture: a 1.0 m disc is reachable by a fresh policy;
@@ -1332,6 +1364,8 @@ def main():
                     help="reward for HALTING on a non-traversable goal within --refusal_dist_m of it (0 = off)")
     ap.add_argument("--refusal_dist_m", type=float, default=2.0)
     ap.add_argument("--refusal_verge_m", type=float, default=1.0)
+    ap.add_argument("--verge_start", type=float, default=None,
+                    help="verge-radius curriculum: start radius (m), notches by 0.25 to --refusal_verge_m as refusals at the verge pass 50%")
     ap.add_argument("--goal_requires_stop", action="store_true",
                     help="a goal counts as reached only after the robot is still for the halt steps inside its radius")
     ap.add_argument("--nontrav_goal_unreachable", action="store_true",
@@ -1501,6 +1535,8 @@ def main():
         callbacks.append(GoalRadiusCurriculum(
             args.goal_radius_start, args.goal_radius, args.curriculum_steps,
             mode=args.curriculum_mode))
+    if getattr(args, "verge_start", None) is not None:
+        callbacks.append(VergeRadiusCurriculum(float(args.verge_start), float(args.refusal_verge_m)))
     if getattr(args, "halt_scale_start", None) is not None:
         callbacks.append(HaltPriceCurriculum(float(args.halt_scale_start), float(args.halt_penalty_scale),
                                              gate=bool(getattr(args, "halt_gate", False))))
