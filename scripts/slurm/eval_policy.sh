@@ -128,6 +128,7 @@ fi
 [ -n "${MAPINFLCLS:-}" ] && { EXTRA_ARGS+=(--map_inflate_classes "$MAPINFLCLS"); OUT_SUFFIX="${OUT_SUFFIX}_mic${MAPINFLCLS//,/-}"; }
 [ -n "${GOALMIX:-}" ] && { EXTRA_ARGS+=(--goal_traversable_mix "$GOALMIX"); OUT_SUFFIX="${OUT_SUFFIX}_gm${GOALMIX}"; }
 [ -n "${SPAWNSUPPORT:-}" ] && { EXTRA_ARGS+=(--spawn_support_tries "$SPAWNSUPPORT"); OUT_SUFFIX="${OUT_SUFFIX}_ss${SPAWNSUPPORT}"; }
+[ "${GOALMIXMAP:-0}" = "1" ] && { EXTRA_ARGS+=(--goal_mix_map_draw); OUT_SUFFIX="${OUT_SUFFIX}_gmm"; }
 [ -n "${COLLAHEAD:-}" ] && { EXTRA_ARGS+=(--collision_look_ahead "$COLLAHEAD"); OUT_SUFFIX="${OUT_SUFFIX}_ca${COLLAHEAD}"; }
 [ -n "${BOXMEM:-}" ] && { EXTRA_ARGS+=(--collision_box_memory "$BOXMEM"); OUT_SUFFIX="${OUT_SUFFIX}_bm${BOXMEM}"; }
 [ -n "${FORCEKEYS:-}" ] && { EXTRA_ARGS+=(--force_env_keys "$FORCEKEYS"); OUT_SUFFIX="${OUT_SUFFIX}_forced"; }

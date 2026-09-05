@@ -151,6 +151,8 @@ def build_env(args):
         map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 10.0)),
         goal_traversable_mix=float(getattr(args, "goal_traversable_mix", 0.0)),
         spawn_support_tries=int(getattr(args, "spawn_support_tries", 0)),
+        goal_mix_map_draw=bool(getattr(args, "goal_mix_map_draw", False)),
+        goal_nontrav_classes=str(getattr(args, "goal_nontrav_classes", "3,4,5") or "3,4,5"),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
         random_spawn=True,
@@ -257,6 +259,9 @@ def main():
                     help="comma list of class ids that inflate; empty = all non-traversable")
     ap.add_argument("--map_fill_m", type=float, default=0.3)
     ap.add_argument("--map_fill_max_area_m2", type=float, default=10.0)
+    ap.add_argument("--goal_mix_map_draw", action="store_true",
+                    help="draw the non-traversable share of the goal mix straight from map cells (grass etc.) in the window and cone")
+    ap.add_argument("--goal_nontrav_classes", type=str, default="3,4,5")
     ap.add_argument("--spawn_support_tries", type=int, default=0,
                     help="redraw a spawn whose crash box is already at the crash threshold on the map, up to N times (0 = off)")
     ap.add_argument("--goal_traversable_mix", type=float, default=0.0,

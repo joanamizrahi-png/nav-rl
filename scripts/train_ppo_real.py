@@ -43,11 +43,15 @@ class HaltPriceCurriculum(BaseCallback):
     refusing becomes cheap, which is what stops the freeze."""
 
     def __init__(self, start: float, end: float, window: int = 100,
-                 threshold: float = 0.5, notch: float = 0.1):
+                 threshold: float = 0.5, notch: float = 0.1, gate: bool = False):
         super().__init__()
         self.start, self.end, self.window, self.threshold, self.notch = start, end, window, threshold, notch
         self.s = start
         self._wins: list = []
+        # gate (2026-09-05): halting is switched OFF until the first threshold
+        # pass, then on at `start` price, then notches as before.
+        self.gate = bool(gate)
+        self._enabled = not self.gate
 
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
@@ -57,13 +61,21 @@ class HaltPriceCurriculum(BaseCallback):
 
     def _on_rollout_start(self) -> None:
         recent = self._wins[-self.window:]
-        if (len(recent) >= self.window // 2 and float(np.mean(recent)) >= self.threshold
-                and self.s > self.end):
+        passed = (len(recent) >= self.window // 2 and float(np.mean(recent)) >= self.threshold)
+        if self.gate and not self._enabled:
+            if passed:
+                self._enabled = True
+                self._wins.clear()
+        elif passed and self.s > self.end:
             self.s = max(self.end, self.s - self.notch)
             self._wins.clear()
+        if self.gate:
+            self.training_env.env_method("set_halt_enabled", bool(self._enabled))
         self.training_env.env_method("set_halt_penalty_scale", self.s)
         if self.logger is not None:
             self.logger.record("curriculum/halt_scale", self.s)
+            if self.gate:
+                self.logger.record("curriculum/halt_enabled", float(self._enabled))
 
 
 class GoalRadiusCurriculum(BaseCallback):
@@ -485,6 +497,8 @@ def _dump_env_config(args, cfg):
             "map_fallback_min_alpha": getattr(cfg, "map_fallback_min_alpha", 0.4),
             "goal_traversable_mix": getattr(cfg, "goal_traversable_mix", 0.0),
             "spawn_support_tries": getattr(cfg, "spawn_support_tries", 0),
+            "goal_mix_map_draw": getattr(cfg, "goal_mix_map_draw", False),
+            "goal_nontrav_classes": getattr(cfg, "goal_nontrav_classes", "3,4,5"),
             "map_res_m": getattr(cfg, "map_res_m", 0.1),
         }, indent=2))
         print(f"[train] env recorded for eval: {out}", flush=True)
@@ -724,6 +738,8 @@ def _scene_env_cfg(args):
         map_fill_max_area_m2=float(getattr(args, "map_fill_max_area_m2", 10.0)),
         goal_traversable_mix=float(getattr(args, "goal_traversable_mix", 0.0)),
         spawn_support_tries=int(getattr(args, "spawn_support_tries", 0)),
+        goal_mix_map_draw=bool(getattr(args, "goal_mix_map_draw", False)),
+        goal_nontrav_classes=str(getattr(args, "goal_nontrav_classes", "3,4,5") or "3,4,5"),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
         timeout_distance_scaled=getattr(args, "timeout_distance_scaled", False),
@@ -1281,6 +1297,9 @@ def main():
                     help="comma list of class ids that inflate; empty = all non-traversable")
     ap.add_argument("--map_fill_m", type=float, default=0.3)
     ap.add_argument("--map_fill_max_area_m2", type=float, default=10.0)
+    ap.add_argument("--goal_mix_map_draw", action="store_true",
+                    help="draw the non-traversable share of the goal mix straight from map cells (grass etc.) in the window and cone")
+    ap.add_argument("--goal_nontrav_classes", type=str, default="3,4,5")
     ap.add_argument("--spawn_support_tries", type=int, default=0,
                     help="redraw a spawn whose crash box is already at the crash threshold on the map, up to N times (0 = off)")
     ap.add_argument("--goal_traversable_mix", type=float, default=0.0,
@@ -1289,6 +1308,8 @@ def main():
     ap.add_argument("--map_ignore_classes", default="")
     ap.add_argument("--terrain_speed_scaled", action="store_true",
                     help="terrain cost x |throttle|: driving onto bad ground costs, facing it does not")
+    ap.add_argument("--halt_gate", action="store_true",
+                    help="with --halt_scale_start: halting is unavailable until recent wins pass the threshold, then priced from start")
     ap.add_argument("--halt_scale_start", type=float, default=None,
                     help="halt-price curriculum: start scale (1.0 = full timeout), notches to --halt_penalty_scale on wins")
     ap.add_argument("--halt_penalty_scale", type=float, default=1.0,
@@ -1455,7 +1476,8 @@ def main():
             args.goal_radius_start, args.goal_radius, args.curriculum_steps,
             mode=args.curriculum_mode))
     if getattr(args, "halt_scale_start", None) is not None:
-        callbacks.append(HaltPriceCurriculum(float(args.halt_scale_start), float(args.halt_penalty_scale)))
+        callbacks.append(HaltPriceCurriculum(float(args.halt_scale_start), float(args.halt_penalty_scale),
+                                             gate=bool(getattr(args, "halt_gate", False))))
     if args.goal_dist_start is not None and args.goal_dist is not None:
         callbacks.append(GoalDistCurriculum(
             args.goal_dist_start, args.goal_dist,

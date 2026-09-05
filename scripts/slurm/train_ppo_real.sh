@@ -27,7 +27,7 @@ set -euo pipefail
 # of them was -- the .out files do not echo the command, env_config.json is
 # only written after the hour-long pipeline load, and shell history had scrolled
 # away. An unrecorded experiment is not an experiment.
-KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|BOXMEM|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|CKPTFREQ|SPEEDCOST|REWSRC|MAPINFL|MAPINFLCLS|HALTCUR|GOALMIX|SPAWNSUPPORT|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
+KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|BOXMEM|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|CKPTFREQ|SPEEDCOST|REWSRC|MAPINFL|MAPINFLCLS|HALTCUR|HALTGATE|GOALMIX|GOALMIXMAP|SPAWNSUPPORT|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
 # Whitelist, not a blacklist. The first version excluded known-noisy prefixes
 # and still emitted lmod shell functions, base64 module tables and every SLURM
 # variable -- thousands of unreadable characters per entry (2026-09-03, first
@@ -369,12 +369,14 @@ fi
 [ -n "${HALTSCALE:-}" ] && LABEL="${LABEL}-hs${HALTSCALE}"
 [ -n "${HALTEPS:-}" ] && LABEL="${LABEL}-he${HALTEPS}"
 [ -n "${HALTCUR:-}" ] && LABEL="${LABEL}-hc${HALTCUR}"
+[ "${HALTGATE:-0}" = "1" ] && LABEL="${LABEL}-hg"
 [ "${SPEEDCOST:-0}" = "1" ] && LABEL="${LABEL}-spd"
 [ -n "${REWSRC:-}" ] && LABEL="${LABEL}-r${REWSRC/map_then_generated/hyb}"
 [ -n "${MAPINFL:-}" ] && LABEL="${LABEL}-mi${MAPINFL}"
 [ -n "${MAPINFLCLS:-}" ] && LABEL="${LABEL}-mic${MAPINFLCLS//,/-}"
 [ -n "${GOALMIX:-}" ] && LABEL="${LABEL}-gm${GOALMIX}"
 [ -n "${SPAWNSUPPORT:-}" ] && LABEL="${LABEL}-ss${SPAWNSUPPORT}"
+[ "${GOALMIXMAP:-0}" = "1" ] && LABEL="${LABEL}-gmm"
 [ -n "${ENT:-}" ] && LABEL="${LABEL}-ent${ENT}"
 LABEL="${LABEL}-s${SEED:-0}"
 echo "==> wandb label: $LABEL"
@@ -536,6 +538,14 @@ if [ -n "${HALTEPS:-}" ]; then
     BC_ARGS="$BC_ARGS --halt_throttle_eps ${HALTEPS}"
     OUT="${OUT}_he${HALTEPS}"
 fi
+# HALTGATE=1 (with HALTCUR): halting is UNAVAILABLE until recent wins pass 50%,
+# then enabled at the HALTCUR price and notched as usual. W cold'' froze at
+# halt price 1.0 (halt_wrong 0.56, 2026-09-04): a policy that cannot reach
+# goals halts to dodge the crash, whatever the halt costs.
+if [ "${HALTGATE:-0}" = "1" ]; then
+    BC_ARGS="$BC_ARGS --halt_gate"
+    OUT="${OUT}_hg"
+fi
 # HALTCUR=<start>: the halt is earned -- pays <start> x timeout (1.0 = full)
 # and notches down to HALTSCALE as recent wins pass 50%. Evals use HALTSCALE
 # (the final value), like the radius.
@@ -577,6 +587,14 @@ fi
 if [ -n "${GOALMIX:-}" ]; then
     BC_ARGS="$BC_ARGS --goal_traversable_mix ${GOALMIX}"
     OUT="${OUT}_gm${GOALMIX}"
+fi
+# GOALMIXMAP=1: the non-traversable share of GOALMIX is drawn straight from
+# map cells (grass/rough/water) in the window and cone, instead of hoping the
+# walk sampler lands on lawn (it found none in 12 draws on short windows and
+# on two scenes -> gen 3 trained at 87-96% traversable, 2026-09-04).
+if [ "${GOALMIXMAP:-0}" = "1" ]; then
+    BC_ARGS="$BC_ARGS --goal_mix_map_draw"
+    OUT="${OUT}_gmm"
 fi
 # SPAWNSUPPORT=<n>: redraw a spawn whose crash box (this arm's: near or far)
 # is already >= the crash threshold on the map, up to n times. Needs a map.

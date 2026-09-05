@@ -132,6 +132,15 @@ class SceneEnvConfig:
     # scene ~none). The sampler only; the policy never sees it.
     goal_traversable_mix: float = 0.0
     goal_mix_tries: int = 12
+    # Map-direct draw for the NON-traversable share of the mix (2026-09-04
+    # night). Rejection sampling from the walk sampler found no lawn goal in
+    # 12 draws on short windows and on scenes without lawn beside the walk,
+    # so gen 3 trained at 87-96% traversable and never saw enough refusable
+    # goals to learn a halt. With this on, a non-traversable goal is drawn
+    # from map cells of goal_nontrav_classes inside the same distance window
+    # and cone, then support-checked like any goal.
+    goal_mix_map_draw: bool = False
+    goal_nontrav_classes: str = "3,4,5"   # grass, rough, water: ground you should refuse, not walls
     # Spawn support: redraw a spawn whose crash box is already at/above the
     # crash threshold on the MAP, up to this many times (0 = off). Such a
     # spawn ends at step 1 whatever the policy does and teaches nothing:
@@ -478,6 +487,64 @@ class SceneEnv(gym.Env if gym is not None else object):
 
         self._failure_snaps += 1
 
+    def _goal_supported(self, goal) -> bool:
+        """The goal-support rule of _draw_supported_goal, as a predicate."""
+        r = self.cfg.goal_support_radius_m
+        if r <= 0.0:
+            return True
+        gp = getattr(self, "_ground_pts", {}).get(self._scene_id)
+        if gp is None or not len(gp):
+            return True
+        ref = getattr(self, "_support_ref", {}).get(self._scene_id, 0.0)
+        need = max(1, int(self.cfg.goal_support_min_frac * ref))
+        d2 = np.abs(gp - np.asarray(goal)[:2]).max(axis=1)
+        near = gp[d2 <= r]
+        return bool(len(near) >= need
+                    and float(np.linalg.norm(near - np.asarray(goal)[:2], axis=1).min()) <= r)
+
+    def _draw_map_goal(self, _yaw):
+        """A NON-traversable goal drawn straight from the map: a random cell of
+        goal_nontrav_classes inside the backend's distance window and cone
+        (same rules as the walk sampler), whose arrival disc is <= 25%
+        walkable and which passes goal support. None if the scene has no
+        such cell in range -- then the episode is honestly traversable."""
+        g = getattr(self, "_label_grids", {}).get(self._scene_id)
+        if g is None:
+            return None
+        cls = tuple(int(v) for v in str(self.cfg.goal_nontrav_classes).split(",") if v.strip())
+        if not hasattr(self, "_map_goal_cells"):
+            self._map_goal_cells = {}
+        key = (self._scene_id, cls)
+        if key not in self._map_goal_cells:
+            iy, ix = np.nonzero(np.isin(g.labels, list(cls)))
+            self._map_goal_cells[key] = np.c_[g.x0 + (ix + 0.5) * g.res,
+                                              g.y0 + (iy + 0.5) * g.res].astype(np.float32)
+        cells = self._map_goal_cells[key]
+        if len(cells) == 0:
+            return None
+        bcfg = self.world_backend.cfg
+        lo_d, hi_d = getattr(bcfg, "goal_dist_range", None) or (5.0, 10.0)
+        spawn = np.asarray(self._robot_pose_world[:2, 3], dtype=np.float32)
+        d = np.linalg.norm(cells - spawn[None, :], axis=1)
+        ok = (d >= float(lo_d)) & (d <= float(hi_d))
+        cone = float(getattr(bcfg, "goal_cone_deg", 360.0))
+        if cone < 360.0 and _yaw is not None:
+            ang = np.arctan2(cells[:, 1] - spawn[1], cells[:, 0] - spawn[0])
+            dth = (ang - float(_yaw) + np.pi) % (2.0 * np.pi) - np.pi
+            ok &= np.abs(dth) <= np.deg2rad(cone) / 2.0
+        idx = np.nonzero(ok)[0]
+        if len(idx) == 0:
+            return None
+        half = g.res / 2.0
+        for _ in range(max(1, int(self.cfg.goal_mix_tries))):
+            c = cells[idx[int(self.np_random.integers(0, len(idx)))]]
+            goal = np.array([c[0] + self.np_random.uniform(-half, half),
+                             c[1] + self.np_random.uniform(-half, half), 0.0], dtype=np.float32)
+            wf = self._goal_walkable_share(goal)
+            if wf == wf and wf <= 0.25 and self._goal_supported(goal):
+                return goal
+        return None
+
     def _draw_supported_goal(self, _yaw) -> np.ndarray:
         """One goal draw from the backend's sampler, re-drawn up to
         goal_support_tries times until the reconstruction has points under
@@ -579,6 +646,14 @@ class SceneEnv(gym.Env if gym is not None else object):
             if 0.0 < p_mix < 1.0 and getattr(self, "_label_grids", {}).get(self._scene_id) is not None:
                 want_trav = bool(self.np_random.random() < p_mix)
                 got = None
+                if not want_trav and bool(self.cfg.goal_mix_map_draw):
+                    _mg = self._draw_map_goal(_yaw)
+                    if _mg is not None:
+                        self._goal_world = _mg          # the loop below confirms its share
+                        self._map_goal_draws = getattr(self, "_map_goal_draws", 0) + 1
+                        if self._map_goal_draws in (1, 100, 1000):
+                            print(f"[goal mix] map-direct non-traversable goal #{self._map_goal_draws} "
+                                  f"on {self._scene_id} at {float(np.linalg.norm(_mg[:2] - self._robot_pose_world[:2, 3])):.1f} m", flush=True)
                 for _try in range(max(1, int(self.cfg.goal_mix_tries))):
                     wf = self._goal_walkable_share(self._goal_world)
                     if wf == wf:                       # known ground under the disc
@@ -642,6 +717,16 @@ class SceneEnv(gym.Env if gym is not None else object):
         """Curriculum hook: training callback anneals the capture radius
         (e.g. 1.0 m -> 0.5 m) via vec_env.env_method("set_goal_radius", r)."""
         self.cfg.goal_radius = float(r)
+
+    def set_halt_enabled(self, on: bool) -> None:
+        """Curriculum hook (2026-09-05): halting can be UNAVAILABLE, not just
+        expensive. W cold'' froze (halt_wrong 0.56) with the halt priced at
+        the full timeout, because what a 15%-success policy avoids by halting
+        is the crash. Until the policy reaches goals, three still steps are
+        just three still steps."""
+        if not hasattr(self, "_halt_steps_cfg"):
+            self._halt_steps_cfg = int(self.cfg.halt_terminate_steps)
+        self.cfg.halt_terminate_steps = int(self._halt_steps_cfg) if on else 0
 
     def set_halt_penalty_scale(self, s: float) -> None:
         """Curriculum hook (2026-09-04): the halt is EARNED. It pays the full
