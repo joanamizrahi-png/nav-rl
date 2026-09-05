@@ -147,7 +147,7 @@ class SceneEnvConfig:
     # Without it the map-direct draw picks cells deep inside lawns (trend
     # read 2026-09-05): those goals can only end in a crash, and a refusal
     # bonus 2 m from them is unreachable. 0 = no constraint.
-    goal_nontrav_edge_m: float = 1.5
+    goal_nontrav_edge_m: float = 3.0
     # Spawn support: redraw a spawn whose crash box is already at/above the
     # crash threshold on the MAP, up to this many times (0 = off). Such a
     # spawn ends at step 1 whatever the policy does and teaches nothing:
@@ -273,6 +273,13 @@ class SceneEnvConfig:
     # entering the radius of a lawn goal ends nothing and pays nothing (it is
     # counted as reach_on_nontrav); only a halt can earn on such a goal.
     nontrav_goal_unreachable: bool = False
+    # Reaching a goal requires STOPPING inside its radius (Joana, 2026-09-05:
+    # 'if the episode ends how does the robot know to stay at the goal?').
+    # Entering the radius while moving ends nothing; the goal bonus is paid
+    # when the robot has been still (throttle < halt_throttle_eps) for
+    # halt_terminate_steps (3 if halting is off) inside the radius. Every
+    # successful episode then practises the stop that refusal also needs.
+    goal_requires_stop: bool = False
     # 2026-09-03: charge the per-step terrain cost (semantic + collision)
     # in proportion to |throttle|. Driving onto bad ground costs; standing
     # still facing it does not. Implemented as a REFUND on top of the
@@ -514,6 +521,18 @@ class SceneEnv(gym.Env if gym is not None else object):
 
         self._failure_snaps += 1
 
+    def _refusal_point(self, goal):
+        """Where a refusal of THIS goal should happen: the point of the recorded
+        walk nearest the goal -- the verge the robot reaches by walking toward
+        the goal on pavement (Joana, 2026-09-05: 'if lawn goals are far there
+        is no way of knowing if the robot stopped at the right place'). None
+        when the scene carries no walk."""
+        w = getattr(self, "_walk_xy", {}).get(self._scene_id)
+        if w is None or len(w) == 0:
+            return None
+        d = np.linalg.norm(w - np.asarray(goal, dtype=np.float32)[None, :2], axis=1)
+        return w[int(np.argmin(d))].copy()
+
     def _goal_supported(self, goal) -> bool:
         """The goal-support rule of _draw_supported_goal, as a predicate."""
         r = self.cfg.goal_support_radius_m
@@ -733,6 +752,9 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._last_fp_heading = None
         self._frame_memory = []
         self._entered_nontrav_goal = False
+        self._halt_at_verge = False
+        self._still_run = 0
+        self._in_radius_moving = False
         # a reset teleports the robot, so the first frame difference of an
         # episode is meaningless -- drop it rather than log a false jump
         self._rgb_delta = float("nan")
@@ -1169,7 +1191,17 @@ class SceneEnv(gym.Env if gym is not None else object):
 
         # Reached goal?
         dist_to_goal = float(np.linalg.norm(self._robot_pose_world[:3, 3] - self._goal_world))
+        # stillness run, counted BEFORE the terminal decision (goal_requires_stop)
+        if abs(float(action[0])) < self.cfg.halt_throttle_eps:
+            self._still_run = int(getattr(self, "_still_run", 0)) + 1
+        else:
+            self._still_run = 0
         terminated = dist_to_goal < self.cfg.goal_radius
+        if terminated and bool(self.cfg.goal_requires_stop):
+            _need = int(self.cfg.halt_terminate_steps) if int(self.cfg.halt_terminate_steps) > 0 else 3
+            if self._still_run < _need:
+                terminated = False            # inside the radius but still moving: keep going
+                self._in_radius_moving = True
         if terminated and bool(self.cfg.nontrav_goal_unreachable) \
                 and float(getattr(self, "_goal_traversable", float("nan"))) == 0.0:
             terminated = False
@@ -1279,7 +1311,10 @@ class SceneEnv(gym.Env if gym is not None else object):
         refusal_term = 0.0
         if halted and float(self.cfg.refusal_bonus) > 0.0:
             _gt0 = float(getattr(self, "_goal_traversable", float("nan")))
-            if _gt0 == 0.0 and float(dist_to_goal) <= float(self.cfg.refusal_dist_m):
+            _rp = self._refusal_point(self._goal_world) if _gt0 == 0.0 else None
+            _d_rp = (float(np.linalg.norm(self._robot_pose_world[:2, 3] - _rp)) if _rp is not None else float("inf"))
+            self._halt_at_verge = bool(_gt0 == 0.0 and min(float(dist_to_goal), _d_rp) <= float(self.cfg.refusal_dist_m))
+            if self._halt_at_verge:
                 refusal_term = float(self.cfg.refusal_bonus)
                 timeout_term = 0.0            # a correct refusal pays no halt price
         if halted and float(self.cfg.halt_wrong_penalty) > 0.0:
@@ -1319,6 +1354,9 @@ class SceneEnv(gym.Env if gym is not None else object):
         _nan = float("nan")
         info["goal_walkable_frac"] = float(getattr(self, "_goal_walkable_frac", float("nan")))
         info["halt_correct"] = (float(halted and _gt == 0.0) if _end and _gt == _gt else _nan)
+        # ... and at the RIGHT place: within refusal_dist_m of the goal or of the verge nearest it
+        info["passed_through_goal"] = (float(bool(getattr(self, "_in_radius_moving", False))) if _end else _nan)
+        info["halt_at_verge"] = (float(halted and _gt == 0.0 and bool(getattr(self, "_halt_at_verge", False))) if _end and _gt == _gt else _nan)
         info["halt_wrong"] = (float(halted and _gt == 1.0) if _end and _gt == _gt else _nan)
         _reached_nt = bool(terminated) or bool(getattr(self, "_entered_nontrav_goal", False))
         info["reach_on_nontrav"] = (float(_reached_nt and _gt == 0.0) if _end and _gt == _gt else _nan)
