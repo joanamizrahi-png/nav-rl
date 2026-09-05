@@ -258,12 +258,23 @@ if [[ "${LIVE:-0}" == "1" ]]; then
 fi
 if [[ "${VIDEOS:-}" != "" ]]; then EXTRA_ARGS+=(--videos "$VIDEOS"); fi
 echo "==> eval: $RUN_NAME / $(basename "$CKPT") scene=$SCENE spawn_max=${SPAWN_MAX:-default} goal=${GOAL_FRAME:-train(30)}"
+# Eval dir names hit the 255-char limit on 2026-09-04 (blind half of the T2
+# rerun, 467571): keep the head readable, hash the tail. Same rule as the
+# training launcher; the full knob list is in the .out anyway.
+OUT_DIR=/scratch/m000204-pm06b/joana/outputs/eval_${RUN_SHORT}_$(basename "$CKPT" .zip)${OUT_SUFFIX}
+_base=$(basename "$OUT_DIR")
+if [ ${#_base} -gt 200 ]; then
+    _h=$(printf '%s' "$_base" | md5sum | cut -c1-8)
+    OUT_DIR="$(dirname "$OUT_DIR")/${_base:0:170}_h${_h}"
+    echo "==> eval dir name shortened from ${#_base} chars: $(basename "$OUT_DIR")"
+fi
+echo "==> eval dir: $OUT_DIR"
 python scripts/eval_policy.py \
     --checkpoint "$CKPT" \
     --scene "$SCENE" --episodes "${EPISODES:-20}" \
     --clips_dir "${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}" \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
     --labels_dir $LABELS_DIR \
-    --out_dir /scratch/m000204-pm06b/joana/outputs/eval_${RUN_SHORT}_$(basename "$CKPT" .zip)${OUT_SUFFIX} \
+    --out_dir "$OUT_DIR" \
     "${EXTRA_ARGS[@]}"
 echo "==> eval done"
