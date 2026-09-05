@@ -48,7 +48,7 @@ def main():
     ap.add_argument("--per_frame", type=int, default=6)
     ap.add_argument("--window", default="3,8")
     ap.add_argument("--cone", type=float, default=50.0)
-    ap.add_argument("--edge", type=float, default=3.0, help="goal_nontrav_edge_m")
+    ap.add_argument("--edge", type=float, default=0.0, help="goal_nontrav_edge_m (0 = off)")
     ap.add_argument("--refusal_dist", type=float, default=2.5)
     ap.add_argument("--verge_dist", type=float, default=1.0, help="refusal radius around the VERGE point")
     ap.add_argument("--classes", default="3,4,5")

@@ -147,7 +147,10 @@ class SceneEnvConfig:
     # Without it the map-direct draw picks cells deep inside lawns (trend
     # read 2026-09-05): those goals can only end in a crash, and a refusal
     # bonus 2 m from them is unreachable. 0 = no constraint.
-    goal_nontrav_edge_m: float = 3.0
+    # 0 = off (2026-09-05 evening): with the verge as the stopping place a lawn
+    # goal anywhere in the window has a reachable verge; the window, cone and
+    # known-share tests bound it.
+    goal_nontrav_edge_m: float = 0.0
     # minimum reconstructed share of a lawn goal's arrival disc; 0.5 = the share
     # test's own floor (Joana 09-05: undecided whether void-edge lawn goals are wanted)
     goal_nontrav_known_min: float = 0.5
