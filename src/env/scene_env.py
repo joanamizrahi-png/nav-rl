@@ -260,6 +260,11 @@ class SceneEnvConfig:
     # 0 = off. Wrong halts keep paying halt_penalty_scale x timeout.
     refusal_bonus: float = 0.0
     refusal_dist_m: float = 2.0
+    # Mirror of the bonus: a halt on a TRAVERSABLE goal pays this flat penalty
+    # (on top of the halt price). Without it a wrong halt 2 m from a pavement
+    # goal costs -0.3 (scaled) against -10 for trying at a 50% crash rate, so
+    # a crash-prone policy stops near every goal (Joana's objection, 09-05).
+    halt_wrong_penalty: float = 0.0
     # 2026-09-03: charge the per-step terrain cost (semantic + collision)
     # in proportion to |throttle|. Driving onto bad ground costs; standing
     # still facing it does not. Implemented as a REFUND on top of the
@@ -1252,6 +1257,9 @@ class SceneEnv(gym.Env if gym is not None else object):
             if _gt0 == 0.0 and float(dist_to_goal) <= float(self.cfg.refusal_dist_m):
                 refusal_term = float(self.cfg.refusal_bonus)
                 timeout_term = 0.0            # a correct refusal pays no halt price
+        if halted and float(self.cfg.halt_wrong_penalty) > 0.0:
+            if float(getattr(self, "_goal_traversable", float("nan"))) == 1.0:
+                refusal_term -= float(self.cfg.halt_wrong_penalty)
         speed_refund = 0.0
         if self.cfg.terrain_speed_scaled:
             _thr = min(1.0, abs(float(action[0])))

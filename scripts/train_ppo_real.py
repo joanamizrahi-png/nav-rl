@@ -492,6 +492,7 @@ def _dump_env_config(args, cfg):
             "halt_penalty_scale": getattr(cfg, "halt_penalty_scale", 1.0),
             "refusal_bonus": getattr(cfg, "refusal_bonus", 0.0),
             "refusal_dist_m": getattr(cfg, "refusal_dist_m", 2.0),
+            "halt_wrong_penalty": getattr(cfg, "halt_wrong_penalty", 0.0),
             "terrain_speed_scaled": bool(getattr(cfg, "terrain_speed_scaled", False)),
             "reward_source": getattr(cfg, "reward_source", "generated"),
             "map_diagnostics": bool(getattr(cfg, "map_diagnostics", True)),
@@ -732,6 +733,7 @@ def _scene_env_cfg(args):
         halt_penalty_scale=getattr(args, "halt_penalty_scale", 1.0),
         refusal_bonus=float(getattr(args, "refusal_bonus", 0.0) or 0.0),
         refusal_dist_m=float(getattr(args, "refusal_dist_m", 2.0) or 2.0),
+        halt_wrong_penalty=float(getattr(args, "halt_wrong_penalty", 0.0) or 0.0),
         terrain_speed_scaled=bool(getattr(args, "terrain_speed_scaled", False)),
         reward_source=getattr(args, "reward_source", "generated"),
         map_res_m=float(getattr(args, "map_res_m", 0.1)),
@@ -1323,6 +1325,8 @@ def main():
     ap.add_argument("--refusal_bonus", type=float, default=0.0,
                     help="reward for HALTING on a non-traversable goal within --refusal_dist_m of it (0 = off)")
     ap.add_argument("--refusal_dist_m", type=float, default=2.0)
+    ap.add_argument("--halt_wrong_penalty", type=float, default=0.0,
+                    help="flat penalty for HALTING on a traversable goal (mirror of --refusal_bonus)")
     ap.add_argument("--halt_penalty_scale", type=float, default=1.0,
                     help="HALTED pays timeout x this (1.0 = same as a timeout)")
     ap.add_argument("--goal_dist_window", type=float, default=None,
