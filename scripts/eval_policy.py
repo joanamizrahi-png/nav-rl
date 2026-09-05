@@ -140,6 +140,8 @@ def build_env(args):
         halt_terminate_steps=getattr(args, "halt_terminate_steps", 0),
         halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
         halt_penalty_scale=getattr(args, "halt_penalty_scale", 1.0),
+        refusal_bonus=float(getattr(args, "refusal_bonus", 0.0) or 0.0),
+        refusal_dist_m=float(getattr(args, "refusal_dist_m", 2.0) or 2.0),
         terrain_speed_scaled=bool(getattr(args, "terrain_speed_scaled", False)),
         reward_source=getattr(args, "reward_source", "generated"),
         map_res_m=float(getattr(args, "map_res_m", 0.1)),
@@ -174,7 +176,7 @@ def build_env(args):
 # shows WHY a return is what it is -- a -1000 return from one crash and a -1000
 # return from a hundred bad steps are different diagnoses.
 EVAL_COMPONENTS = ("semantic", "goal", "collision", "step", "spin", "backward",
-                   "smooth", "timeout", "crash", "proximity", "goal_bonus", "speed_refund",
+                   "smooth", "timeout", "crash", "proximity", "goal_bonus", "speed_refund", "refusal_bonus",
                    "coherence", "coherence_crash")
 
 
@@ -247,6 +249,8 @@ def main():
                     help="must match training, or a policy trained to halt is "
                          "scored as if it merely timed out")
     ap.add_argument("--halt_throttle_eps", type=float, default=0.05)
+    ap.add_argument("--refusal_bonus", type=float, default=0.0)
+    ap.add_argument("--refusal_dist_m", type=float, default=2.0)
     ap.add_argument("--halt_penalty_scale", type=float, default=1.0)
     ap.add_argument("--terrain_speed_scaled", action="store_true")
     ap.add_argument("--reward_source", default="generated",

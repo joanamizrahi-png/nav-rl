@@ -193,7 +193,7 @@ class RewardComponentsCallback(BaseCallback):
 
     KEYS = ("semantic", "goal", "collision", "step", "void", "spin",
             "backward", "smooth", "timeout", "crash", "proximity",
-            "goal_bonus", "speed_refund", "total",
+            "goal_bonus", "speed_refund", "refusal_bonus", "total",
             # 2026-09-01: the world model's own uncertainty, logged from day
             # one so any void THRESHOLD gets chosen from the measured
             # distribution instead of guessed. void_frac = footprint support;
@@ -490,6 +490,8 @@ def _dump_env_config(args, cfg):
             "halt_terminate_steps": getattr(cfg, "halt_terminate_steps", 0),
             "halt_throttle_eps": getattr(cfg, "halt_throttle_eps", 0.05),
             "halt_penalty_scale": getattr(cfg, "halt_penalty_scale", 1.0),
+            "refusal_bonus": getattr(cfg, "refusal_bonus", 0.0),
+            "refusal_dist_m": getattr(cfg, "refusal_dist_m", 2.0),
             "terrain_speed_scaled": bool(getattr(cfg, "terrain_speed_scaled", False)),
             "reward_source": getattr(cfg, "reward_source", "generated"),
             "map_diagnostics": bool(getattr(cfg, "map_diagnostics", True)),
@@ -727,6 +729,8 @@ def _scene_env_cfg(args):
         halt_terminate_steps=getattr(args, "halt_terminate_steps", 0),
         halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
         halt_penalty_scale=getattr(args, "halt_penalty_scale", 1.0),
+        refusal_bonus=float(getattr(args, "refusal_bonus", 0.0) or 0.0),
+        refusal_dist_m=float(getattr(args, "refusal_dist_m", 2.0) or 2.0),
         terrain_speed_scaled=bool(getattr(args, "terrain_speed_scaled", False)),
         reward_source=getattr(args, "reward_source", "generated"),
         map_res_m=float(getattr(args, "map_res_m", 0.1)),
@@ -1312,6 +1316,9 @@ def main():
                     help="with --halt_scale_start: halting is unavailable until recent wins pass the threshold, then priced from start")
     ap.add_argument("--halt_scale_start", type=float, default=None,
                     help="halt-price curriculum: start scale (1.0 = full timeout), notches to --halt_penalty_scale on wins")
+    ap.add_argument("--refusal_bonus", type=float, default=0.0,
+                    help="reward for HALTING on a non-traversable goal within --refusal_dist_m of it (0 = off)")
+    ap.add_argument("--refusal_dist_m", type=float, default=2.0)
     ap.add_argument("--halt_penalty_scale", type=float, default=1.0,
                     help="HALTED pays timeout x this (1.0 = same as a timeout)")
     ap.add_argument("--goal_dist_window", type=float, default=None,

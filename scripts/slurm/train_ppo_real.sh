@@ -27,7 +27,7 @@ set -euo pipefail
 # of them was -- the .out files do not echo the command, env_config.json is
 # only written after the hour-long pipeline load, and shell history had scrolled
 # away. An unrecorded experiment is not an experiment.
-KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|BOXMEM|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|CKPTFREQ|SPEEDCOST|REWSRC|MAPINFL|MAPINFLCLS|HALTCUR|HALTGATE|GOALMIX|GOALMIXMAP|SPAWNSUPPORT|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
+KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|BOXMEM|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|REFUSAL|REFUSALDIST|CKPTFREQ|SPEEDCOST|REWSRC|MAPINFL|MAPINFLCLS|HALTCUR|HALTGATE|GOALMIX|GOALMIXMAP|SPAWNSUPPORT|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
 # Whitelist, not a blacklist. The first version excluded known-noisy prefixes
 # and still emitted lmod shell functions, base64 module tables and every SLURM
 # variable -- thousands of unreadable characters per entry (2026-09-03, first
@@ -367,6 +367,7 @@ fi
 [ -n "${GOALDISTWIN:-}" ] && LABEL="${LABEL}-win${GOALDISTWIN}"
 [ -n "${HALT:-}" ] && LABEL="${LABEL}-halt${HALT}"
 [ -n "${HALTSCALE:-}" ] && LABEL="${LABEL}-hs${HALTSCALE}"
+[ -n "${REFUSAL:-}" ] && LABEL="${LABEL}-rb${REFUSAL}"
 [ -n "${HALTEPS:-}" ] && LABEL="${LABEL}-he${HALTEPS}"
 [ -n "${HALTCUR:-}" ] && LABEL="${LABEL}-hc${HALTCUR}"
 [ "${HALTGATE:-0}" = "1" ] && LABEL="${LABEL}-hg"
@@ -602,6 +603,18 @@ fi
 if [ -n "${SPAWNSUPPORT:-}" ]; then
     BC_ARGS="$BC_ARGS --spawn_support_tries ${SPAWNSUPPORT}"
     OUT="${OUT}_ss${SPAWNSUPPORT}"
+fi
+# REFUSAL=<bonus>: a halt on a NON-traversable goal within REFUSALDIST m (default
+# 2.0) of it earns <bonus> instead of the halt price. Gen 3b (2026-09-05, 10 h):
+# no arm distinguished lawn goals from hard goals because a correct refusal
+# earned nothing. Evals of such arms must carry the same REFUSAL/REFUSALDIST.
+if [ -n "${REFUSAL:-}" ]; then
+    BC_ARGS="$BC_ARGS --refusal_bonus ${REFUSAL}"
+    OUT="${OUT}_rb${REFUSAL}"
+    if [ -n "${REFUSALDIST:-}" ]; then
+        BC_ARGS="$BC_ARGS --refusal_dist_m ${REFUSALDIST}"
+        OUT="${OUT}_rd${REFUSALDIST}"
+    fi
 fi
 # HALTSCALE: what a HALTED episode pays, as a multiple of the distance-scaled
 # timeout. 1 (default) = the tie; 0.3 = refusing an unreachable goal is the

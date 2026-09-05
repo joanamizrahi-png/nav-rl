@@ -121,6 +121,8 @@ fi
 [ -n "${VOIDTERM:-}" ]  && EXTRA_ARGS+=(--void_terminate_frac "$VOIDTERM")
 [ -n "${HALT:-}" ] && EXTRA_ARGS+=(--halt_terminate_steps "$HALT")
 [ -n "${HALTSCALE:-}" ] && EXTRA_ARGS+=(--halt_penalty_scale "$HALTSCALE")
+[ -n "${REFUSAL:-}" ] && { EXTRA_ARGS+=(--refusal_bonus "$REFUSAL"); OUT_SUFFIX="${OUT_SUFFIX}_rb${REFUSAL}"; }
+[ -n "${REFUSALDIST:-}" ] && { EXTRA_ARGS+=(--refusal_dist_m "$REFUSALDIST"); OUT_SUFFIX="${OUT_SUFFIX}_rd${REFUSALDIST}"; }
 [ -n "${HALTEPS:-}" ] && EXTRA_ARGS+=(--halt_throttle_eps "$HALTEPS")
 [ "${SPEEDCOST:-0}" = "1" ] && EXTRA_ARGS+=(--terrain_speed_scaled)
 [ -n "${REWSRC:-}" ] && { EXTRA_ARGS+=(--reward_source "$REWSRC"); OUT_SUFFIX="${OUT_SUFFIX}_r${REWSRC/map_then_generated/hyb}"; }

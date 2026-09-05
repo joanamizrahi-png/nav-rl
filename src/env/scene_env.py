@@ -246,6 +246,14 @@ class SceneEnvConfig:
     # than gambling on the goal). Below 1, refusing is cheaper than waiting
     # out the clock and far cheaper than crashing.
     halt_penalty_scale: float = 1.0
+    # Refusal bonus (2026-09-05): a HALT on a NON-traversable goal (map disc
+    # <= 25% walkable) within refusal_dist_m of it earns this instead of the
+    # halt price. Gen 3b at 10 h: no arm told lawn goals from hard goals,
+    # because a correct refusal earned nothing (it only dodged the crash)
+    # while a wrong halt cost 0.3 x timeout -> halts became the give-up.
+    # 0 = off. Wrong halts keep paying halt_penalty_scale x timeout.
+    refusal_bonus: float = 0.0
+    refusal_dist_m: float = 2.0
     # 2026-09-03: charge the per-step terrain cost (semantic + collision)
     # in proportion to |throttle|. Driving onto bad ground costs; standing
     # still facing it does not. Implemented as a REFUND on top of the
@@ -1213,13 +1221,19 @@ class SceneEnv(gym.Env if gym is not None else object):
                 timeout_term *= frac
             if halted:
                 timeout_term *= float(self.cfg.halt_penalty_scale)
+        refusal_term = 0.0
+        if halted and float(self.cfg.refusal_bonus) > 0.0:
+            _gt0 = float(getattr(self, "_goal_traversable", float("nan")))
+            if _gt0 == 0.0 and float(dist_to_goal) <= float(self.cfg.refusal_dist_m):
+                refusal_term = float(self.cfg.refusal_bonus)
+                timeout_term = 0.0            # a correct refusal pays no halt price
         speed_refund = 0.0
         if self.cfg.terrain_speed_scaled:
             _thr = min(1.0, abs(float(action[0])))
             speed_refund = -(float(breakdown.semantic) + float(breakdown.collision)) * (1.0 - _thr)
         reward = (breakdown.total + spin_term + back_term + smooth_term
                   + bonus + crash + prox_term + timeout_term
-                  + coh_term + coh_crash + speed_refund)
+                  + coh_term + coh_crash + speed_refund + refusal_term)
 
         info = breakdown.to_dict()
         _age = float(getattr(breakdown, "box_memory_age", 0.0))
@@ -1238,6 +1252,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             if getattr(self, "_initial_goal_dist", 0.0) else float("nan"))
         info["crash"] = crash
         info["halted"] = float(halted)
+        info["refusal_bonus"] = float(refusal_term)
         _gt = float(getattr(self, "_goal_traversable", float("nan")))
         info["goal_traversable"] = _gt
         # end-of-episode flags, nan on every other step so per-rollout means
