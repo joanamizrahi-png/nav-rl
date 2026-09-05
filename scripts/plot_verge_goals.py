@@ -1,0 +1,144 @@
+"""Where do lawn goals land, and where is the verge the robot must stop at?
+
+For each scene: draw the binary reward map, spawn the sampler at several walk
+frames, draw the env's OWN map-direct lawn goals (SceneEnv._draw_map_goal,
+extracted from scene_env.py so this is the same code the arms run) and, for
+each, the verge point (walk point nearest the goal) with the refusal radius.
+Pavement goals drawn in the same window and cone are shown as plain stars:
+no verge, no circle -- the rule never fires for them.
+
+    python scripts/plot_verge_goals.py --scenes gnd_AU_180 gnd_AUd210 gnd_AUw210 gnd_AUw360 gnd_AUw330 \
+        --out_dir /scratch/m000204-pm06b/joana/outputs/verge_goals
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import sys
+import types
+from pathlib import Path
+
+import numpy as np
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from src.eval.reward_map import build_label_grid  # noqa: E402
+try:
+    from src.eval.traversability import load_traversability  # noqa: E402
+except ModuleNotFoundError:      # no yaml on the laptop: use --trav none
+    load_traversability = None
+
+
+def env_methods():
+    src = (ROOT / "src" / "env" / "scene_env.py").read_text()
+    cls = next(n for n in ast.parse(src).body if isinstance(n, ast.ClassDef) and n.name == "SceneEnv")
+    ns = {"np": np}
+    for n in cls.body:
+        if isinstance(n, ast.FunctionDef) and n.name in ("_goal_supported", "_draw_map_goal", "_goal_walkable_share", "_refusal_point"):
+            exec(compile(ast.Module([n], []), "scene_env_extract", "exec"), ns)
+    return ns
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--scenes", nargs="+", required=True)
+    ap.add_argument("--clouds_dir", default="/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds")
+    ap.add_argument("--trav", default="config/traversability_v14_walkway.yaml")
+    ap.add_argument("--frames", default="15,30,45,60", help="spawn frames to draw from")
+    ap.add_argument("--per_frame", type=int, default=6)
+    ap.add_argument("--window", default="3,8")
+    ap.add_argument("--cone", type=float, default=50.0)
+    ap.add_argument("--edge", type=float, default=3.0, help="goal_nontrav_edge_m")
+    ap.add_argument("--refusal_dist", type=float, default=2.5)
+    ap.add_argument("--classes", default="3,4,5")
+    ap.add_argument("--out_dir", required=True)
+    args = ap.parse_args()
+    out = Path(args.out_dir); out.mkdir(parents=True, exist_ok=True)
+    if args.trav == "none":
+        # the walkway table, for a laptop without yaml: everything walkable except
+        # void/sky/grass/water/obstacle/vegetation/person/vehicle; road 0.85
+        scores = np.ones(14); scores[[0, 1, 3, 5, 10, 11, 12, 13]] = 0.0; scores[7] = 0.85
+    else:
+        scores = load_traversability(args.trav)
+    nontrav = scores <= 0.1
+    ns = env_methods()
+    lo, hi = (float(v) for v in args.window.split(","))
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    for sc in args.scenes:
+        c = np.load(Path(args.clouds_dir) / f"{sc}_cloud.npz")
+        pts, labs = c["points"], c["labels"].astype(int)
+        walk = (np.asarray(c["traj_positions"], np.float32) * np.array([1.0, -1.0, 1.0], np.float32))[:, :2]
+        g = build_label_grid(pts, labs, nontrav, res=0.1, inflate_m=0.1, inflate_classes=(10, 11, 13), walk_xy=walk)
+        gr = pts[(pts[:, 2] < 0.15) & (labs >= 0)][:, :2][::4].astype(np.float32)
+        ref = float(np.median([int((np.abs(gr - w[None, :]).max(axis=1) <= 0.6).sum()) for w in walk[10:70:5]]))
+
+        class Cfg: pass
+        env = types.SimpleNamespace(cfg=Cfg())
+        env.cfg.goal_nontrav_classes = args.classes; env.cfg.goal_mix_tries = 12; env.cfg.goal_radius = 0.5
+        env.cfg.goal_support_radius_m = 0.6; env.cfg.goal_support_min_frac = 0.6; env.cfg.goal_support_tries = 8
+        env.cfg.goal_nontrav_edge_m = args.edge
+        env.world_backend = types.SimpleNamespace(cfg=Cfg()); env.world_backend.cfg.goal_dist_range = (lo, hi); env.world_backend.cfg.goal_cone_deg = args.cone
+        env._label_grids = {sc: g}; env._scene_id = sc; env._non_trav = nontrav; env._ground_pts = {sc: gr}
+        env._support_ref = {sc: ref}; env._walk_xy = {sc: walk}; env.np_random = np.random.default_rng(0)
+        env._goal_walkable_share = lambda goal, env=env: ns["_goal_walkable_share"](env, goal)
+        env._goal_supported = lambda goal, env=env: ns["_goal_supported"](env, goal)
+
+        L = g.labels; known = L >= 0; nt = known & nontrav[np.clip(L, 0, len(nontrav) - 1)]
+        b = np.full(L.shape, 0.5); b[known & ~nt] = 1.0; b[nt] = 0.0
+        ext = (g.x0, g.x0 + L.shape[1] * g.res, g.y0, g.y0 + L.shape[0] * g.res)
+        fig, ax = plt.subplots(figsize=(12, 12))
+        ax.imshow(b, origin="lower", extent=ext, cmap="gray", vmin=0, vmax=1, interpolation="nearest")
+        ax.plot(walk[:, 0], walk[:, 1], "-", c="#e6550d", lw=1.2)
+        lawn_n, pave_n, d_verge, share_l, share_p = 0, 0, [], [], []
+        frames = [int(v) for v in args.frames.split(",") if int(v) < len(walk) - 1]
+        for f in frames:
+            dv = walk[min(f + 1, len(walk) - 1)] - walk[f]; yaw = float(np.arctan2(dv[1], dv[0]))
+            P = np.eye(4); P[0, 0], P[1, 0], P[0, 1], P[1, 1] = np.cos(yaw), np.sin(yaw), -np.sin(yaw), np.cos(yaw); P[:2, 3] = walk[f]
+            env._robot_pose_world = P
+            ax.plot(walk[f, 0], walk[f, 1], "o", c="k", ms=6, mec="w")
+            # lawn goals: the env's own draw
+            for _ in range(args.per_frame):
+                gl = ns["_draw_map_goal"](env, yaw)
+                if gl is None:
+                    continue
+                vp = ns["_refusal_point"](env, gl)
+                lawn_n += 1; d_verge.append(float(np.linalg.norm(vp - gl[:2]))); share_l.append(env._goal_walkable_share(gl))
+                ax.plot(gl[0], gl[1], "*", c="tab:red", ms=11, mec="k", mew=0.4)
+                ax.plot(vp[0], vp[1], "s", mfc="none", mec="tab:red", ms=8, mew=1.3)
+                ax.plot([gl[0], vp[0]], [gl[1], vp[1]], ":", c="tab:red", lw=0.8)
+                ax.add_patch(plt.Circle((vp[0], vp[1]), args.refusal_dist, fill=False, ec="tab:red", lw=0.6, ls="--", alpha=0.6))
+            # pavement goals: the walk sampler's ring-and-cone draw, kept when the disc is >= 75% walkable
+            for _ in range(args.per_frame * 3):
+                d = env.np_random.uniform(lo, hi); th = yaw + np.deg2rad(env.np_random.uniform(-args.cone / 2, args.cone / 2))
+                gp = np.array([walk[f, 0] + d * np.cos(th), walk[f, 1] + d * np.sin(th), 0.0], np.float32)
+                sh = env._goal_walkable_share(gp)
+                if sh == sh and sh >= 0.75 and env._goal_supported(gp):
+                    pave_n += 1; share_p.append(sh)
+                    ax.plot(gp[0], gp[1], "*", c="tab:green", ms=9, mec="k", mew=0.3)
+                    if pave_n >= args.per_frame * len(frames):
+                        break
+        ax.set_aspect("equal")
+        hs = [Line2D([], [], marker="*", ls="", mfc="tab:red", mec="k", ms=11, label=f"lawn goal ({lawn_n})"),
+              Line2D([], [], marker="s", ls="", mfc="none", mec="tab:red", ms=8, label="verge = walk point nearest the goal"),
+              Line2D([], [], ls="--", c="tab:red", label=f"refusal radius {args.refusal_dist} m"),
+              Line2D([], [], marker="*", ls="", mfc="tab:green", mec="k", ms=9, label=f"pavement goal ({pave_n}), no verge rule"),
+              Line2D([], [], marker="o", ls="", mfc="k", mec="w", ms=6, label="spawn frames " + args.frames)]
+        ax.legend(handles=hs, fontsize=8, loc="best")
+        dv_ = np.array(d_verge) if d_verge else np.array([np.nan])
+        ax.set_title(f"{sc}: map-direct lawn goals (window {lo:.0f}-{hi:.0f} m, cone {args.cone:.0f}, edge {args.edge} m)\n"
+                     f"goal-to-verge distance median {np.nanmedian(dv_):.2f} m, max {np.nanmax(dv_):.2f} m; "
+                     f"lawn disc walkable share max {max(share_l) if share_l else float('nan'):.2f}; pavement share min {min(share_p) if share_p else float('nan'):.2f}")
+        ax.grid(alpha=0.2); fig.tight_layout()
+        fp = out / f"{sc}_verge_goals.png"; fig.savefig(fp, dpi=120, bbox_inches="tight"); plt.close(fig)
+        print(f"{sc}: {lawn_n} lawn goals (verge distance median {np.nanmedian(dv_):.2f}, max {np.nanmax(dv_):.2f} m, "
+              f"walkable share max {max(share_l) if share_l else float('nan'):.2f}), {pave_n} pavement goals (share min "
+              f"{min(share_p) if share_p else float('nan'):.2f}) -> {fp}")
+
+
+if __name__ == "__main__":
+    main()
