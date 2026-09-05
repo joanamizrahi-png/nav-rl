@@ -161,7 +161,6 @@ def main():
             ax.plot(vp[0], vp[1], "s", mfc="none", mec=col, ms=8, mew=1.2)
             ax.plot([gx, vp[0]], [gy, vp[1]], ":", c=col, lw=0.8)
             ax.add_patch(plt.Circle((vp[0], vp[1]), args.verge_dist, fill=False, ec=col, lw=0.8, ls="--", alpha=0.8))
-            ax.add_patch(plt.Circle((gx, gy), args.refusal_dist, fill=False, ec=col, lw=0.5, ls=":", alpha=0.5))
         if label:
             ax.annotate(str(e["episode"]), (tr[0, 0], tr[0, 1]), fontsize=7, color=col,
                         xytext=(3, 3), textcoords="offset points")

@@ -1368,8 +1368,12 @@ class SceneEnv(gym.Env if gym is not None else object):
             _gt0 = float(getattr(self, "_goal_traversable", float("nan")))
             _rp = self._refusal_point(self._goal_world) if _gt0 == 0.0 else None
             _d_rp = (float(np.linalg.norm(self._robot_pose_world[:2, 3] - _rp)) if _rp is not None else float("inf"))
-            self._halt_at_verge = bool(_gt0 == 0.0 and (float(dist_to_goal) <= float(self.cfg.refusal_dist_m)
-                                                        or _d_rp <= float(self.cfg.refusal_verge_m)))
+            # The verge is the stopping place (Joana 09-05 evening). The distance
+            # to the goal only stands in when the scene has no verge (no map).
+            if _rp is not None:
+                self._halt_at_verge = bool(_gt0 == 0.0 and _d_rp <= float(self.cfg.refusal_verge_m))
+            else:
+                self._halt_at_verge = bool(_gt0 == 0.0 and float(dist_to_goal) <= float(self.cfg.refusal_dist_m))
             if self._halt_at_verge:
                 refusal_term = float(self.cfg.refusal_bonus)
                 timeout_term = 0.0            # a correct refusal pays no halt price

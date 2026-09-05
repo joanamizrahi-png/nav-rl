@@ -609,6 +609,7 @@ def main():
         comps = {k: 0.0 for k in EVAL_COMPONENTS}
         cov_sum, cov_n, trespass, min_dist = 0.0, 0, 0, float("inf")
         goal_trav = float("nan")
+        at_verge, passed_goal = False, False
         phantom = missed = 0
         last_phantom = 0.0
         bm_hit, bm_miss = 0, 0
@@ -647,6 +648,8 @@ def main():
             missed += int(float(info.get("missed", 0.0)) > 0)
             last_phantom = float(info.get("phantom", 0.0))
             goal_trav = float(info.get("goal_traversable", float("nan")))
+            _v = info.get("halt_at_verge", float("nan")); at_verge = (float(_v) > 0) if _v == _v else at_verge
+            _pt = info.get("passed_through_goal", float("nan")); passed_goal = (float(_pt) > 0) if _pt == _pt else passed_goal
             if "map_collision_frac" in info:
                 agree_rows.append((float(info.get("coverage", float("nan"))),
                                    float(info["gen_collision_frac"]), float(info["map_collision_frac"]),
@@ -691,6 +694,7 @@ def main():
                         "phantom_steps": phantom, "missed_steps": missed,
                         "box_memory_hit": bm_hit, "box_memory_miss": bm_miss,
                         "goal_traversable": (None if goal_trav != goal_trav else (True if goal_trav >= 0.75 else (False if goal_trav <= 0.25 else "edge"))),
+                        "halt_at_verge": bool(at_verge), "passed_through_goal": bool(passed_goal),
                         # the crash that ended this episode was one the map did not see
                         "crash_was_phantom": bool(outcome == "CRASH" and last_phantom > 0),
                         "mean_coverage": (round(cov_sum / cov_n, 3)
@@ -765,7 +769,14 @@ def main():
     for k, v in by_ground.items():
         n = sum(v.values())
         print("  %-34s n=%2d  " % (k, n) + "  ".join("%s %d" % (o, c) for o, c in sorted(v.items(), key=lambda kv: -kv[1])))
+    _nt = [r for r in results if r.get("goal_traversable") is False]
+    _nt_halt = [r for r in _nt if r["outcome"] == "HALTED"]
+    _verge = sum(1 for r in _nt_halt if r.get("halt_at_verge"))
+    _pt = sum(1 for r in results if r.get("passed_through_goal"))
+    summary["refusals_at_verge"] = "%d/%d halts on non-traversable goals were at the verge (of %d such goals)" % (_verge, len(_nt_halt), len(_nt))
+    summary["passed_through_goal"] = _pt
     print("  correct refusals = HALTED on non-traversable; freezes = HALTED on traversable; trespass arrivals = GOAL on non-traversable")
+    print("  " + summary["refusals_at_verge"] + "; episodes that crossed a goal's radius without stopping: %d" % _pt)
     # ---- generator vs map, per step, as a function of alpha (Joana, 2026-09-04) ----
     if agree_rows:
         A = np.array(agree_rows, dtype=float)
