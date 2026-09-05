@@ -668,6 +668,15 @@ echo "==> rung: ${BC_ARGS:-pure-shaped}  steps: $STEPS  out: $OUT"
 # beside the checkpoints. Written NOW, before the pipeline load, so a job that
 # dies during startup still leaves a record of what it was.
 LEDGER="/scratch/m000204-pm06b/joana/launch_ledger.log"
+# Run-dir names grew past the filesystem's 255-char limit on 2026-09-04
+# (three arms died at mkdir). Keep the head of the name readable and hash
+# the rest; the full knob list is in launch.txt and the ledger anyway.
+_base=$(basename "$OUT")
+if [ ${#_base} -gt 200 ]; then
+    _h=$(printf '%s' "$_base" | md5sum | cut -c1-8)
+    OUT="$(dirname "$OUT")/${_base:0:170}_h${_h}"
+    echo "==> run dir name shortened from ${#_base} chars: $(basename "$OUT")"
+fi
 mkdir -p "$OUT" 2>/dev/null || true
 LEDGER_ENTRY="$(cat <<EOF
 === job ${SLURM_JOB_ID:-nojob}   $(date -Is)   node ${SLURMD_NODENAME:-?}

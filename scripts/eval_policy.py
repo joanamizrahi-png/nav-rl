@@ -555,6 +555,7 @@ def main():
         goal_trav = float("nan")
         phantom = missed = 0
         last_phantom = 0.0
+        bm_hit, bm_miss = 0, 0
         while not done:
             action, _ = model.predict(obs, deterministic=True)
             obs, r, term, trunc, info = env.step(action)
@@ -585,6 +586,8 @@ def main():
                 trespass += 1
             # generator vs map reading of the footprint (logged when a cloud exists)
             phantom += int(float(info.get("phantom", 0.0)) > 0)
+            bm_hit += int(float(info.get("box_memory_hit", 0.0)) > 0)
+            bm_miss += int(float(info.get("box_memory_miss", 0.0)) > 0)
             missed += int(float(info.get("missed", 0.0)) > 0)
             last_phantom = float(info.get("phantom", 0.0))
             goal_trav = float(info.get("goal_traversable", float("nan")))
@@ -630,6 +633,7 @@ def main():
                         "min_dist": round(min_dist, 2),
                         "trespass_steps": trespass,
                         "phantom_steps": phantom, "missed_steps": missed,
+                        "box_memory_hit": bm_hit, "box_memory_miss": bm_miss,
                         "goal_traversable": (None if goal_trav != goal_trav else (True if goal_trav >= 0.75 else (False if goal_trav <= 0.25 else "edge"))),
                         # the crash that ended this episode was one the map did not see
                         "crash_was_phantom": bool(outcome == "CRASH" and last_phantom > 0),
@@ -687,6 +691,8 @@ def main():
         "mean_return": round(float(np.mean([r["return"] for r in results])), 2),
         "mean_collision_steps": round(float(np.mean([r["collision_steps"] for r in results])), 2),
         "mean_phantom_steps": round(float(np.mean([r["phantom_steps"] for r in results])), 2),
+        # near-box frame memory: steps read from an older frame vs steps that fell back to the far box
+        "box_memory": "hit %d / miss %d steps" % (sum(r.get("box_memory_hit", 0) for r in results), sum(r.get("box_memory_miss", 0) for r in results)),
         "mean_missed_steps": round(float(np.mean([r["missed_steps"] for r in results])), 2),
         "crashes_that_were_phantoms": "%d/%d" % (sum(r["crash_was_phantom"] for r in results), sum(r["outcome"] == "CRASH" for r in results)),
         "reward_components_mean": comp_mean,
