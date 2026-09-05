@@ -95,6 +95,36 @@ def main():
         ax.imshow(b, origin="lower", extent=ext, cmap="gray", vmin=0, vmax=1, interpolation="nearest")
         ax.plot(walk[:, 0], walk[:, 1], "-", c="#e6550d", lw=1.2)
         lawn_n, pave_n, d_verge, share_l, share_p = 0, 0, [], [], []
+        # ---- funnel: which filter removes the lawn candidates on this scene ----
+        cls = tuple(int(v) for v in args.classes.split(","))
+        iy, ix = np.nonzero(np.isin(L, list(cls)))
+        cells = np.c_[g.x0 + (ix + 0.5) * g.res, g.y0 + (iy + 0.5) * g.res].astype(np.float32)
+        d2w = np.full(len(cells), np.inf)
+        for i0 in range(0, len(cells), 4096):
+            blk = cells[i0:i0 + 4096]
+            d2w[i0:i0 + 4096] = ((blk[:, None, :] - walk[None, :, :]) ** 2).sum(-1).min(axis=1)
+        near = cells[d2w <= args.edge ** 2]
+        cls_counts = {int(k): int(v) for k, v in zip(*np.unique(L[L >= 0], return_counts=True))}
+        print(f"  {sc}: known cells by class {cls_counts}")
+        print(f"  {sc}: {len(cells)} cells of classes {cls}; {len(near)} within {args.edge} m of the walk")
+        for f in [int(v) for v in args.frames.split(",") if int(v) < len(walk) - 1]:
+            dv = walk[min(f + 1, len(walk) - 1)] - walk[f]; yaw = float(np.arctan2(dv[1], dv[0]))
+            d = np.linalg.norm(near - walk[f][None, :], axis=1)
+            ang = np.arctan2(near[:, 1] - walk[f, 1], near[:, 0] - walk[f, 0])
+            dth = np.abs((ang - yaw + np.pi) % (2 * np.pi) - np.pi)
+            inwin = (d >= lo) & (d <= hi); incone = inwin & (dth <= np.deg2rad(args.cone) / 2)
+            cand = near[incone]
+            sh_ok = sup_ok = 0
+            for cxy in cand[:: max(1, len(cand) // 200)]:
+                gl = np.array([cxy[0], cxy[1], 0.0], np.float32)
+                sh = env._goal_walkable_share(gl)
+                if sh == sh and sh <= 0.25:
+                    sh_ok += 1
+                    if env._goal_supported(gl):
+                        sup_ok += 1
+            n_s = len(cand[:: max(1, len(cand) // 200)])
+            print(f"    frame {f:2d}: in window {int(inwin.sum())}, in cone {int(incone.sum())}, "
+                  f"of {n_s} sampled: share<=0.25 {sh_ok}, +supported {sup_ok}")
         frames = [int(v) for v in args.frames.split(",") if int(v) < len(walk) - 1]
         for f in frames:
             dv = walk[min(f + 1, len(walk) - 1)] - walk[f]; yaw = float(np.arctan2(dv[1], dv[0]))
