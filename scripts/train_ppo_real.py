@@ -528,6 +528,8 @@ def _dump_env_config(args, cfg):
             "halt_wrong_penalty": getattr(cfg, "halt_wrong_penalty", 0.0),
             "nontrav_goal_unreachable": getattr(cfg, "nontrav_goal_unreachable", False),
             "goal_requires_stop": getattr(cfg, "goal_requires_stop", False),
+            "stop_action": getattr(cfg, "stop_action", False),
+            "lawn_progress_to_verge": getattr(cfg, "lawn_progress_to_verge", False),
             "terrain_speed_scaled": bool(getattr(cfg, "terrain_speed_scaled", False)),
             "reward_source": getattr(cfg, "reward_source", "generated"),
             "map_diagnostics": bool(getattr(cfg, "map_diagnostics", True)),
@@ -772,6 +774,8 @@ def _scene_env_cfg(args):
         halt_wrong_penalty=float(getattr(args, "halt_wrong_penalty", 0.0) or 0.0),
         nontrav_goal_unreachable=bool(getattr(args, "nontrav_goal_unreachable", False)),
         goal_requires_stop=bool(getattr(args, "goal_requires_stop", False)),
+        stop_action=bool(getattr(args, "stop_action", False)),
+        lawn_progress_to_verge=bool(getattr(args, "lawn_progress_to_verge", False)),
         terrain_speed_scaled=bool(getattr(args, "terrain_speed_scaled", False)),
         reward_source=getattr(args, "reward_source", "generated"),
         map_res_m=float(getattr(args, "map_res_m", 0.1)),
@@ -1366,6 +1370,10 @@ def main():
     ap.add_argument("--refusal_verge_m", type=float, default=1.5)
     ap.add_argument("--verge_start", type=float, default=None,
                     help="verge-radius curriculum: start radius (m), notches by 0.25 to --refusal_verge_m as refusals at the verge pass 50%")
+    ap.add_argument("--stop_action", action="store_true",
+                    help="third action output: > 0 halts now (cold start only, changes the action space)")
+    ap.add_argument("--lawn_progress_to_verge", action="store_true",
+                    help="on lawn-goal episodes the progress term measures distance to the verge, not the goal")
     ap.add_argument("--goal_requires_stop", action="store_true",
                     help="a goal counts as reached only after the robot is still for the halt steps inside its radius")
     ap.add_argument("--nontrav_goal_unreachable", action="store_true",

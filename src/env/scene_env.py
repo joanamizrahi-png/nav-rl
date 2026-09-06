@@ -292,6 +292,18 @@ class SceneEnvConfig:
     # halt_terminate_steps (3 if halting is off) inside the radius. Every
     # successful episode then practises the stop that refusal also needs.
     goal_requires_stop: bool = False
+    # STOP ACTION (2026-09-06): a third action output; > 0 = halt now (still
+    # subject to the box being clear and distance closed). A fresh Gaussian
+    # policy fires it ~half the time, so the bonus and penalty shape hundreds
+    # of halts in the first hour instead of waiting for three still steps to
+    # happen by chance (8 h of bonus arms: halt_at_verge 0 everywhere).
+    # Changes the action space -> cold start only.
+    stop_action: bool = False
+    # LAWN PROGRESS TO THE VERGE (2026-09-06): on a lawn-goal episode the
+    # goal-progress term measures distance to the verge nearest the goal, not
+    # to the goal, so the reward pulls the robot to where a halt pays instead
+    # of onto the grass. The policy still sees the true goal vector.
+    lawn_progress_to_verge: bool = False
     # 2026-09-03: charge the per-step terrain cost (semantic + collision)
     # in proportion to |throttle|. Driving onto bad ground costs; standing
     # still facing it does not. Implemented as a REFUND on top of the
@@ -431,7 +443,9 @@ class SceneEnv(gym.Env if gym is not None else object):
         })
         self.action_space = spaces.Box(
             low=-1.0, high=1.0,
-            shape=(2 * max(1, cfg.action_chunk),), dtype=np.float32)
+            shape=(2 * max(1, cfg.action_chunk) + (1 if cfg.stop_action else 0),), dtype=np.float32)
+        if cfg.stop_action and cfg.action_chunk > 1:
+            raise ValueError("stop_action is not supported with action chunks")
 
         # Populated on reset()
         self._scene_id: Optional[str] = None
@@ -828,6 +842,11 @@ class SceneEnv(gym.Env if gym is not None else object):
             # (<= 25%), 0.5 = edge goal. The refusal flags use the extremes.
             self._goal_walkable_frac = _walk
             self._goal_traversable = 1.0 if _walk >= 0.75 else (0.0 if _walk <= 0.25 else 0.5)
+        self._reward_goal = self._goal_world
+        if bool(self.cfg.lawn_progress_to_verge) and float(getattr(self, "_goal_traversable", float("nan"))) == 0.0:
+            _vp = self._refusal_point(self._goal_world)
+            if _vp is not None:
+                self._reward_goal = np.array([_vp[0], _vp[1], float(self._goal_world[2])], dtype=np.float32)
 
         if self.cfg.defer_render:
             self._needs_render = True
@@ -1124,6 +1143,10 @@ class SceneEnv(gym.Env if gym is not None else object):
         if self.cfg.forward_only and action[0] < 0.0:
             action = action.copy()
             action[0] = 0.0
+        stop_cmd = bool(self.cfg.stop_action and len(action) >= 3 and float(action[2]) > 0.0)
+        if stop_cmd:
+            action = action.copy()
+            action[0] = 0.0                  # stop means stop: no motion this step
 
         # Semantic labels for the current view (from mock cache OR real segmenter).
         semantic_image = self.semantic_backend.segment(self._last_rgb)
@@ -1151,7 +1174,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             from src.eval.reward_map import compute_reward_map
             breakdown_map = compute_reward_map(
                 grids[self._scene_id], robot_position=robot_position, robot_heading=fp_heading,
-                goal=self._goal_world, traversability_scores=self._trav_scores,
+                goal=getattr(self, "_reward_goal", self._goal_world), traversability_scores=self._trav_scores,
                 non_traversable_mask=self._non_trav, previous_position=self._prev_position,
                 look_ahead_dist=self.cfg.look_ahead_dist,
                 collision_look_ahead_dist=(self.cfg.collision_look_ahead_m
@@ -1165,7 +1188,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             w2c=self._last_w2c,
             robot_position=robot_position,
             robot_heading=fp_heading,
-            goal=self._goal_world,
+            goal=getattr(self, "_reward_goal", self._goal_world),
             traversability_scores=self._trav_scores,
             non_traversable_mask=self._non_trav,
             previous_position=self._prev_position,
@@ -1350,7 +1373,7 @@ class SceneEnv(gym.Env if gym is not None else object):
                 self._halt_run = 0
             _fr = -float(breakdown.collision) / max(self.cfg.reward.collision, 1e-6)
             _d0 = float(getattr(self, "_initial_goal_dist", 0.0) or 0.0)
-            if (self._halt_run >= self.cfg.halt_terminate_steps
+            if ((self._halt_run >= self.cfg.halt_terminate_steps or stop_cmd)
                     and _fr < max(self.cfg.collision_terminate_frac, 1e-9)
                     and _d0 > 1e-6 and dist_to_goal < _d0):
                 halted = True
@@ -1366,7 +1389,9 @@ class SceneEnv(gym.Env if gym is not None else object):
             if halted:
                 timeout_term *= float(self.cfg.halt_penalty_scale)
         refusal_term = 0.0
-        if halted and float(self.cfg.refusal_bonus) > 0.0:
+        if halted:
+            # judged for EVERY halt on a lawn goal, bonus or not, so the no-bonus
+            # controls and their evals report halt_at_verge too (review 09-05)
             _gt0 = float(getattr(self, "_goal_traversable", float("nan")))
             _rp = self._refusal_point(self._goal_world) if _gt0 == 0.0 else None
             _d_rp = (float(np.linalg.norm(self._robot_pose_world[:2, 3] - _rp)) if _rp is not None else float("inf"))
@@ -1376,7 +1401,7 @@ class SceneEnv(gym.Env if gym is not None else object):
                 self._halt_at_verge = bool(_gt0 == 0.0 and _d_rp <= float(self.cfg.refusal_verge_m))
             else:
                 self._halt_at_verge = bool(_gt0 == 0.0 and float(dist_to_goal) <= float(self.cfg.refusal_dist_m))
-            if self._halt_at_verge:
+            if self._halt_at_verge and float(self.cfg.refusal_bonus) > 0.0:
                 refusal_term = float(self.cfg.refusal_bonus)
                 timeout_term = 0.0            # a correct refusal pays no halt price
         if halted and float(self.cfg.halt_wrong_penalty) > 0.0:
@@ -1417,7 +1442,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         info["goal_walkable_frac"] = float(getattr(self, "_goal_walkable_frac", float("nan")))
         info["halt_correct"] = (float(halted and _gt == 0.0) if _end and _gt == _gt else _nan)
         # ... and at the RIGHT place: within refusal_dist_m of the goal or of the verge nearest it
-        info["passed_through_goal"] = (float(bool(getattr(self, "_in_radius_moving", False))) if _end else _nan)
+        info["passed_through_goal"] = (float(bool(getattr(self, "_in_radius_moving", False)) and not bool(terminated)) if _end else _nan)
         info["halt_at_verge"] = (float(halted and _gt == 0.0 and bool(getattr(self, "_halt_at_verge", False))) if _end and _gt == _gt else _nan)
         info["halt_wrong"] = (float(halted and _gt == 1.0) if _end and _gt == _gt else _nan)
         _reached_nt = bool(terminated) or bool(getattr(self, "_entered_nontrav_goal", False))

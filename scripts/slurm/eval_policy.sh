@@ -127,6 +127,8 @@ fi
 [ -n "${HALTWRONG:-}" ] && { EXTRA_ARGS+=(--halt_wrong_penalty "$HALTWRONG"); OUT_SUFFIX="${OUT_SUFFIX}_hw${HALTWRONG}"; }
 [ "${NTGOAL:-0}" = "1" ] && { EXTRA_ARGS+=(--nontrav_goal_unreachable); OUT_SUFFIX="${OUT_SUFFIX}_ntu"; }
 [ "${GOALSTOP:-0}" = "1" ] && { EXTRA_ARGS+=(--goal_requires_stop); OUT_SUFFIX="${OUT_SUFFIX}_gstop"; }
+[ "${STOPACT:-0}" = "1" ] && { EXTRA_ARGS+=(--stop_action); OUT_SUFFIX="${OUT_SUFFIX}_stopact"; }
+[ "${VERGEPROG:-0}" = "1" ] && { EXTRA_ARGS+=(--lawn_progress_to_verge); OUT_SUFFIX="${OUT_SUFFIX}_vprog"; }
 [ -n "${HALTEPS:-}" ] && EXTRA_ARGS+=(--halt_throttle_eps "$HALTEPS")
 [ "${SPEEDCOST:-0}" = "1" ] && EXTRA_ARGS+=(--terrain_speed_scaled)
 [ -n "${REWSRC:-}" ] && { EXTRA_ARGS+=(--reward_source "$REWSRC"); OUT_SUFFIX="${OUT_SUFFIX}_r${REWSRC/map_then_generated/hyb}"; }

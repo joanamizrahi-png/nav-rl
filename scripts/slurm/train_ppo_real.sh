@@ -27,7 +27,7 @@ set -euo pipefail
 # of them was -- the .out files do not echo the command, env_config.json is
 # only written after the hour-long pipeline load, and shell history had scrolled
 # away. An unrecorded experiment is not an experiment.
-KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|BOXMEM|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|REFUSAL|REFUSALDIST|REFUSALVERGE|VERGECUR|HALTWRONG|NTGOAL|GOALSTOP|CKPTFREQ|SPEEDCOST|REWSRC|MAPINFL|MAPINFLCLS|HALTCUR|HALTGATE|GOALMIX|GOALMIXMAP|SPAWNSUPPORT|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
+KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|PROBE|MAXSTEPS|GOALSUPPORT|GOAL360|NOGATE|TIMEOUTDIST|SEMW|SEMPAL|LIVEBATCH|LIVEFRAMES|ROTATE|GOALRANGE|GOALCONE|GOALNOISE|GOALXY|GOALDIST|GOALDIST_START|GOALDISTWIN|GOALFRAMERANGE|SPAWNCLS|SPAWNJYAW|SPAWNJLAT|SPAWNMIN|SPAWNMAX|HEIGHT|WIDTH|RENDERH|RENDERW|REWSCALE|TRAV|SCENES|SCENE|NSC|LIVECKPT|COH|COHTAU|COHTERM|COLLAHEAD|BOXMEM|COLLTERM|CURRICULUM|WARMSTART|CRASHPEN|HALT|HALTEPS|HALTSCALE|REFUSAL|REFUSALDIST|REFUSALVERGE|VERGECUR|HALTWRONG|NTGOAL|GOALSTOP|STOPACT|VERGEPROG|CKPTFREQ|SPEEDCOST|REWSRC|MAPINFL|MAPINFLCLS|HALTCUR|HALTGATE|GOALMIX|GOALMIXMAP|SPAWNSUPPORT|ENT|CHUNK|PROX|GATETAU|TAG|LABEL|CLIPS_DIR|OBSCACHE'
 # Whitelist, not a blacklist. The first version excluded known-noisy prefixes
 # and still emitted lmod shell functions, base64 module tables and every SLURM
 # variable -- thousands of unreadable characters per entry (2026-09-03, first
@@ -372,6 +372,8 @@ fi
 [ -n "${HALTWRONG:-}" ] && LABEL="${LABEL}-hw${HALTWRONG}"
 [ "${NTGOAL:-0}" = "1" ] && LABEL="${LABEL}-ntu"
 [ "${GOALSTOP:-0}" = "1" ] && LABEL="${LABEL}-gstop"
+[ "${STOPACT:-0}" = "1" ] && LABEL="${LABEL}-stopact"
+[ "${VERGEPROG:-0}" = "1" ] && LABEL="${LABEL}-vprog"
 [ -n "${HALTEPS:-}" ] && LABEL="${LABEL}-he${HALTEPS}"
 [ -n "${HALTCUR:-}" ] && LABEL="${LABEL}-hc${HALTCUR}"
 [ "${HALTGATE:-0}" = "1" ] && LABEL="${LABEL}-hg"
@@ -624,11 +626,22 @@ if [ -n "${REFUSAL:-}" ]; then
         OUT="${OUT}_rv${REFUSALVERGE}"
     fi
     # VERGECUR=<start>: verge radius earned down from <start> m to REFUSALVERGE
-    # (default 1.0) as halts at the verge pass 50% of lawn-goal episodes.
+    # (default 1.5) as halts at the verge pass 50% of lawn-goal episodes.
     if [ -n "${VERGECUR:-}" ]; then
         BC_ARGS="$BC_ARGS --verge_start ${VERGECUR}"
         OUT="${OUT}_vc${VERGECUR}"
     fi
+fi
+# STOPACT=1: third action output, > 0 = halt now (cold start only). VERGEPROG=1:
+# on lawn-goal episodes the progress reward pulls toward the verge nearest the
+# goal instead of onto the grass (2026-09-06).
+if [ "${STOPACT:-0}" = "1" ]; then
+    BC_ARGS="$BC_ARGS --stop_action"
+    OUT="${OUT}_stopact"
+fi
+if [ "${VERGEPROG:-0}" = "1" ]; then
+    BC_ARGS="$BC_ARGS --lawn_progress_to_verge"
+    OUT="${OUT}_vprog"
 fi
 # GOALSTOP=1: a goal is reached only after the robot is STILL for the halt steps
 # inside its radius; passing through pays nothing. Teaches the stop that refusal
