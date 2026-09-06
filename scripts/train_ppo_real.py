@@ -105,6 +105,37 @@ class HaltWrongRamp(BaseCallback):
             self.logger.record("curriculum/halt_wrong_penalty", p)
 
 
+class RefusalDwellCurriculum(BaseCallback):
+    """Joana's dwell curriculum (2026-09-06). The still steps required inside
+    the verge zone start at `start` (0 = arrival alone refuses) and rise by
+    one, up to `end` (3 = the real halt), each time at least half of the last
+    `window` lawn-goal episodes ended with a refusal at the verge. Logs
+    curriculum/refusal_dwell."""
+
+    def __init__(self, start: int, end: int = 3, window: int = 100, threshold: float = 0.5):
+        super().__init__()
+        self.n, self.end, self.window, self.threshold = int(start), int(end), window, threshold
+        self._hits: list = []
+
+    def _on_step(self) -> bool:
+        for info in self.locals.get("infos", []):
+            if "episode" in info and info.get("goal_traversable", float("nan")) == 0.0:
+                v = info.get("halt_at_verge", float("nan"))
+                if v == v:
+                    self._hits.append(1.0 if v > 0 else 0.0)
+        return True
+
+    def _on_rollout_start(self) -> None:
+        recent = self._hits[-self.window:]
+        if (len(recent) >= self.window // 2 and float(np.mean(recent)) >= self.threshold
+                and self.n < self.end):
+            self.n += 1
+            self._hits.clear()
+        self.training_env.env_method("set_refusal_dwell", self.n)
+        if self.logger is not None:
+            self.logger.record("curriculum/refusal_dwell", float(self.n))
+
+
 class VergeRadiusCurriculum(BaseCallback):
     """The verge radius is earned (2026-09-05, Joana). Starts at `start` m and
     notches by `notch` toward `end` each time at least half of the last
@@ -556,6 +587,7 @@ def _dump_env_config(args, cfg):
             "nontrav_goal_unreachable": getattr(cfg, "nontrav_goal_unreachable", False),
             "goal_requires_stop": getattr(cfg, "goal_requires_stop", False),
             "stop_action": getattr(cfg, "stop_action", False),
+            "refusal_dwell_steps": getattr(cfg, "refusal_dwell_steps", -1),
             "lawn_progress_to_verge": getattr(cfg, "lawn_progress_to_verge", False),
             "terrain_speed_scaled": bool(getattr(cfg, "terrain_speed_scaled", False)),
             "reward_source": getattr(cfg, "reward_source", "generated"),
@@ -1432,6 +1464,9 @@ def main():
     ap.add_argument("--refusal_verge_m", type=float, default=1.5)
     ap.add_argument("--verge_start", type=float, default=None,
                     help="verge-radius curriculum: start radius (m), notches by 0.25 to --refusal_verge_m as refusals at the verge pass 50%")
+    ap.add_argument("--refusal_dwell_start", type=int, default=None,
+                    help="dwell curriculum: still steps required inside the verge zone at the start (0 = arrival refuses); rises to --refusal_dwell_end")
+    ap.add_argument("--refusal_dwell_end", type=int, default=3)
     ap.add_argument("--stop_bias", type=float, default=-2.0,
                     help="initial bias of the stop output (mean of its Gaussian); -2 => ~2%% stops per step at unit noise")
     ap.add_argument("--stop_action", action="store_true",
@@ -1630,6 +1665,8 @@ def main():
             mode=args.curriculum_mode))
     if int(getattr(args, "halt_wrong_ramp", 0) or 0) > 0 and float(getattr(args, "halt_wrong_penalty", 0.0)) > 0.0:
         callbacks.append(HaltWrongRamp(float(args.halt_wrong_penalty), int(args.halt_wrong_ramp)))
+    if getattr(args, "refusal_dwell_start", None) is not None:
+        callbacks.append(RefusalDwellCurriculum(int(args.refusal_dwell_start), int(args.refusal_dwell_end)))
     if getattr(args, "verge_start", None) is not None:
         callbacks.append(VergeRadiusCurriculum(float(args.verge_start), float(args.refusal_verge_m)))
     if getattr(args, "halt_scale_start", None) is not None:

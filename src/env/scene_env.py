@@ -304,6 +304,12 @@ class SceneEnvConfig:
     # to the goal, so the reward pulls the robot to where a halt pays instead
     # of onto the grass. The policy still sees the true goal vector.
     lawn_progress_to_verge: bool = False
+    # REFUSAL DWELL (Joana, 2026-09-06): on a lawn-goal episode, being inside
+    # the verge zone for this many CONSECUTIVE STILL steps (stop action counts)
+    # ends the episode as a refusal at the verge. -1 = off (the generic halt
+    # rule decides). 0 = arrival alone pays; a curriculum raises it 0 -> 1 ->
+    # 2 -> 3, each stage earned, so the event is discoverable at every stage.
+    refusal_dwell_steps: int = -1
     # 2026-09-03: charge the per-step terrain cost (semantic + collision)
     # in proportion to |throttle|. Driving onto bad ground costs; standing
     # still facing it does not. Implemented as a REFUND on top of the
@@ -864,6 +870,10 @@ class SceneEnv(gym.Env if gym is not None else object):
         (e.g. 1.0 m -> 0.5 m) via vec_env.env_method("set_goal_radius", r)."""
         self.cfg.goal_radius = float(r)
 
+    def set_refusal_dwell(self, n: int) -> None:
+        """Curriculum hook: required still steps inside the verge zone."""
+        self.cfg.refusal_dwell_steps = int(n)
+
     def set_halt_wrong_penalty(self, p: float) -> None:
         """Ramp hook (2026-09-06): the wrong-halt penalty starts at 0 so early
         halts are cheap and the verge bonus can be discovered, then rises to
@@ -1293,6 +1303,15 @@ class SceneEnv(gym.Env if gym is not None else object):
             terminated = False
             self._entered_nontrav_goal = True
         truncated = self._steps >= self.cfg.max_steps
+        # refusal by DWELL at the verge (lawn goals only; walkable goals keep the halt rules)
+        dwell_refusal = False
+        if (int(self.cfg.refusal_dwell_steps) >= 0 and not terminated
+                and float(getattr(self, "_goal_traversable", float("nan"))) == 0.0):
+            _vp = self._refusal_point(self._goal_world)
+            if _vp is not None and float(np.linalg.norm(self._robot_pose_world[:2, 3] - _vp)) <= float(self.cfg.refusal_verge_m):
+                _still = int(getattr(self, "_still_run", 0)) + (1 if stop_cmd and int(getattr(self, "_still_run", 0)) == 0 else 0)
+                if _still >= int(self.cfg.refusal_dwell_steps):
+                    dwell_refusal = True
 
         spin_term = -self.cfg.spin_cost * abs(float(action[1]))
         back_term = -self.cfg.backward_cost * max(0.0, -float(action[0]))
@@ -1379,7 +1398,7 @@ class SceneEnv(gym.Env if gym is not None else object):
                 self._halt_run = 0
             _fr = -float(breakdown.collision) / max(self.cfg.reward.collision, 1e-6)
             _d0 = float(getattr(self, "_initial_goal_dist", 0.0) or 0.0)
-            if ((self._halt_run >= self.cfg.halt_terminate_steps or stop_cmd)
+            if ((self._halt_run >= self.cfg.halt_terminate_steps or stop_cmd or dwell_refusal)
                     and _fr < max(self.cfg.collision_terminate_frac, 1e-9)
                     and _d0 > 1e-6 and dist_to_goal < _d0):
                 halted = True
