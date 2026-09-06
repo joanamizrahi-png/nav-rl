@@ -1234,12 +1234,42 @@ def expand_action_head(model_new, ckpt_path: Path, stop_bias: float, stop_log_st
           f"stop bias {stop_bias:+.1f} (P(stop) ~{100 * 0.5 * (1 + __import__('math').erf(stop_bias / 2 ** 0.5)):.0f}% per step at unit noise)", flush=True)
 
 
-def bc_pretrain(model, demos_path: Path, epochs: int = 25, batch_size: int = 64):
-    """Behavior-clone the PPO policy on real-trajectory demonstrations.
+def _bc_stop_metrics(act_true: np.ndarray, act_pred: np.ndarray, stop_action: bool,
+                     eps: float = 0.15) -> dict:
+    """Stop recall / false-stop rate / accuracy of predicted actions against
+    demo actions. A demo stop is act[2] > 0 with the stop action, else a zero
+    throttle; a predicted stop uses the same rule (throttle < eps)."""
+    if stop_action and act_true.shape[1] >= 3:
+        t_stop = act_true[:, 2] > 0.0
+        p_stop = act_pred[:, 2] > 0.0
+    else:
+        t_stop = np.abs(act_true[:, 0]) < eps
+        p_stop = np.abs(act_pred[:, 0]) < eps
+    n_stop, n_drive = int(t_stop.sum()), int((~t_stop).sum())
+    drive = ~t_stop
+    return {
+        "n": int(len(act_true)), "n_stop": n_stop, "n_drive": n_drive,
+        "stop_recall": (float((p_stop & t_stop).sum()) / n_stop) if n_stop else float("nan"),
+        "false_stop": (float((p_stop & drive).sum()) / n_drive) if n_drive else float("nan"),
+        "accuracy": float((p_stop == t_stop).mean()) if len(t_stop) else float("nan"),
+        "throttle_mae": float(np.abs(act_pred[drive, 0] - act_true[drive, 0]).mean()) if n_drive else float("nan"),
+        "yaw_mae": float(np.abs(act_pred[drive, 1] - act_true[drive, 1]).mean()) if n_drive else float("nan"),
+    }
+
+
+def bc_pretrain(model, demos_path: Path, epochs: int = 25, batch_size: int = 64,
+                holdout: float = 0.2):
+    """Behavior-clone the PPO policy on demonstrations.
 
     Maximizes log-prob of demo actions under the policy (SB3 evaluate_actions
     handles preprocessing internally, incl. image normalization). The policy
-    then enters PPO already knowing roughly how to drive a trail.
+    then enters PPO already knowing roughly how to drive.
+
+    2026-09-06: a HELD-OUT split (whole episodes when the npz carries an
+    `episode` key, else the last `holdout` share of samples) reports, every
+    epoch, the stop recall and false-stop rate of the DETERMINISTIC policy
+    action. This is the learnability number Joana asked for: can the frame +
+    goal vector tell where the map's verge is, with RL out of the loop.
     """
     import torch as th
     d = np.load(demos_path, allow_pickle=True)
@@ -1247,17 +1277,55 @@ def bc_pretrain(model, demos_path: Path, epochs: int = 25, batch_size: int = 64)
     goal = d["goal"].astype(np.float32)
     act = d["act"].astype(np.float32)
     n = len(act)
+    stop_action = bool(int(model.action_space.shape[0]) == 3)
+    if int(model.action_space.shape[0]) != int(act.shape[1]):
+        raise SystemExit(f"[bc] REFUSED: demos carry {act.shape[1]}-dim actions but the policy has "
+                         f"{int(model.action_space.shape[0])} (record the demos under the same STOPACT setting)")
+    # held-out split
+    if "episode" in d and holdout > 0.0:
+        eps_ids = np.asarray(d["episode"]); uniq = np.unique(eps_ids)
+        n_hold = max(1, int(round(len(uniq) * holdout))) if len(uniq) > 1 else 0
+        hold_eps = set(uniq[-n_hold:].tolist()) if n_hold else set()
+        hold = np.array([e in hold_eps for e in eps_ids], dtype=bool)
+    elif holdout > 0.0 and n > 10:
+        hold = np.zeros(n, dtype=bool); hold[int(n * (1.0 - holdout)):] = True
+    else:
+        hold = np.zeros(n, dtype=bool)
+    tr_idx, ho_idx = np.nonzero(~hold)[0], np.nonzero(hold)[0]
     device = model.policy.device
     # Model observation space is channel-first (SB3 VecTransposeImage).
     rgb_chw = np.transpose(obs_rgb, (0, 3, 1, 2))
-    print(f"[bc] {n} demos, {epochs} epochs", flush=True)
+    _stops = int(((act[:, 2] > 0) if stop_action else (np.abs(act[:, 0]) < 0.15)).sum())
+    print(f"[bc] {n} demos ({_stops} stop steps), train {len(tr_idx)} / held-out {len(ho_idx)}, "
+          f"{epochs} epochs, action dim {act.shape[1]}", flush=True)
+
+    def _predict(idx: np.ndarray) -> np.ndarray:
+        outs = []
+        with th.no_grad():
+            for s0 in range(0, len(idx), 256):
+                b = idx[s0:s0 + 256]
+                obs_t = {"rgb": th.as_tensor(rgb_chw[b]).to(device),
+                         "goal": th.as_tensor(goal[b]).to(device)}
+                a = model.policy._predict(obs_t, deterministic=True)
+                outs.append(a.detach().cpu().numpy())
+        return np.concatenate(outs, axis=0) if outs else np.zeros((0, act.shape[1]), np.float32)
+
+    def _report(tag: str):
+        if not len(ho_idx):
+            return
+        m = _bc_stop_metrics(act[ho_idx], _predict(ho_idx), stop_action)
+        print(f"[bc] HELD-OUT {tag}: stop recall {m['stop_recall']:.2f} ({m['n_stop']} stops)  "
+              f"false-stop {m['false_stop']:.3f} ({m['n_drive']} drives)  accuracy {m['accuracy']:.2f}  "
+              f"throttle MAE {m['throttle_mae']:.2f}  yaw MAE {m['yaw_mae']:.2f}", flush=True)
+
+    _report("before")
     opt = th.optim.Adam(model.policy.parameters(), lr=3e-4)
-    idx = np.arange(n)
+    idx = tr_idx.copy()
     for ep in range(epochs):
         np.random.shuffle(idx)
         losses = []
-        for s in range(0, n, batch_size):
-            b = idx[s:s + batch_size]
+        for s0 in range(0, len(idx), batch_size):
+            b = idx[s0:s0 + batch_size]
             obs_t = {
                 "rgb": th.as_tensor(rgb_chw[b]).to(device),
                 "goal": th.as_tensor(goal[b]).to(device),
@@ -1270,6 +1338,8 @@ def bc_pretrain(model, demos_path: Path, epochs: int = 25, batch_size: int = 64)
             opt.step()
             losses.append(float(loss))
         print(f"[bc] epoch {ep+1}/{epochs} loss {np.mean(losses):.3f}", flush=True)
+        if (ep + 1) % 5 == 0 or ep + 1 == epochs:
+            _report(f"epoch {ep+1}")
 
 
 def main():
@@ -1574,6 +1644,8 @@ def main():
                     help="npz from make_demo_dataset.py; if set, behavior-clone the "
                          "policy on real-trajectory demonstrations before PPO")
     ap.add_argument("--bc_epochs", type=int, default=25)
+    ap.add_argument("--bc_holdout", type=float, default=0.2,
+                    help="share of demo EPISODES held out of BC to report stop recall / false-stop")
     args = ap.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -1663,7 +1735,8 @@ def main():
                 print(f"[train_ppo_real] stop action: cold start, stop bias {float(args.stop_bias):+.1f}", flush=True)
 
     if args.bc_demos is not None:
-        bc_pretrain(model, args.bc_demos, epochs=args.bc_epochs)
+        bc_pretrain(model, args.bc_demos, epochs=args.bc_epochs,
+                    holdout=float(getattr(args, "bc_holdout", 0.2)))
         model.save(str(args.output_dir / "policy_after_bc.zip"))
 
     callbacks = [CheckpointCallback(save_freq=int(args.ckpt_every_calls),
