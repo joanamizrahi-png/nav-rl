@@ -98,6 +98,17 @@ if [ "${LIVE:-0}" = "1" ]; then
     # for the cold-start dream-marination). NEVER pass raster/cached demo files
     # here — observation source must match training.
     if [ -n "${LIVE_DEMOS:-}" ]; then
+        # LIVE_DEMOS=auto: the newest expert-recorded demos.npz at JOB START,
+        # so the BC arm can be queued with --dependency=afterok:<recorder>
+        # before the recorder has run (2026-09-06). Refuses if none exists.
+        if [ "$LIVE_DEMOS" = "auto" ]; then
+            LIVE_DEMOS=$(ls -t /scratch/m000204-pm06b/joana/outputs/eval_*expertmap*/demos.npz 2>/dev/null | head -1)
+            if [ -z "$LIVE_DEMOS" ]; then
+                echo "REFUSED: LIVE_DEMOS=auto but no outputs/eval_*expertmap*/demos.npz exists"
+                exit 3
+            fi
+            echo "==> LIVE_DEMOS resolved to $LIVE_DEMOS"
+        fi
         BC_ARGS="$BC_ARGS --bc_demos $LIVE_DEMOS"
         OUT=${OUT}_bc
     fi
