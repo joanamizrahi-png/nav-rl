@@ -316,6 +316,15 @@ def main():
     ap.add_argument("--force_env_keys", type=str, default="",
                     help="comma list of env_config keys the CLI overrides instead of adopting from training")
     ap.add_argument("--collision_box_memory", type=int, default=0)
+    ap.add_argument("--expert", choices=["none", "map"], default="none",
+                    help="map: drive with the scripted map-reading expert instead of the "
+                         "checkpoint's policy and record (frame, goal, action) demos; the "
+                         "checkpoint still supplies the env config and resolution")
+    ap.add_argument("--demos_out", type=Path, default=None,
+                    help="npz for --expert demos (default <out_dir>/demos.npz); keys obs/goal/act/episode, "
+                         "the format bc_pretrain reads")
+    ap.add_argument("--keep_failed_demos", action="store_true",
+                    help="also keep episodes whose stop the reward did not accept")
     ap.add_argument("--raster_obs", action="store_true",
                     help="policy sees the splat raster (adopted from env_config.json when present)")
     ap.add_argument("--collision_look_ahead", type=float, default=0.0,
@@ -587,8 +596,17 @@ def main():
                 return obs
         inner_env = BlindObs(inner_env)
     env = Monitor(inner_env)
-    model = PPO.load(args.checkpoint, env=env, device="cuda")
-    print(f"loaded {args.checkpoint}", flush=True)
+    if args.expert == "map":
+        # Scripted privileged driver instead of a policy: records demos and
+        # doubles as an end-to-end check of the reward's stop rules.
+        from src.env.map_expert import MapExpert
+        model = MapExpert(env)
+        print(f"[expert] map-driven scripted expert (no policy loaded; env from {args.checkpoint})", flush=True)
+    else:
+        model = PPO.load(args.checkpoint, env=env, device="cuda")
+        print(f"loaded {args.checkpoint}", flush=True)
+    demo_obs, demo_goal, demo_act, demo_ep = [], [], [], []
+    demo_kept = 0
 
     # Reuse the HUD rollout recorder from the training script.
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -633,8 +651,13 @@ def main():
         phantom = missed = 0
         last_phantom = 0.0
         bm_hit, bm_miss = 0, 0
+        ep_obs, ep_goal, ep_act = [], [], []
         while not done:
             action, _ = model.predict(obs, deterministic=True)
+            if args.expert != "none":
+                ep_obs.append(np.asarray(obs["rgb"], dtype=np.uint8).copy())
+                ep_goal.append(np.asarray(obs["goal"], dtype=np.float32).copy())
+                ep_act.append(np.asarray(action, dtype=np.float32).copy())
             obs, r, term, trunc, info = env.step(action)
             total_r += float(r)
             steps += 1
@@ -729,6 +752,16 @@ def main():
         print(f"ep {ep:2d}: {outcome:<10} steps={steps:3d} "
               f"d {d_start:5.1f} -> {d_final:5.1f} m  closest {min_dist:5.1f}  "
               f"grass {trespass:3d}  return={total_r:+.1f}", flush=True)
+        if args.expert != "none" and ep_act:
+            # a demo is worth cloning when the expert's stop was ACCEPTED by
+            # the reward: GOAL on a walkable goal, HALTED at the verge on lawn
+            _good = (outcome == "GOAL") or (outcome == "HALTED" and at_verge)
+            if _good or args.keep_failed_demos:
+                demo_obs.extend(ep_obs); demo_goal.extend(ep_goal); demo_act.extend(ep_act)
+                demo_ep.extend([ep] * len(ep_act)); demo_kept += 1
+            print(f"    [expert] {'kept' if (_good or args.keep_failed_demos) else 'dropped'} "
+                  f"{len(ep_act)} steps (outcome {outcome}, at_verge={at_verge}, "
+                  f"goal_traversable={goal_trav})", flush=True)
 
     succ = [r for r in results if r["success"]]
     # aggregate terrain occupancy across all episodes (share of ALL steps)
@@ -841,6 +874,16 @@ def main():
                 st["steps_with_image_box_in_frame"]))
         if top:
             print("  where they disagree, generator / map: " + ", ".join("%s x%d" % (k, v) for k, v in top))
+    if args.expert != "none":
+        _dp = args.demos_out or (args.out_dir / "demos.npz")
+        if demo_act:
+            np.savez_compressed(_dp, obs=np.stack(demo_obs), goal=np.stack(demo_goal),
+                                act=np.stack(demo_act), episode=np.asarray(demo_ep, dtype=np.int32))
+            print(f"[expert] demos: {len(demo_act)} steps from {demo_kept}/{len(results)} episodes "
+                  f"-> {_dp}  (act dim {np.stack(demo_act).shape[1]}, obs {np.stack(demo_obs).shape[1:]})", flush=True)
+        else:
+            print(f"[expert] NO demos kept: the expert's stops were never accepted by the reward "
+                  f"({len(results)} episodes) -- read the outcomes above before blaming BC", flush=True)
     with open(args.out_dir / "metrics.json", "w") as f:
         json.dump({"summary": summary, "episodes": results,
                    "video_episodes": video_records}, f, indent=2)
