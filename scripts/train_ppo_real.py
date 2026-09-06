@@ -1142,7 +1142,9 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
             _gf = float(info.get("gen_collision_frac", float("nan")))
             _thr = float(getattr(base_env.cfg, "collision_terminate_frac", 0.35))
             _ahead = float(getattr(base_env.cfg, "collision_look_ahead_m", 0.0) or 0.0) or float(base_env.cfg.look_ahead_dist)
-            _txt = (f"crash box {_ahead:.1f}m ahead: reward {_cf:.2f}"
+            _age = float(info.get("box_memory_age", 0.0) or 0.0)
+            _mem = ("  mem miss" if _age < 0 else (f"  mem {int(_age)}" if _age > 0 else ""))
+            _txt = (f"crash box {_ahead:.1f}m ahead: reward {_cf:.2f}" + _mem
                     + (f"  map {_mf:.2f}" if _mf == _mf else "")
                     + (f"  gen {_gf:.2f}" if _gf == _gf else "")
                     + ("  CRASH" if (_thr > 0 and _cf >= _thr) else ""))
