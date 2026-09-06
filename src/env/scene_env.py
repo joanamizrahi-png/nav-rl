@@ -1432,7 +1432,9 @@ class SceneEnv(gym.Env if gym is not None else object):
             if getattr(self, "_initial_goal_dist", 0.0) else float("nan"))
         info["crash"] = crash
         info["halted"] = float(halted)
-        info["refusal_bonus"] = float(refusal_term)
+        info["refusal_bonus"] = float(refusal_term)          # net: bonus paid minus wrong-halt penalty
+        info["refusal_paid"] = float(max(refusal_term, 0.0))
+        info["halt_penalty_paid"] = float(max(-refusal_term, 0.0))
         _gt = float(getattr(self, "_goal_traversable", float("nan")))
         info["goal_traversable"] = _gt
         # end-of-episode flags, nan on every other step so per-rollout means

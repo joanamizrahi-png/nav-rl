@@ -225,7 +225,7 @@ class RewardComponentsCallback(BaseCallback):
 
     KEYS = ("semantic", "goal", "collision", "step", "void", "spin",
             "backward", "smooth", "timeout", "crash", "proximity",
-            "goal_bonus", "speed_refund", "refusal_bonus", "total",
+            "goal_bonus", "speed_refund", "refusal_bonus", "refusal_paid", "halt_penalty_paid", "total",
             # 2026-09-01: the world model's own uncertainty, logged from day
             # one so any void THRESHOLD gets chosen from the measured
             # distribution instead of guessed. void_frac = footprint support;
