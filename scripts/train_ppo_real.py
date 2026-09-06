@@ -1159,6 +1159,41 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
             "success": bool(info.get("reached_goal", False))}
 
 
+def expand_action_head(model_new, ckpt_path: Path, stop_bias: float, stop_log_std: float = -0.7):
+    """Warm-start a policy that gained a STOP output (2026-09-06). Every
+    parameter with a matching shape is copied from the checkpoint; the three
+    that changed shape -- action_net.weight [3,H] vs [2,H], action_net.bias
+    [3] vs [2], log_std [3] vs [2] -- keep the two driving rows and get a new
+    stop row with zero weights and bias `stop_bias` (-2 => P(stop) ~2% per
+    step under unit noise), so the reacher keeps reaching and stops rarely
+    until the bonus teaches it where. Fails loudly on any other mismatch."""
+    import torch as th
+    old = PPO.load(str(ckpt_path), device=model_new.device)
+    src = old.policy.state_dict()
+    dst = model_new.policy.state_dict()
+    copied, expanded, missing = [], [], []
+    with th.no_grad():
+        for k, v in dst.items():
+            if k not in src:
+                missing.append(k); continue
+            s = src[k]
+            if tuple(s.shape) == tuple(v.shape):
+                v.copy_(s); copied.append(k)
+            elif k == "action_net.weight" and s.shape[0] + 1 == v.shape[0] and s.shape[1:] == v.shape[1:]:
+                v.zero_(); v[:s.shape[0]].copy_(s); expanded.append(k)
+            elif k == "action_net.bias" and s.shape[0] + 1 == v.shape[0]:
+                v[:s.shape[0]].copy_(s); v[s.shape[0]] = float(stop_bias); expanded.append(k)
+            elif k == "log_std" and s.shape[0] + 1 == v.shape[0]:
+                v[:s.shape[0]].copy_(s); v[s.shape[0]] = float(stop_log_std); expanded.append(k)
+            else:
+                raise RuntimeError(f"[expand_action_head] cannot map {k}: checkpoint {tuple(s.shape)} vs new {tuple(v.shape)}")
+    if missing:
+        raise RuntimeError(f"[expand_action_head] keys absent from the checkpoint: {missing[:8]}")
+    model_new.policy.load_state_dict(dst)
+    print(f"[expand_action_head] copied {len(copied)} tensors, expanded {expanded} from {ckpt_path.name}; "
+          f"stop bias {stop_bias:+.1f} (P(stop) ~{100 * 0.5 * (1 + __import__('math').erf(stop_bias / 2 ** 0.5)):.0f}% per step at unit noise)", flush=True)
+
+
 def bc_pretrain(model, demos_path: Path, epochs: int = 25, batch_size: int = 64):
     """Behavior-clone the PPO policy on real-trajectory demonstrations.
 
@@ -1397,6 +1432,8 @@ def main():
     ap.add_argument("--refusal_verge_m", type=float, default=1.5)
     ap.add_argument("--verge_start", type=float, default=None,
                     help="verge-radius curriculum: start radius (m), notches by 0.25 to --refusal_verge_m as refusals at the verge pass 50%")
+    ap.add_argument("--stop_bias", type=float, default=-2.0,
+                    help="initial bias of the stop output (mean of its Gaussian); -2 => ~2%% stops per step at unit noise")
     ap.add_argument("--stop_action", action="store_true",
                     help="third action output: > 0 halts now (cold start only, changes the action space)")
     ap.add_argument("--lawn_progress_to_verge", action="store_true",
@@ -1508,12 +1545,19 @@ def main():
     if getattr(args, "live", False) and getattr(args, "live_batch", 1) > 1:
         env = make_live_vec_env(args)
         if args.bc_demos:
-            print("[live_batch] BC pretrain unsupported in batched mode — skipping")
-            args.bc_demos = None
+            print("[live_batch] BC pretrain on the policy before batched training (2026-09-06)", flush=True)
     else:
         env = make_env(args)
 
-    if args.warmstart is not None:
+    _expand = False
+    if args.warmstart is not None and getattr(args, "stop_action", False):
+        try:
+            _probe = PPO.load(str(args.warmstart), device="cpu")
+            _expand = int(_probe.action_space.shape[0]) == int(env.action_space.shape[0]) - 1
+            del _probe
+        except Exception as _e:
+            print(f"[train_ppo_real] could not probe {args.warmstart}: {_e}", flush=True)
+    if args.warmstart is not None and not _expand:
         # Continue training an existing policy (e.g. the cache-trained champion
         # fine-tuning on live observations). SB3 keeps num_timesteps; learn()
         # below adds total_steps on top (reset_num_timesteps=False).
@@ -1558,6 +1602,18 @@ def main():
         # every existing run is unchanged and a from-scratch arm can raise it.
         ent_coef=args.ent_coef,
     )
+        if getattr(args, "stop_action", False):
+            import torch as th
+            if _expand:
+                expand_action_head(model, args.warmstart, float(args.stop_bias))
+            else:
+                # cold start: a fresh head fires the stop ~50% of steps and a
+                # random driver then learns 'stop at once' (cheaper than its
+                # crashes); start the stop output rare instead
+                with th.no_grad():
+                    model.policy.action_net.bias[-1] = float(args.stop_bias)
+                    model.policy.log_std[-1] = -0.7
+                print(f"[train_ppo_real] stop action: cold start, stop bias {float(args.stop_bias):+.1f}", flush=True)
 
     if args.bc_demos is not None:
         bc_pretrain(model, args.bc_demos, epochs=args.bc_epochs)
