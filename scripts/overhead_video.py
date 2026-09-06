@@ -141,6 +141,26 @@ def main():
             side = np.concatenate([frames[k], panel(tr, k, e)], axis=1)
             w.write(side)
         w.release()
+        # QuickTime shows mp4v as a green screen: re-encode to H.264 yuv420p with
+        # the ffmpeg on the path or the one bundled in the neoverse env.
+        import shutil, subprocess, os
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            try:
+                import imageio_ffmpeg
+                ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+            except Exception:
+                ffmpeg = None
+        if ffmpeg:
+            tmp = str(wpath) + ".tmp.mp4"
+            os.replace(str(wpath), tmp)
+            r = subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-i", tmp, "-c:v", "libx264",
+                                "-pix_fmt", "yuv420p", "-crf", "18", str(wpath)])
+            if r.returncode == 0 and wpath.exists():
+                os.remove(tmp)
+            else:
+                os.replace(tmp, str(wpath))
+                print("    (ffmpeg re-encode failed; kept the mp4v file)")
         print(f"ep {e['episode']:2d} {e['outcome']:<10} {n} frames -> {wpath.name}")
 
 
