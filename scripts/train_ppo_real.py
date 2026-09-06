@@ -78,6 +78,33 @@ class HaltPriceCurriculum(BaseCallback):
                 self.logger.record("curriculum/halt_enabled", float(self._enabled))
 
 
+class HaltWrongRamp(BaseCallback):
+    """Wrong-halt penalty ramp (2026-09-06): 0 at the start, linear to `end`
+    over `ramp_steps` environment steps, then held. With a stop action or a
+    one-step halt the policy halts constantly at first; a full penalty from
+    step 0 would teach 'never halt' before a single verge bonus is seen."""
+
+    def __init__(self, end: float, ramp_steps: int):
+        super().__init__()
+        self.end, self.ramp = float(end), max(1, int(ramp_steps))
+        self._t0 = None
+
+    def _on_training_start(self) -> None:
+        # a warm continuation starts at the parent's step count: ramp from HERE
+        self._t0 = int(self.num_timesteps)
+
+    def _on_step(self) -> bool:
+        return True
+
+    def _on_rollout_start(self) -> None:
+        if self._t0 is None:
+            self._t0 = int(self.num_timesteps)
+        p = self.end * min(1.0, float(self.num_timesteps - self._t0) / self.ramp)
+        self.training_env.env_method("set_halt_wrong_penalty", p)
+        if self.logger is not None:
+            self.logger.record("curriculum/halt_wrong_penalty", p)
+
+
 class VergeRadiusCurriculum(BaseCallback):
     """The verge radius is earned (2026-09-05, Joana). Starts at `start` m and
     notches by `notch` toward `end` each time at least half of the last
@@ -1378,6 +1405,8 @@ def main():
                     help="a goal counts as reached only after the robot is still for the halt steps inside its radius")
     ap.add_argument("--nontrav_goal_unreachable", action="store_true",
                     help="entering the radius of a non-traversable goal ends nothing and pays nothing; only a halt can earn there")
+    ap.add_argument("--halt_wrong_ramp", type=int, default=0,
+                    help="ramp the wrong-halt penalty from 0 to --halt_wrong_penalty over this many env steps (0 = full from the start)")
     ap.add_argument("--halt_wrong_penalty", type=float, default=0.0,
                     help="flat penalty for HALTING on a traversable goal (mirror of --refusal_bonus)")
     ap.add_argument("--halt_penalty_scale", type=float, default=1.0,
@@ -1543,6 +1572,8 @@ def main():
         callbacks.append(GoalRadiusCurriculum(
             args.goal_radius_start, args.goal_radius, args.curriculum_steps,
             mode=args.curriculum_mode))
+    if int(getattr(args, "halt_wrong_ramp", 0) or 0) > 0 and float(getattr(args, "halt_wrong_penalty", 0.0)) > 0.0:
+        callbacks.append(HaltWrongRamp(float(args.halt_wrong_penalty), int(args.halt_wrong_ramp)))
     if getattr(args, "verge_start", None) is not None:
         callbacks.append(VergeRadiusCurriculum(float(args.verge_start), float(args.refusal_verge_m)))
     if getattr(args, "halt_scale_start", None) is not None:

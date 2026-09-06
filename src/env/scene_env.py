@@ -864,6 +864,12 @@ class SceneEnv(gym.Env if gym is not None else object):
         (e.g. 1.0 m -> 0.5 m) via vec_env.env_method("set_goal_radius", r)."""
         self.cfg.goal_radius = float(r)
 
+    def set_halt_wrong_penalty(self, p: float) -> None:
+        """Ramp hook (2026-09-06): the wrong-halt penalty starts at 0 so early
+        halts are cheap and the verge bonus can be discovered, then rises to
+        the configured value so wrong halts are priced out."""
+        self.cfg.halt_wrong_penalty = float(p)
+
     def set_refusal_verge(self, r: float) -> None:
         """Curriculum hook (2026-09-05): the verge radius is earned down like
         the goal radius -- wide while the policy has never refused at the
