@@ -167,6 +167,90 @@ def episode_poses(cal, rng, n_steps, cone_deg, dist_range, yaw_jit, lat_jit,
     return poses, goal
 
 
+def render_replay(args):
+    """REPLAY MODE (2026-09-06, Joana): re-render the RECORDED poses of chosen
+    eval episodes and project the reward MAP into both the rasterised
+    reconstruction and the diffused frame the policy saw. Answers 'is the
+    render half a metre off from the reconstruction, or are the map's labels
+    off?': if the projected grass edge sits on visible pavement in the RASTER
+    too, the labels are off; if only in the diffused frame, the generator
+    moved the edge. Writes REPLAY_<scene>_ep<k>_s<step>.png = diffused+map |
+    raster+map | alpha, with the near (magenta) and far (yellow) boxes."""
+    import json, cv2
+    from src.eval.reward_map import build_label_grid, footprint_samples
+    from src.eval.reward_2d import _project_points, _footprint_corners_world
+    cfg = CalibratedBackendConfig(
+        scene_video_paths={args.scene: f"{args.clips_dir}/{args.scene}.mp4"},
+        scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
+        scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
+        render_mode="rasterizer_only", sem_palette_version=args.sem_palette,
+        model_path=args.model_path, reconstructor_path=args.reconstructor_path,
+        H=args.height, W=args.width)
+    world = BatchedLiveDiffusedBackend(cfg, checkpoint=args.live_ckpt, alpha_gate=False)
+    world.num_inference_steps = args.num_steps
+    world.load_scene(args.scene)
+    trav = load_traversability(Path(args.trav_path) if args.trav_path else None)
+    non_trav = trav <= args.collision_threshold
+    c = np.load(Path(args.clouds_dir) / f"{args.scene}_cloud.npz")
+    walk = (np.asarray(c["traj_positions"], np.float32) * np.array([1.0, -1.0, 1.0], np.float32))[:, :2]
+    g = build_label_grid(c["points"], c["labels"].astype(int), non_trav, res=0.1, inflate_m=0.1,
+                         inflate_classes=(10, 11, 13), walk_xy=walk)
+    L = g.labels; known = L >= 0; nt = known & non_trav[np.clip(L, 0, len(non_trav) - 1)]
+    iy, ix = np.nonzero(known)
+    cell_xy = np.c_[g.x0 + (ix + 0.5) * g.res, g.y0 + (iy + 0.5) * g.res].astype(np.float32)
+    cell_nt = nt[iy, ix]
+    m = json.load(open(args.replay_metrics))
+    want = set(int(v) for v in str(args.replay_episodes).split(",") if v.strip())
+    od = Path(args.out_dir) if getattr(args, "out_dir", None) else Path("/scratch/m000204-pm06b/joana/outputs/check_rewards")
+    od.mkdir(parents=True, exist_ok=True)
+    near_d = float(args.collision_look_ahead)
+    print(f"=== REPLAY {args.replay_metrics} episodes {sorted(want)}", flush=True)
+    for e in m["episodes"]:
+        if want and e["episode"] not in want:
+            continue
+        tr = np.asarray(e["traj"], float)
+        n = int(e["steps"])
+        print(f"--- ep {e['episode']} {e['outcome']} {n} steps, goal_traversable {e.get('goal_traversable')}", flush=True)
+        for k in range(min(n, len(tr))):
+            pose = pose_at(tr[k, :2], float(tr[k, 2]))
+            (rgb, K, w2c, lab) = world.render_batch([(0, pose)])[0]
+            alpha = getattr(world, "last_alpha", None)
+            a = None if not alpha else np.asarray(alpha[0], dtype=np.float32)
+            ras = getattr(world, "last_raster", None)
+            ras = ras[0] if ras else np.zeros_like(rgb)
+            pos = np.array([pose[0, 3], pose[1, 3], 0.0]); hd = np.asarray(pose[:3, 0], float)
+            # map cells within 8 m ahead and 5 m to the side, projected into this camera
+            rel = cell_xy - pos[None, :2]
+            fwd = rel @ hd[:2]; lat = rel[:, 0] * (-hd[1]) + rel[:, 1] * hd[0]
+            sel = (fwd > 0.2) & (fwd < 8.0) & (np.abs(lat) < 5.0)
+            pts3 = np.c_[cell_xy[sel], np.zeros(sel.sum(), np.float32)]
+            uv, front = _project_points(pts3, K, w2c)
+            H, W = rgb.shape[:2]
+            inside = front & (uv[:, 0] >= 0) & (uv[:, 0] < W) & (uv[:, 1] >= 0) & (uv[:, 1] < H)
+            dif = np.ascontiguousarray(rgb[:, :, ::-1]).copy(); rasb = np.ascontiguousarray(ras[:, :, ::-1]).copy()
+            for img in (dif, rasb):
+                for (u, v), bad in zip(uv[inside].astype(int), cell_nt[sel][inside]):
+                    cv2.circle(img, (int(u), int(v)), 1, (0, 0, 255) if bad else (0, 200, 0), -1)
+                for dist, colr in ((near_d, (255, 0, 255)), (args.look_ahead, (0, 255, 255))):
+                    cw = _footprint_corners_world(pos, hd, look_ahead_dist=dist, length=0.6, width=0.3)
+                    cu, cf = _project_points(cw, K, w2c)
+                    if cf.all():
+                        cv2.polylines(img, [cu.astype(np.int32)], True, colr, 2, cv2.LINE_AA)
+            fp = footprint_samples(pos[:2] + near_d * hd[:2] / (np.linalg.norm(hd[:2]) + 1e-9), hd[:2], 0.6, 0.3, 0.05)
+            cl = g.lookup(fp).astype(int); cl = np.where(cl < 0, 0, cl)
+            near_frac = float((non_trav[cl] & (cl != 0)).mean())
+            cov = float(a.mean()) if a is not None else float("nan")
+            apan = (np.repeat((np.clip(a, 0, 1) * 255).astype(np.uint8)[:, :, None], 3, axis=2) if a is not None else np.zeros_like(dif))
+            panel = np.concatenate([dif, rasb, apan], axis=1)
+            cv2.putText(panel, f"ep {e['episode']} step {k} | map near box {near_frac:.2f} | alpha {cov:.2f} | red = map non-traversable, green = walkable; magenta near box, yellow far box",
+                        (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+            for j, name in enumerate(["RGB diffused (what the policy saw) + MAP", "RGB raster (reconstruction) + MAP", "SUPPORT (alpha)"]):
+                cv2.putText(panel, name, (j * W + 8, H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+            cv2.imwrite(str(od / f"REPLAY_{args.scene}_ep{e['episode']}_s{k:02d}.png"), panel)
+            print(f"    step {k:2d}: map near box {near_frac:.2f}  alpha {cov:.2f}  projected cells {int(inside.sum())}", flush=True)
+    print(f"==> {od}", flush=True)
+
+
 def render_episodes(args):
     """Render every J-spec pose ONCE, ungated. Keep labels + alpha so the gate
     can be applied afterwards at any threshold on identical pixels."""
@@ -637,6 +721,9 @@ def main():
     ap.add_argument("--spawn_frame", type=int, default=None,
                     help="obstacle probe: fixed spawn frame on the recorded path")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--replay_metrics", default="", help="metrics.json of an eval: re-render its recorded poses with the map projected in")
+    ap.add_argument("--replay_episodes", default="", help="comma list of episode ids to replay (empty = all)")
+    ap.add_argument("--out_dir", default="")
     ap.add_argument("--tag", default="")
     ap.add_argument("--out",
                     default="/scratch/m000204-pm06b/joana/outputs/reward_check")
@@ -656,6 +743,9 @@ def main():
               f"spawn_frame {args.spawn_frame}", flush=True)
     print(f"=== sweep taus {taus}", flush=True)
 
+    if getattr(args, "replay_metrics", None):
+        render_replay(args)
+        return
     recs = render_episodes(args)
     n = len(recs)
     print(f"==> {n} rendered steps, gating applied post-hoc on identical pixels",

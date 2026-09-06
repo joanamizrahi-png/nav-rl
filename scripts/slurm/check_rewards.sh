@@ -57,6 +57,12 @@ fi
 if [ -n "${TAG:-}" ]; then
     EXTRA+=(--tag "${TAG}")
 fi
+# REPLAY=<metrics.json> [REPLAYEPS=5,10] [OUTDIR=...]: re-render an eval's recorded
+# poses with the reward map projected into the raster and the diffused frame.
+if [ -n "${REPLAY:-}" ]; then
+    EXTRA+=(--replay_metrics "${REPLAY}" --replay_episodes "${REPLAYEPS:-}")
+    [ -n "${OUTDIR:-}" ] && EXTRA+=(--out_dir "${OUTDIR}")
+fi
 
 python scripts/check_rewards.py \
     --scene "${SCENE:-gnd_AUw360}" \
