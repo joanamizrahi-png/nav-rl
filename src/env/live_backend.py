@@ -66,7 +66,8 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
                  alpha_gate: bool = False, alpha_gate_tau: float = 0.5,
                  num_classes: int = 14,
                  lora_rank: int = 8,
-                 lora_target_modules: str = "q,k,v,o,ffn.0,ffn.2"):
+                 lora_target_modules: str = "q,k,v,o,ffn.0,ffn.2",
+                 raster_obs: bool = False):
         # Any mode other than "rasterizer_plus_diffusion" keeps the scene
         # resident on GPU in _reconstruct_scene (both parent and calibrated
         # override) — exactly what we want here.
@@ -81,6 +82,19 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         # every phantom crash is already removed at tau=0.1, so everything
         # above that is pure cost. Default stays 0.5 so old runs reproduce.
         self._alpha_gate_tau = float(alpha_gate_tau)
+        # Raster-observation ablation (2026-09-06, Joana's inconsistency
+        # question): the policy SEES the reconstruction's own raster and the
+        # reward reads the splat labels, so observation and map put the edge
+        # in the same place. No diffusion call per step. Diagnostic only --
+        # the raster does not look like a camera, so this policy is not the
+        # one that goes on the robot.
+        self.raster_obs = bool(raster_obs)
+        if not hasattr(self, "_pipe"):
+            self._pipe = None          # raster mode reads it without ever loading it
+        if self.raster_obs:
+            print("[LiveDiffusedBackend] RASTER OBSERVATIONS: the policy sees the "
+                  "splat raster and the reward reads the splat labels; the "
+                  "diffusion model is never loaded", flush=True)
         self._num_classes = int(num_classes)
         self._lora_rank = int(lora_rank)
         self._lora_targets = lora_target_modules
@@ -152,9 +166,22 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
     def load_scene(self, scene_id: str) -> None:
         # Pipe (and therefore the reconstructor used for scene building) must
         # exist before reconstruction so there is exactly one copy on GPU.
-        self._ensure_semantic_pipe()
+        # Raster mode never diffuses: the parent's reconstructor-only load
+        # (~2 GB, seconds) replaces the ~40 GB pipe load.
+        if not self.raster_obs:
+            self._ensure_semantic_pipe()
         super().load_scene(scene_id)
         self._pose_hist = []
+
+    def _recon(self):
+        """The reconstructor that owns the rasterizer: the pipe's copy when the
+        pipe is loaded, the standalone one in raster mode."""
+        pipe = getattr(self, "_pipe", None)
+        if pipe is not None:
+            return pipe.reconstructor
+        if self._reconstructor is None:
+            raise RuntimeError("no reconstructor loaded: call load_scene() first")
+        return self._reconstructor
 
     # ---------- per-step live render ----------
 
@@ -167,7 +194,8 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
             _make_dual_decode, _sem_video_to_labels_and_colorized,
         )
         pipe = self._pipe
-        device = next(pipe.reconstructor.parameters()).device
+        recon = self._recon()
+        device = next(recon.parameters()).device
         t = {}
         t0 = time.perf_counter()
 
@@ -197,7 +225,7 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         t_idx = d.argmin(dim=1)
         target_ts = scene["timestamps"][t_idx]
 
-        raster = pipe.reconstructor.gs_renderer.rasterizer
+        raster = recon.gs_renderer.rasterizer
         target_rgb, target_depth, target_alpha = raster.forward(
             scene["gaussians"], render_viewmats=[w2c], render_Ks=[K_rep],
             render_timestamps=[target_ts], sh_degree=0,
@@ -209,6 +237,29 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         target_semantic = sem_probs.argmax(dim=-1).to(torch.long)
         target_mask = (target_alpha > 1.0).float()   # conditioning threshold (cache-gen parity)
         t["raster"] = time.perf_counter() - t0
+
+        if self.raster_obs:
+            rgb_frame = (target_rgb[0, -1].detach().clamp(0, 1).float().cpu().numpy()[..., :3]
+                         * 255.0).astype(np.uint8)
+            lab_last = target_semantic[0, -1].detach().cpu().numpy().astype(np.int8)
+            alpha_last = (target_alpha[0, -1].detach().float().cpu().numpy()
+                          > self._alpha_gate_tau).squeeze(-1)
+            if self._alpha_gate:
+                gated = lab_last.copy()
+                gated[~alpha_last] = 0
+                self._pending_labels = gated
+            else:
+                self._pending_labels = lab_last
+            self._last_semantic_raw = lab_last
+            self._live_alpha = alpha_last
+            self.last_coverage = float(target_alpha[0, -1].detach().float().mean().item())
+            t["diffusion"] = 0.0
+            t["decode"] = 0.0
+            t["total"] = time.perf_counter() - t0
+            self.last_timings = t
+            K_np = scene["K"][0].detach().cpu().float().numpy()
+            w2c_np = w2c[-1].detach().cpu().float().numpy()
+            return rgb_frame, K_np, w2c_np
 
         t1 = time.perf_counter()
         sink: dict = {}

@@ -82,7 +82,8 @@ def build_env(args):
         world = LiveDiffusedBackend(
             cfg, checkpoint=args.live_ckpt,
             alpha_gate=not args.no_alpha_gate,
-            alpha_gate_tau=float(getattr(args, "alpha_gate_tau", None) or 0.5))
+            alpha_gate_tau=float(getattr(args, "alpha_gate_tau", None) or 0.5),
+            raster_obs=bool(getattr(args, "raster_obs", False)))
     elif args.obs_cache:
         from src.env.cached_backend import CachedDiffusedBackend
         world = CachedDiffusedBackend(cfg, args.obs_cache,
@@ -315,6 +316,8 @@ def main():
     ap.add_argument("--force_env_keys", type=str, default="",
                     help="comma list of env_config keys the CLI overrides instead of adopting from training")
     ap.add_argument("--collision_box_memory", type=int, default=0)
+    ap.add_argument("--raster_obs", action="store_true",
+                    help="policy sees the splat raster (adopted from env_config.json when present)")
     ap.add_argument("--collision_look_ahead", type=float, default=0.0,
                     help="0 = collision judged on the same box as shaping")
     ap.add_argument("--goal_dir_360", action="store_true",
@@ -441,6 +444,9 @@ def main():
                        # neither, so it was scoring a goal distribution
                        # training never sees.
                        "goal_support_radius_m", "collision_look_ahead_m", "collision_box_memory",
+                       # 2026-09-06: raster-observation arms; the policy must be
+                       # shown the raster again or the eval is an obs-shift test
+                       "raster_obs",
                        "goal_nontrav_edge_m", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage
@@ -561,6 +567,14 @@ def main():
         print("[eval] REFUSED: adopted training values did not reach the env:\n  "
               + "\n  ".join(_bad), flush=True)
         raise SystemExit(3)
+    # raster_obs lives on the world backend, not on the env cfg: check it there.
+    if "raster_obs" in (getattr(args, "_adopted", {}) or {}):
+        _wb = getattr(inner_env.unwrapped, "world_backend", None)
+        _wr = getattr(_wb, "raster_obs", None)
+        if _wr is None or bool(_wr) != bool(args._adopted["raster_obs"]):
+            print(f"[eval] REFUSED: training had raster_obs={args._adopted['raster_obs']} "
+                  f"but the built backend has {_wr!r} (is this a LIVE=1 eval?)", flush=True)
+            raise SystemExit(3)
     if getattr(args, "_adopted", None):
         print(f"[eval] verified {len(args._adopted)} adopted env values against the built env", flush=True)
     if args.blind:

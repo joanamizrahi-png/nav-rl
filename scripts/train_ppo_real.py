@@ -481,7 +481,8 @@ def make_env(args):
         world = LiveDiffusedBackend(cfg, checkpoint=args.live_ckpt,
                                     live_frames=args.live_frames,
                                     alpha_gate=not getattr(args, "no_alpha_gate", False),
-        alpha_gate_tau=getattr(args, "alpha_gate_tau", 0.5))
+        alpha_gate_tau=getattr(args, "alpha_gate_tau", 0.5),
+        raster_obs=bool(getattr(args, "raster_obs", False)))
     elif getattr(args, "obs_cache", None):
         # Ribbon-cache mode: observations = precomputed diffused views (v10 +
         # reader), reward labels = the cache's alpha-masked diffused labels.
@@ -577,6 +578,10 @@ def _dump_env_config(args, cfg):
             # (2026-09-03).
             "no_alpha_gate": bool(getattr(args, "no_alpha_gate", False)),
             "alpha_gate_tau": float(getattr(args, "alpha_gate_tau", 0.5)),
+            # 2026-09-06: the policy saw the splat raster, not a diffused
+            # frame. Eval must adopt it or it scores the policy on images it
+            # never trained on.
+            "raster_obs": bool(getattr(args, "raster_obs", False)),
             "halt_terminate_steps": getattr(cfg, "halt_terminate_steps", 0),
             "halt_throttle_eps": getattr(cfg, "halt_throttle_eps", 0.05),
             "halt_penalty_scale": getattr(cfg, "halt_penalty_scale", 1.0),
@@ -903,7 +908,8 @@ def make_live_vec_env(args):
     world = BatchedLiveDiffusedBackend(
         cfg, checkpoint=args.live_ckpt, live_frames=args.live_frames,
         alpha_gate=not getattr(args, "no_alpha_gate", False),
-        alpha_gate_tau=getattr(args, "alpha_gate_tau", 0.5))
+        alpha_gate_tau=getattr(args, "alpha_gate_tau", 0.5),
+        raster_obs=bool(getattr(args, "raster_obs", False)))
     world.num_inference_steps = args.live_steps
     # Pre-reconstruct EVERY rotation scene now, while GPU headroom is maximal
     # (2026-08-30, G12 saga: first-visit reconstruction mid-training OOMs at
@@ -1329,6 +1335,10 @@ def main():
                     help="alpha below this is relabelled void in the REWARD's "
                          "label map (never in the observation). Measured "
                          "2026-09-01: all phantom crashes gone by 0.1")
+    ap.add_argument("--raster_obs", action="store_true",
+                    help="ABLATION: the policy sees the reconstruction's raster and the "
+                         "reward reads the splat labels (no diffusion call). Observation "
+                         "and map then agree on where the edge is. Not deployable.")
     ap.add_argument("--no_alpha_gate", action="store_true",
                     help="UNGATED reward: trust diffused labels in invented regions too "
                          "(coherence-justified; the gated run is the safety-anchored twin)")

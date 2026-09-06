@@ -139,6 +139,7 @@ fi
 [ "${GOALMIXMAP:-0}" = "1" ] && { EXTRA_ARGS+=(--goal_mix_map_draw); OUT_SUFFIX="${OUT_SUFFIX}_gmm"; }
 [ -n "${COLLAHEAD:-}" ] && { EXTRA_ARGS+=(--collision_look_ahead "$COLLAHEAD"); OUT_SUFFIX="${OUT_SUFFIX}_ca${COLLAHEAD}"; }
 [ -n "${BOXMEM:-}" ] && { EXTRA_ARGS+=(--collision_box_memory "$BOXMEM"); OUT_SUFFIX="${OUT_SUFFIX}_bm${BOXMEM}"; }
+[ "${RASTEROBS:-0}" = "1" ] && { EXTRA_ARGS+=(--raster_obs); OUT_SUFFIX="${OUT_SUFFIX}_rast"; }
 [ -n "${FORCEKEYS:-}" ] && { EXTRA_ARGS+=(--force_env_keys "$FORCEKEYS"); OUT_SUFFIX="${OUT_SUFFIX}_forced"; }
 
 # Reward weights, so the reported `return=` is on TRAINING's scale. They do not
