@@ -366,12 +366,23 @@ def sweep_coverage(args):
         render_mode="rasterizer_only", sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)),
         model_path=args.model_path, reconstructor_path=args.reconstructor_path,
         H=args.height, W=args.width)
-    world = BatchedLiveDiffusedBackend(cfg, checkpoint=args.live_ckpt, alpha_gate=False, raster_obs=True)
+    # --cov_pictures: ALSO run the generator at each view and save a panel
+    # raster | diffused RGB | generated semantics | alpha (Joana, 2026-09-07:
+    # "I'd like to see the generated output too, not only the raster").
+    pics = bool(getattr(args, "cov_pictures", False))
+    world = BatchedLiveDiffusedBackend(cfg, checkpoint=args.live_ckpt, alpha_gate=False, raster_obs=not pics)
+    world.num_inference_steps = args.num_steps
     world.load_scene(args.scene)
     c = np.load(Path(args.clouds_dir) / f"{args.scene}_cloud.npz")
     walk = (np.asarray(c["traj_positions"], np.float32) * np.array([1.0, -1.0, 1.0], np.float32))[:, :2]
     frames = [int(v) for v in str(args.cov_frames).split(",") if v.strip() and int(v) < len(walk) - 1]
     yaws = [float(v) for v in str(args.cov_yaws).split(",") if v.strip()]
+    if pics:
+        import cv2
+        from src.eval.palette import display_palette
+        _pal = display_palette(args.sem_palette)
+        od = Path(args.out_dir) if getattr(args, "out_dir", None) else Path("/scratch/m000204-pm06b/joana/outputs/check_rewards") / f"covsweep_{args.scene}"
+        od.mkdir(parents=True, exist_ok=True)
     print(f"=== COVERAGE SWEEP {args.scene}: frames {frames}, yaw offsets {yaws} deg", flush=True)
     print("frame  " + " ".join(f"{y:>+9.0f}" for y in yaws) + "   (mean alpha / near-ground alpha)", flush=True)
     per_yaw = {y: [] for y in yaws}; per_yaw_g = {y: [] for y in yaws}
@@ -381,8 +392,20 @@ def sweep_coverage(args):
         for y in yaws:
             pose = pose_at(walk[f], yaw0 + np.deg2rad(y))
             world._hists = {}                       # fresh history: each view stands alone
-            world.render_batch([(0, pose)])
+            (rgb_g, _, _, lab_g) = world.render_batch([(0, pose)])[0]
             a = np.asarray(world.last_alpha[0], dtype=np.float32)
+            if pics:
+                ras = world.last_raster[0] if getattr(world, "last_raster", None) else np.zeros_like(rgb_g)
+                li = np.clip(np.asarray(lab_g, dtype=int), 0, len(_pal) - 1)
+                semc = _pal[li].astype(np.uint8)
+                apan = np.repeat((np.clip(a, 0, 1) * 255).astype(np.uint8)[:, :, None], 3, axis=2)
+                tiles = [np.ascontiguousarray(t[:, :, ::-1]).copy() for t in (ras, rgb_g, semc)] + [apan]
+                for t, nm in zip(tiles, ("RASTER", "DIFFUSED RGB", "GENERATED semantics", "alpha")):
+                    cv2.putText(t, nm, (8, t.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+                pan = np.concatenate(tiles, axis=1)
+                cv2.putText(pan, f"{args.scene} frame {f} yaw {y:+.0f} deg  {'STATIC' if getattr(cfg, 'static_scene', False) else 'dynamic'} scene  alpha {float(a.mean()):.2f}",
+                            (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.imwrite(str(od / f"COV_{args.scene}_{'static' if getattr(cfg, 'static_scene', False) else 'dynamic'}_f{f:02d}_yaw{int(y):+04d}.png"), pan)
             m_all = float(a.mean()); m_gnd = float(a[int(a.shape[0] * 2 / 3):].mean())
             per_yaw[y].append(m_all); per_yaw_g[y].append(m_gnd)
             row.append(f"{m_all:.2f}/{m_gnd:.2f}")
@@ -869,6 +892,7 @@ def main():
     ap.add_argument("--hist_modes", default="", help="replay: also render each episode's step 0 under these history modes (cold,walk,same,single)")
     ap.add_argument("--cov_frames", default="10,20,30,40,50,60,70")
     ap.add_argument("--cov_yaws", default="0,15,30,45,60,90,-15,-30,-45,-60,-90")
+    ap.add_argument("--cov_pictures", action="store_true", help="coverage sweep also runs the generator and saves raster|diffused|semantics|alpha panels")
     ap.add_argument("--out_dir", default="")
     ap.add_argument("--tag", default="")
     ap.add_argument("--out",

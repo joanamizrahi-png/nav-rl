@@ -73,6 +73,8 @@ if [ "${COVSWEEP:-0}" = "1" ]; then
     EXTRA+=(--cov_sweep)
     [ -n "${COVFRAMES:-}" ] && EXTRA+=(--cov_frames "${COVFRAMES}")
     [ -n "${COVYAWS:-}" ] && EXTRA+=(--cov_yaws "${COVYAWS}")
+    [ "${COVPICS:-0}" = "1" ] && EXTRA+=(--cov_pictures)
+    [ -n "${OUTDIR:-}" ] && EXTRA+=(--out_dir "${OUTDIR}")
 fi
 
 python scripts/check_rewards.py \
