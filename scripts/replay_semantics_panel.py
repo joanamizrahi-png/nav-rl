@@ -47,6 +47,9 @@ def main():
     ap.add_argument("--recolor", action="store_true", help="replays rendered with the static v14 palette: recolor label pixels to --sem_palette")
     args = ap.parse_args()
     import cv2
+    from src.eval import palette as _palmod
+    pal = display_palette(args.sem_palette, strict=bool(args.recolor))   # recolor to a fallback would be a no-op
+    print(f"palette: {_palmod.DISPLAY_PALETTE_SOURCE}; grass = {pal[3].tolist()}, sidewalk = {pal[6].tolist()}, road = {pal[7].tolist()}", flush=True)
     base = Path(args.base); out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     folders = [f.strip() for f in args.folders.split(",") if f.strip()]
     ref = base / folders[0]
@@ -69,7 +72,7 @@ def main():
                 tiles.append(np.zeros_like(rgb)); continue
             sem = img[:, args.sem_panel * W:(args.sem_panel + 1) * W].copy()
             if args.recolor:
-                sem = recolor_exact(sem, CLASS_COLORS_V14_255, display_palette(args.sem_palette))
+                sem = recolor_exact(sem, CLASS_COLORS_V14_255, pal)
             cv2.rectangle(sem, (0, sem.shape[0] - 26), (sem.shape[1], sem.shape[0]), (0, 0, 0), -1)
             cv2.putText(sem, f.replace("replay2_", ""), (8, sem.shape[0] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
             tiles.append(sem)
@@ -77,7 +80,7 @@ def main():
         # legend strip
         leg = np.full((34, row.shape[1], 3), 30, np.uint8)
         x = 8
-        for cid, (nm, col) in enumerate(zip(CLASS_NAMES, display_palette(args.sem_palette))):
+        for cid, (nm, col) in enumerate(zip(CLASS_NAMES, pal)):
             bgr = (int(col[2]), int(col[1]), int(col[0]))
             cv2.rectangle(leg, (x, 8), (x + 18, 26), bgr, -1)
             cv2.putText(leg, f"{cid} {nm}", (x + 22, 23), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)

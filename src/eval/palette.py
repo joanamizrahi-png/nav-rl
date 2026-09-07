@@ -64,24 +64,39 @@ CLASS_COLORS_V14_255 = np.array([
 ], dtype=np.uint8)
 
 
-def display_palette(sem_palette: int = 4) -> np.ndarray:
+def display_palette(sem_palette: int = 4, strict: bool = False) -> np.ndarray:
     """[14,3] uint8 colors for label ids, the SAME rule save_rollout_video uses
     for the eval videos (2026-09-06, Joana: the side panels must match the
     sighted/blind videos): diffsynth's v14_palette(sem_palette) when the
-    NeoVerse tree is importable, else the static CLASS_COLORS_V14_255."""
+    NeoVerse tree is importable, else the static CLASS_COLORS_V14_255.
+    strict=True raises instead of falling back, and the module-level
+    DISPLAY_PALETTE_SOURCE says which one was used."""
+    global DISPLAY_PALETTE_SOURCE
+    err = None
     try:
         import sys
         from pathlib import Path
-        _nv = Path(__file__).resolve().parents[2].parent / "NeoVerse"
-        if _nv.exists() and str(_nv) not in sys.path:
-            sys.path.insert(0, str(_nv))
+        for _nv in (Path(__file__).resolve().parents[2].parent / "NeoVerse",
+                    Path("/scratch/m000204-pm06b/joana/NeoVerse")):
+            if _nv.exists() and str(_nv) not in sys.path:
+                sys.path.insert(0, str(_nv))
         from diffsynth.utils.class_taxonomy import v14_palette
-        pal = (v14_palette(int(sem_palette)).numpy() * 255).astype(np.uint8)
+        pal = v14_palette(int(sem_palette))
+        pal = pal.numpy() if hasattr(pal, "numpy") else np.asarray(pal)
+        pal = (pal * 255).astype(np.uint8) if pal.max() <= 1.0 else pal.astype(np.uint8)
         if pal.ndim == 2 and pal.shape[1] == 3 and len(pal) >= 14:
+            DISPLAY_PALETTE_SOURCE = f"diffsynth v14_palette({int(sem_palette)})"
             return pal[:14]
-    except Exception:
-        pass
+        err = f"unexpected palette shape {pal.shape}"
+    except Exception as e:  # noqa: BLE001
+        err = f"{type(e).__name__}: {e}"
+    DISPLAY_PALETTE_SOURCE = f"STATIC CLASS_COLORS_V14_255 (fallback: {err})"
+    if strict:
+        raise RuntimeError(f"display_palette({sem_palette}) could not load the diffsynth palette: {err}")
     return CLASS_COLORS_V14_255
+
+
+DISPLAY_PALETTE_SOURCE = "unset"
 
 
 CLASS_NAMES_V14 = ["void", "sky", "trail", "grass", "rough", "water", "sidewalk", "road",
