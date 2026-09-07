@@ -905,6 +905,10 @@ class SceneEnv(gym.Env if gym is not None else object):
                 self._last_K = np.eye(3, dtype=np.float32)
                 self._last_w2c = np.eye(4, dtype=np.float32)
         else:
+            # a new episode never inherits the previous episode's frames
+            _rh = getattr(self.world_backend, "reset_history", None)
+            if callable(_rh):
+                _rh()
             self._render_current()
         return self._obs(), {"scene_id": self._scene_id}
 

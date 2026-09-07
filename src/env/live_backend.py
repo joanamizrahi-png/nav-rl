@@ -163,6 +163,14 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         print(f"[LiveDiffusedBackend] semantic pipe ready. "
               f"VRAM free {free/1e9:.1f} GB", flush=True)
 
+    def reset_history(self) -> None:
+        """Drop the single-robot frame history at an episode reset (evals)."""
+        self._pose_hist = []
+        self.hist_resets_explicit = int(getattr(self, "hist_resets_explicit", 0)) + 1
+        if self.hist_resets_explicit in (1, 100, 1000):
+            print(f"[LiveDiffusedBackend] frame history cleared at reset: {self.hist_resets_explicit} times so far "
+                  f"(jump-rule resets {int(getattr(self, 'hist_resets_jump', 0))})", flush=True)
+
     def load_scene(self, scene_id: str) -> None:
         # Pipe (and therefore the reconstructor used for scene building) must
         # exist before reconstruction so there is exactly one copy on GPU.
@@ -203,9 +211,13 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         # the conditioning never spans a discontinuity.
         pose_recon = pose_recon.astype(np.float32)
         if self._pose_hist:
-            jump = np.linalg.norm(self._pose_hist[-1][:3, 3] - pose_recon[:3, 3])
-            if jump > 0.5:
+            # in METRES (recon units are normalized; see vec_live_env._robot_hist)
+            _cal = self._calib.get(self._current_scene_id)
+            _m_per_unit = float(getattr(_cal, "scale", 1.0) or 1.0)
+            jump_m = float(np.linalg.norm(self._pose_hist[-1][:3, 3] - pose_recon[:3, 3])) * _m_per_unit
+            if jump_m > 0.5:
                 self._pose_hist = []
+                self.hist_resets_jump = int(getattr(self, "hist_resets_jump", 0)) + 1
         if not self._pose_hist:
             self._pose_hist = cold_history(pose_recon, scene, self.live_frames)
         else:

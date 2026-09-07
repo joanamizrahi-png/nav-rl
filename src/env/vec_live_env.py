@@ -58,9 +58,18 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
         from .live_backend import cold_history
         hist = self._hists.get(robot_id, [])
         if hist:
-            jump = np.linalg.norm(hist[-1][:3, 3] - pose_recon[:3, 3])
-            if jump > float(getattr(self, "hist_jump_m", 0.5)):
+            # 2026-09-06: the jump was compared in RECON UNITS against 0.5, but
+            # the reconstruction is normalized (scale_m_per_unit metres per
+            # unit), so a spawn several metres away did not count as a jump
+            # and the new episode's first frame was conditioned on the
+            # previous episode's poses (the washed-out step-0 frames Joana
+            # flagged). Compare in metres, and resets clear explicitly.
+            _cal = self._calib.get(self._current_scene_id)
+            _m_per_unit = float(getattr(_cal, "scale", 1.0) or 1.0)
+            jump_m = float(np.linalg.norm(hist[-1][:3, 3] - pose_recon[:3, 3])) * _m_per_unit
+            if jump_m > float(getattr(self, "hist_jump_m", 0.5)):
                 hist = []
+                self.hist_resets_jump = int(getattr(self, "hist_resets_jump", 0)) + 1
         if not hist:
             scene = self._cache.get(self._current_scene_id)
             hist = cold_history(pose_recon, scene, self.live_frames)
@@ -326,9 +335,24 @@ class LiveVecEnv(VecEnv):
 
     # ---------- VecEnv API ----------
 
+    def clear_history(self, idxs=None) -> None:
+        """Drop the frame history of these robots (all if None) so their next
+        render starts a fresh walk-in. Called at every episode reset."""
+        if idxs is None:
+            self.backend._hists.clear()
+        else:
+            for i in idxs:
+                self.backend._hists.pop(i, None)
+        n = int(getattr(self.backend, "hist_resets_explicit", 0)) + (self.num_envs if idxs is None else len(idxs))
+        self.backend.hist_resets_explicit = n
+        if n in (1, 100, 1000):
+            print(f"[VecLiveEnv] frame history cleared at reset: {n} times so far "
+                  f"(jump-rule resets {int(getattr(self.backend, 'hist_resets_jump', 0))})", flush=True)
+
     def reset(self):
         for e in self.envs:
             e.reset()
+        self.clear_history()
         self._render_and_inject(list(range(self.num_envs)))
         return self._stack_obs([e._obs() for e in self.envs])
 
@@ -382,6 +406,7 @@ class LiveVecEnv(VecEnv):
             self._steps_since_rot = 0
         for i in reset_idx:
             self.envs[i].reset()               # load_scene(new) happens here
+        self.clear_history(reset_idx)          # a new episode never inherits frames
         self._render_and_inject(reset_idx)     # spawn views, usually tiny
         obs = self._stack_obs([e._obs() for e in self.envs])
         return obs, rewards, dones, infos
