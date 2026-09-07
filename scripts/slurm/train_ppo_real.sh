@@ -34,6 +34,11 @@ KNOB_NAMES='LIVE|RW5|RW|RW5SMOOTH|SMOOTHCOST|SEED|TARGETKL|STEPS|STEPS_OVERRIDE|
 # real ledger dump). Only the launcher's OWN knobs are worth recording; the
 # resolved `rung` line below already carries everything the run actually got.
 LAUNCH_ENV="$(env | grep -E "^(${KNOB_NAMES})=" | sort | tr '\n' ' ')"
+# A LABEL typed at launch time is a prefix on the wandb name (the launcher
+# rebuilds LABEL from knobs below and used to drop it silently: the six
+# 2026-09-07 corner arms were all typed with LABEL=cornerX-... and none of
+# those names reached wandb).
+USER_LABEL="${LABEL:-}"
 
 module load conda/24.3.0-0
 module load cuda12.9/toolkit/12.9.1
@@ -411,7 +416,14 @@ fi
 [ -n "${SPAWNSUPPORT:-}" ] && LABEL="${LABEL}-ss${SPAWNSUPPORT}"
 [ "${GOALMIXMAP:-0}" = "1" ] && LABEL="${LABEL}-gmm"
 [ -n "${ENT:-}" ] && LABEL="${LABEL}-ent${ENT}"
+# The encoder, the action chunk and the goal cone were MISSING from the label:
+# on 2026-09-07 the dinov2 / resnet18 / nature / chunk10 / cone90 arms all
+# published under ONE wandb name. Every variable an arm isolates goes here.
+[ -n "${ENCODER:-}" ] && [ "${ENCODER}" != "nature" ] && LABEL="${LABEL}-${ENCODER}"
+[ -n "${CHUNK:-}" ] && LABEL="${LABEL}-chunk${CHUNK}"
+[ -n "${GOALCONE:-}" ] && LABEL="${LABEL}-gc${GOALCONE}"
 LABEL="${LABEL}-s${SEED:-0}"
+[ -n "${USER_LABEL:-}" ] && LABEL="${USER_LABEL}_${LABEL}"
 echo "==> wandb label: $LABEL"
 
 # CRASHPEN: override RW5's baked-in crash penalty of 1000. This block sits
