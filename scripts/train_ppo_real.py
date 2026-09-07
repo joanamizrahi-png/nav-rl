@@ -586,6 +586,9 @@ def _dump_env_config(args, cfg):
             # never trained on.
             "raster_obs": bool(getattr(args, "raster_obs", False)),
             "static_scene": bool(getattr(args, "static_scene", False)),
+            # 2026-09-07: the palette the generator's conditioning is colorized
+            # with. Evals adopt it; they ran v1 against training's v4 until today.
+            "sem_palette": int(getattr(args, "sem_palette", 1)),
             "halt_terminate_steps": getattr(cfg, "halt_terminate_steps", 0),
             "halt_throttle_eps": getattr(cfg, "halt_throttle_eps", 0.05),
             "halt_penalty_scale": getattr(cfg, "halt_penalty_scale", 1.0),

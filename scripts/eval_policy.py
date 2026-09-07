@@ -472,7 +472,7 @@ def main():
                        "goal_support_radius_m", "collision_look_ahead_m", "collision_box_memory",
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test
-                       "raster_obs", "static_scene",
+                       "raster_obs", "static_scene", "sem_palette",
                        "goal_nontrav_edge_m", "goal_nontrav_tries", "goal_nontrav_cone_deg", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage
@@ -600,6 +600,13 @@ def main():
         if _wr is None or bool(_wr) != bool(args._adopted["raster_obs"]):
             print(f"[eval] REFUSED: training had raster_obs={args._adopted['raster_obs']} "
                   f"but the built backend has {_wr!r} (is this a LIVE=1 eval?)", flush=True)
+            raise SystemExit(3)
+    if "sem_palette" in (getattr(args, "_adopted", {}) or {}):
+        _wb = getattr(inner_env.unwrapped, "world_backend", None)
+        _wp = getattr(getattr(_wb, "cfg", None), "sem_palette_version", None)
+        if _wp is None or int(_wp) != int(args._adopted["sem_palette"]):
+            print(f"[eval] REFUSED: training used palette v{args._adopted['sem_palette']} "
+                  f"but the built backend has v{_wp!r} (the generator's conditioning would be miscolored)", flush=True)
             raise SystemExit(3)
     if "static_scene" in (getattr(args, "_adopted", {}) or {}):
         _wb = getattr(inner_env.unwrapped, "world_backend", None)
