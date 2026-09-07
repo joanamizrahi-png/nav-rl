@@ -272,18 +272,19 @@ def main():
                 outer = np.c_[sp[0] + hi * np.cos(ang), sp[1] + hi * np.sin(ang)]
                 inner = np.c_[sp[0] + lo * np.cos(ang[::-1]), sp[1] + lo * np.sin(ang[::-1])]
                 wedge = np.vstack([outer, inner, outer[:1]])
-                ax.plot(wedge[:, 0], wedge[:, 1], "-", c="#e6550d", lw=0.6, alpha=0.5)
-                ax.plot(sp[0], sp[1], "o", c="#e6550d", ms=5)
+                ax.plot(wedge[:, 0], wedge[:, 1], "-", c="#e6550d", lw=2.2, alpha=0.95)
+                ax.fill(wedge[:, 0], wedge[:, 1], color="#e6550d", alpha=0.07)
+                ax.plot(sp[0], sp[1], "o", c="#e6550d", ms=9, mec="black")
                 # the two headings: orange = walk direction (what SPAWNHEADWALK spawns on),
                 # grey = the recorded camera heading (the old spawn), angle between them
-                ax.arrow(sp[0], sp[1], 2.0 * np.cos(yaw), 2.0 * np.sin(yaw), color="#e6550d", width=0.06, head_width=0.35, length_includes_head=True)
+                ax.arrow(sp[0], sp[1], 2.5 * np.cos(yaw), 2.5 * np.sin(yaw), color="#e6550d", width=0.12, head_width=0.6, length_includes_head=True, zorder=5)
                 lab = str(f)
                 if rec_hd is not None and f < len(rec_hd):
                     rh = rec_hd[f]
-                    ax.arrow(sp[0], sp[1], 2.0 * rh[0], 2.0 * rh[1], color="#555555", width=0.04, head_width=0.3, length_includes_head=True, alpha=0.8)
+                    ax.arrow(sp[0], sp[1], 2.5 * rh[0], 2.5 * rh[1], color="#333333", width=0.09, head_width=0.5, length_includes_head=True, alpha=0.9, zorder=5)
                     dang = np.degrees(np.arctan2(rh[0] * np.sin(yaw) - rh[1] * np.cos(yaw), rh[0] * np.cos(yaw) + rh[1] * np.sin(yaw)))
                     lab = f"{f} ({dang:+.0f} deg)"
-                ax.annotate(lab, (sp[0], sp[1]), xytext=(4, 4), textcoords="offset points", fontsize=8, color="#e6550d")
+                ax.annotate(lab, (sp[0], sp[1]), xytext=(6, 6), textcoords="offset points", fontsize=11, fontweight="bold", color="#e6550d", bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.7))
             for r in pairs:
                 ax.plot(r["goal"][0], r["goal"][1], ".", c=col[r["cls"]], ms=5, alpha=0.7)
             shown = 0
