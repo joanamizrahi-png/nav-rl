@@ -269,10 +269,25 @@ def compute_reward_map(grid: LabelGrid, robot_position: np.ndarray, robot_headin
                        non_traversable_mask: np.ndarray, previous_position,
                        look_ahead_dist: float = 1.5, collision_look_ahead_dist=None,
                        body_length: float = GO2_BODY_LENGTH, body_width: float = GO2_BODY_WIDTH,
-                       weights: RewardWeights = RewardWeights()) -> RewardBreakdown:
+                       weights: RewardWeights = RewardWeights(),
+                       collision_position=None, collision_heading=None) -> RewardBreakdown:
     pos = np.asarray(robot_position, dtype=float)[:2]
     hd = np.asarray(robot_heading, dtype=float)[:2]
     step = grid.res / 2.0
+    # 2026-09-07: the crash footprint may be the BODY at an explicit pose (the
+    # pose the action leads to) instead of a box some distance ahead
+    if collision_position is not None:
+        cpos = np.asarray(collision_position, dtype=float)[:2]
+        chd = np.asarray(collision_heading if collision_heading is not None else robot_heading, dtype=float)[:2]
+        fpc = footprint_samples(cpos, chd, body_length, body_width, step)
+        cc = grid.lookup(fpc).astype(int)
+        cc = np.where(cc < 0, 0, cc)
+        if weights.void_cost > 0:
+            _next_collision_frac = float((non_traversable_mask[cc] & ~(cc == 0)).mean())
+        else:
+            _next_collision_frac = float(non_traversable_mask[cc].mean())
+    else:
+        _next_collision_frac = None
     fp = footprint_samples(pos + look_ahead_dist * hd / (np.linalg.norm(hd) + 1e-9), hd,
                            body_length, body_width, step)
     classes = grid.lookup(fp).astype(int)
@@ -296,7 +311,9 @@ def compute_reward_map(grid: LabelGrid, robot_position: np.ndarray, robot_headin
     counts = np.bincount(classes, minlength=len(traversability_scores))
     dominant = int(np.argmax(counts))
     # near collision box, when the env keeps a separate (closer) one
-    if collision_look_ahead_dist is not None:
+    if _next_collision_frac is not None:
+        collision_frac = _next_collision_frac
+    elif collision_look_ahead_dist is not None:
         fpc = footprint_samples(pos + float(collision_look_ahead_dist) * hd / (np.linalg.norm(hd) + 1e-9),
                                 hd, body_length, body_width, step)
         cc = grid.lookup(fpc).astype(int)

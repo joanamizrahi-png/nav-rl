@@ -101,6 +101,10 @@ def build_env(args):
         goal_support_min_frac=args.goal_support_min_frac,
         collision_look_ahead_m=args.collision_look_ahead,
         collision_box_memory=int(getattr(args, "collision_box_memory", 0)),
+        collision_at_next_pose=bool(getattr(args, "collision_at_next_pose", False)),
+        look_ahead_auto=bool(getattr(args, "look_ahead_auto", False)),
+        footprint_next_heading=bool(getattr(args, "footprint_next_heading", False)),
+        crash_requires_motion=bool(getattr(args, "crash_requires_motion", False)),
         # GND/SCAND clips advance ~1 m per recorded frame vs RUGD's ~0.1 m, so
         # the same goal_frame is a far longer walk there — raise the budget
         # instead of moving the goal (moving it collapses the spawn range).
@@ -333,6 +337,10 @@ def main():
     ap.add_argument("--force_env_keys", type=str, default="",
                     help="comma list of env_config keys the CLI overrides instead of adopting from training")
     ap.add_argument("--collision_box_memory", type=int, default=0)
+    ap.add_argument("--collision_at_next_pose", action="store_true", help="adopted from env_config.json when present")
+    ap.add_argument("--look_ahead_auto", action="store_true", help="adopted from env_config.json when present")
+    ap.add_argument("--footprint_next_heading", action="store_true", help="adopted from env_config.json when present")
+    ap.add_argument("--crash_requires_motion", action="store_true", help="adopted from env_config.json when present")
     ap.add_argument("--expert", choices=["none", "map"], default="none",
                     help="map: drive with the scripted map-reading expert instead of the "
                          "checkpoint's policy and record (frame, goal, action) demos; the "
@@ -470,6 +478,7 @@ def main():
                        # neither, so it was scoring a goal distribution
                        # training never sees.
                        "goal_support_radius_m", "collision_look_ahead_m", "collision_box_memory",
+                       "collision_at_next_pose", "look_ahead_auto", "footprint_next_heading", "crash_requires_motion",
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test
                        "raster_obs", "static_scene", "sem_palette",

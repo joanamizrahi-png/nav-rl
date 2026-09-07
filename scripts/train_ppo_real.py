@@ -517,6 +517,10 @@ def _dump_env_config(args, cfg):
             "look_ahead_dist": cfg.look_ahead_dist,
             "collision_look_ahead_m": cfg.collision_look_ahead_m,
             "collision_box_memory": getattr(cfg, "collision_box_memory", 0),
+            "collision_at_next_pose": bool(getattr(cfg, "collision_at_next_pose", False)),
+            "look_ahead_auto": bool(getattr(cfg, "look_ahead_auto", False)),
+            "footprint_next_heading": bool(getattr(cfg, "footprint_next_heading", False)),
+            "crash_requires_motion": bool(getattr(cfg, "crash_requires_motion", False)),
             "goal_support_radius_m": cfg.goal_support_radius_m,
             "goal_support_min_frac": getattr(cfg, "goal_support_min_frac", 0.25),
             "goal_radius": cfg.goal_radius,
@@ -809,6 +813,10 @@ def _scene_env_cfg(args):
         # the practical floor, not the 0.4 m the geometry alone would suggest.
         collision_look_ahead_m=getattr(args, "collision_look_ahead", 0.0),
         collision_box_memory=int(getattr(args, "collision_box_memory", 0)),
+        collision_at_next_pose=bool(getattr(args, "collision_at_next_pose", False)),
+        look_ahead_auto=bool(getattr(args, "look_ahead_auto", False)),
+        footprint_next_heading=bool(getattr(args, "footprint_next_heading", False)),
+        crash_requires_motion=bool(getattr(args, "crash_requires_motion", False)),
         goal_support_radius_m=getattr(args, "goal_support_radius", 0.0),
         goal_support_min_frac=getattr(args, "goal_support_min_frac", 0.25),
         goal_radius=getattr(args, "goal_radius", 0.75),
@@ -1463,6 +1471,14 @@ def main():
                     help="metres; >0 rejects sampled goals with no ground "
                          "points within this radius and draws again. 14.5%% of "
                          "goals were measured off-cloud (goal_audit.py).")
+    ap.add_argument("--collision_at_next_pose", action="store_true",
+                    help="crash judged on the BODY footprint at the pose the action leads to (map)")
+    ap.add_argument("--footprint_next_heading", action="store_true",
+                    help="orient the visible box by the heading AFTER the commanded turn")
+    ap.add_argument("--crash_requires_motion", action="store_true",
+                    help="the box can only crash while the robot moves (throttle >= 0.15)")
+    ap.add_argument("--look_ahead_auto", action="store_true",
+                    help="graded box at each scene's nearest visible ground (camera height and focal length)")
     ap.add_argument("--collision_box_memory", type=int, default=0,
                     help="read the near box from the newest of the last N generated frames that contains it (0 = off)")
     ap.add_argument("--collision_look_ahead", type=float, default=0.0,

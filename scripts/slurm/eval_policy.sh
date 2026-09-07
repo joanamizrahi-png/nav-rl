@@ -145,6 +145,10 @@ fi
 [ -n "${BOXMEM:-}" ] && { EXTRA_ARGS+=(--collision_box_memory "$BOXMEM"); OUT_SUFFIX="${OUT_SUFFIX}_bm${BOXMEM}"; }
 [ "${RASTEROBS:-0}" = "1" ] && { EXTRA_ARGS+=(--raster_obs); OUT_SUFFIX="${OUT_SUFFIX}_rast"; }
 [ "${STATICSCENE:-0}" = "1" ] && { EXTRA_ARGS+=(--static_scene); OUT_SUFFIX="${OUT_SUFFIX}_static"; }
+[ "${NEXTPOSE:-0}" = "1" ] && { EXTRA_ARGS+=(--collision_at_next_pose); OUT_SUFFIX="${OUT_SUFFIX}_np"; }
+[ "${LOOKAUTO:-0}" = "1" ] && { EXTRA_ARGS+=(--look_ahead_auto); OUT_SUFFIX="${OUT_SUFFIX}_la"; }
+[ "${NEXTHEAD:-0}" = "1" ] && { EXTRA_ARGS+=(--footprint_next_heading); OUT_SUFFIX="${OUT_SUFFIX}_nh"; }
+[ "${CRASHMOVE:-0}" = "1" ] && { EXTRA_ARGS+=(--crash_requires_motion); OUT_SUFFIX="${OUT_SUFFIX}_cm"; }
 # EXPERT=map: the scripted map-reading driver replaces the policy and records
 # demos to <eval dir>/demos.npz (feed to a training arm with LIVE_DEMOS=...).
 [ -n "${EXPERT:-}" ] && { EXTRA_ARGS+=(--expert "$EXPERT"); OUT_SUFFIX="${OUT_SUFFIX}_expert${EXPERT}"; }

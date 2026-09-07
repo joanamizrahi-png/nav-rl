@@ -101,6 +101,25 @@ class SceneEnvConfig:
     # keeps its 1.5 m of warning. Watch reward/collision_off_frame: if the near
     # box misses the frame it falls back and the split is not in effect.
     collision_look_ahead_m: float = 0.0
+    # 2026-09-07 (new scope): judge the CRASH on the body footprint at the pose
+    # the action leads to (yaw then step), on the MAP. "Where the policy would
+    # bring us in the next step" (Joana). A stop cannot crash; a turn changes
+    # the footprint. Replaces the fixed near box when on.
+    collision_at_next_pose: bool = False
+    # 2026-09-07: place the graded (visible) box at the nearest ground the
+    # camera can see, per scene: camera_height * fy / (H - cy) + pad, clamped.
+    # The scenes' focal lengths differ (bottom of image = 1.0-2.0 m ahead).
+    look_ahead_auto: bool = False
+    # 2026-09-07: orient the visible box by the heading AFTER the commanded
+    # turn, so the box is "the ground this action takes us toward"; and only
+    # let that box CRASH when the robot is actually moving (a stop facing
+    # grass is not a collision). Both for the GENERATED-label crash design.
+    footprint_next_heading: bool = False
+    crash_requires_motion: bool = False
+    crash_motion_eps: float = 0.15
+    look_ahead_auto_pad_m: float = 0.3
+    look_ahead_auto_min_m: float = 1.0
+    look_ahead_auto_max_m: float = 2.5
     # Near-box memory (Joana, 2026-09-04): keep the last N generated frames
     # (labels + camera) and read the near box from the newest stored frame that
     # contains it whole, since the near box is below the camera in the current
@@ -784,6 +803,24 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._scene_id = self.scene_ids[idx]
         self.world_backend.load_scene(self._scene_id)
         self._load_obstacle_points(self._scene_id)
+        if bool(self.cfg.look_ahead_auto):
+            # nearest visible ground for THIS scene's camera: h * fy / (H - cy)
+            try:
+                _sc = self.world_backend._cache[self._scene_id]
+                _K = _sc["K"]; _K = _K[0] if getattr(_K, "ndim", 2) == 3 else _K
+                _K = _K.detach().cpu().float().numpy() if hasattr(_K, "detach") else np.asarray(_K, float)
+                _h = float(self.world_backend._calib[self._scene_id].camera_height_m)
+                _H = float(self.world_backend.H)
+                _d = _h * float(_K[1, 1]) / max(_H - float(_K[1, 2]), 1.0)
+                _la = float(np.clip(_d + self.cfg.look_ahead_auto_pad_m, self.cfg.look_ahead_auto_min_m, self.cfg.look_ahead_auto_max_m))
+                if not hasattr(self, "_look_ahead_auto_seen"):
+                    self._look_ahead_auto_seen = {}
+                if self._scene_id not in self._look_ahead_auto_seen:
+                    self._look_ahead_auto_seen[self._scene_id] = _la
+                    print(f"[SceneEnv] look-ahead AUTO on {self._scene_id}: image bottom at {_d:.2f} m -> box centre {_la:.2f} m", flush=True)
+                self.cfg.look_ahead_dist = _la
+            except Exception as _e:
+                print(f"[SceneEnv] look-ahead AUTO failed on {self._scene_id}: {type(_e).__name__}: {_e} (keeping {self.cfg.look_ahead_dist})", flush=True)
 
         if self.cfg.random_spawn and hasattr(self.world_backend, "sample_start_pose"):
             self._robot_pose_world = self.world_backend.sample_start_pose(
@@ -1245,11 +1282,23 @@ class SceneEnv(gym.Env if gym is not None else object):
         robot_position = self._robot_pose_world[:3, 3].copy()
         robot_heading = self._robot_pose_world[:3, :3] @ np.array([1.0, 0.0, 0.0], dtype=np.float32)
 
+        # the pose the action leads to (same kinematics as _advance_pose)
+        _next_pos = _next_hd = None
+        if bool(self.cfg.collision_at_next_pose) or bool(self.cfg.footprint_next_heading):
+            _v = float(action[0]) * self.cfg.step_size_m
+            _w = float(action[1]) * self.cfg.yaw_step_rad
+            _c, _s = np.cos(_w), np.sin(_w)
+            _R = np.array([[_c, -_s, 0.0], [_s, _c, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64)
+            _rot = _R @ self._robot_pose_world[:3, :3].astype(np.float64)
+            _next_hd = _rot @ np.array([1.0, 0.0, 0.0])
+            _next_pos = self._robot_pose_world[:3, 3].astype(np.float64) + _v * _next_hd
         # Footprint direction follows the commanded motion, not the nose
         # (see cfg.footprint_along_motion). Spin-only steps keep forward.
         fp_heading = robot_heading
         if self.cfg.footprint_along_motion and float(action[0]) < 0.0:
             fp_heading = -robot_heading
+        if bool(self.cfg.footprint_next_heading) and _next_hd is not None:
+            fp_heading = np.asarray(_next_hd, dtype=np.float32)
         self._last_fp_heading = fp_heading
 
         # ---- decomposed reward on the CURRENT view + robot pose ----
@@ -1268,7 +1317,8 @@ class SceneEnv(gym.Env if gym is not None else object):
                 look_ahead_dist=self.cfg.look_ahead_dist,
                 collision_look_ahead_dist=(self.cfg.collision_look_ahead_m
                                            if self.cfg.collision_look_ahead_m > 0.0 else None),
-                body_length=GO2_BODY_LENGTH, body_width=GO2_BODY_WIDTH, weights=self.cfg.reward)
+                body_length=GO2_BODY_LENGTH, body_width=GO2_BODY_WIDTH, weights=self.cfg.reward,
+                collision_position=_next_pos, collision_heading=_next_hd)
         breakdown = compute_reward(
             semantic_image=semantic_image,
             frame_memory=(getattr(self, "_frame_memory", None)
@@ -1416,7 +1466,8 @@ class SceneEnv(gym.Env if gym is not None else object):
         crash = 0.0
         if self.cfg.collision_terminate_frac > 0.0:
             frac = -float(breakdown.collision) / max(self.cfg.reward.collision, 1e-6)
-            if frac >= self.cfg.collision_terminate_frac:
+            _moving = (not bool(self.cfg.crash_requires_motion)) or abs(float(action[0])) >= float(self.cfg.crash_motion_eps)
+            if frac >= self.cfg.collision_terminate_frac and _moving:
                 crash = -self.cfg.collision_terminate_penalty
                 truncated = True          # ends the episode, and NOT a success
                 bonus = 0.0
@@ -1561,6 +1612,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         if getattr(self, "_map_vs_gen", None):
             info.update(self._map_vs_gen)
         info["proximity"] = prox_term
+        info["look_ahead_m"] = float(self.cfg.look_ahead_dist)
         info["proximity_ground"] = gprox_term
         info["grass_dist"] = float(getattr(self, "_grass_dist", float("nan")))
         # Always logged, on or off, so the coverage the policy actually
