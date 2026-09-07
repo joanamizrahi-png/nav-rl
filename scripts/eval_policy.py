@@ -70,6 +70,10 @@ def build_env(args):
         spawn_max_frame=args.spawn_max_frame,
         spawn_min_frame=args.spawn_min_frame,
         render_mode="rasterizer_only",
+        static_scene=bool(getattr(args, "static_scene", False)),
+        # 2026-09-07: the backend palette was never set in evals (default v1)
+        # while training passes --sem_palette 4; see the log line "active palette"
+        sem_palette_version=int(getattr(args, "sem_palette", 4)),
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
         H=args.render_height or args.obs_height,
@@ -311,6 +315,7 @@ def main():
     ap.add_argument("--reward_scale", type=float, default=None)
     ap.add_argument("--action_smooth_cost", type=float, default=None)
     ap.add_argument("--spin_cost", type=float, default=None)
+    ap.add_argument("--static_scene", action="store_true", help="adopted from env_config.json when present")
     ap.add_argument("--sem_palette", type=int, default=4,
                     help="colour table for the video semantic panels. MUST "
                          "match the semantics model (v26 = 4, v21 = 1) or the "
@@ -467,7 +472,7 @@ def main():
                        "goal_support_radius_m", "collision_look_ahead_m", "collision_box_memory",
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test
-                       "raster_obs",
+                       "raster_obs", "static_scene",
                        "goal_nontrav_edge_m", "goal_nontrav_tries", "goal_nontrav_cone_deg", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage
@@ -595,6 +600,13 @@ def main():
         if _wr is None or bool(_wr) != bool(args._adopted["raster_obs"]):
             print(f"[eval] REFUSED: training had raster_obs={args._adopted['raster_obs']} "
                   f"but the built backend has {_wr!r} (is this a LIVE=1 eval?)", flush=True)
+            raise SystemExit(3)
+    if "static_scene" in (getattr(args, "_adopted", {}) or {}):
+        _wb = getattr(inner_env.unwrapped, "world_backend", None)
+        _ws = getattr(getattr(_wb, "cfg", None), "static_scene", None)
+        if _ws is None or bool(_ws) != bool(args._adopted["static_scene"]):
+            print(f"[eval] REFUSED: training had static_scene={args._adopted['static_scene']} "
+                  f"but the built backend has {_ws!r}", flush=True)
             raise SystemExit(3)
     if getattr(args, "_adopted", None):
         print(f"[eval] verified {len(args._adopted)} adopted env values against the built env", flush=True)

@@ -521,7 +521,7 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         views = {
             "img": torch.stack([F.to_tensor(im)[None] for im in images[:n]], dim=1).to(device),
             "is_target": torch.zeros((1, n), dtype=torch.bool, device=device),
-            "is_static": torch.zeros((1, n), dtype=torch.bool, device=device),
+            "is_static": (torch.ones if bool(getattr(cfg, "static_scene", False)) else torch.zeros)((1, n), dtype=torch.bool, device=device),
             "timestamp": torch.arange(0, n, dtype=torch.int64, device=device).unsqueeze(0),
             "labels": torch.as_tensor(labels[:n], dtype=torch.long, device=device).unsqueeze(0),
         }

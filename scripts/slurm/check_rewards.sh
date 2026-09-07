@@ -67,6 +67,8 @@ if [ -n "${REPLAY:-}" ]; then
 fi
 # COVSWEEP=1 [COVFRAMES=10,20,...] [COVYAWS=0,15,...]: raster alpha vs yaw offset
 # from the walk direction at walk frames (no diffusion; minutes).
+# STATICSCENE=1: static reconstruction (all frames' Gaussians always rendered)
+[ "${STATICSCENE:-0}" = "1" ] && EXTRA+=(--static_scene)
 if [ "${COVSWEEP:-0}" = "1" ]; then
     EXTRA+=(--cov_sweep)
     [ -n "${COVFRAMES:-}" ] && EXTRA+=(--cov_frames "${COVFRAMES}")

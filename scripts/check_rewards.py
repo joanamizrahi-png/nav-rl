@@ -183,7 +183,7 @@ def render_replay(args):
         scene_video_paths={args.scene: f"{args.clips_dir}/{args.scene}.mp4"},
         scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
-        render_mode="rasterizer_only", sem_palette_version=args.sem_palette,
+        render_mode="rasterizer_only", sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)),
         model_path=args.model_path, reconstructor_path=args.reconstructor_path,
         H=args.height, W=args.width)
     world = BatchedLiveDiffusedBackend(cfg, checkpoint=args.live_ckpt, alpha_gate=False)
@@ -363,7 +363,7 @@ def sweep_coverage(args):
         scene_video_paths={args.scene: f"{args.clips_dir}/{args.scene}.mp4"},
         scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
-        render_mode="rasterizer_only", sem_palette_version=args.sem_palette,
+        render_mode="rasterizer_only", sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)),
         model_path=args.model_path, reconstructor_path=args.reconstructor_path,
         H=args.height, W=args.width)
     world = BatchedLiveDiffusedBackend(cfg, checkpoint=args.live_ckpt, alpha_gate=False, raster_obs=True)
@@ -399,7 +399,7 @@ def render_episodes(args):
         scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
         render_mode="rasterizer_only",
-        sem_palette_version=args.sem_palette,
+        sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)),
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
         H=args.height, W=args.width,
@@ -797,6 +797,8 @@ def main():
     ap.add_argument("--height", type=int, default=336)
     ap.add_argument("--width", type=int, default=560)
     ap.add_argument("--num_steps", type=int, default=4)
+    ap.add_argument("--static_scene", action="store_true",
+                    help="reconstruct as a STATIC scene: every source frame's Gaussians render from any pose")
     ap.add_argument("--sem_palette", type=int, default=1)
     ap.add_argument("--episodes", type=int, default=4)
     ap.add_argument("--steps", type=int, default=8)

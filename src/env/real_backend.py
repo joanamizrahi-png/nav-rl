@@ -167,6 +167,15 @@ class RealWorldBackendConfig:
     H: int = 336
     W: int = 560
     num_frames: int = 81       # frames sampled from source video for reconstruction
+    # STATIC reconstruction (2026-09-07, Joana: "why not use all the frames"):
+    # with is_static=True every Gaussian of every source frame is CONSTANT
+    # (timestamp -1) and renders from any pose at any time, voxel-pruned
+    # across frames. With False (the default so far) WorldMirror classifies
+    # Gaussians by predicted velocity against dynamic_threshold=0, so NONE
+    # are constant and each view draws only the nearest source frame's
+    # Gaussians (plus one neighbour): striped alpha off the walk, and an
+    # abrupt switch every time the nearest frame changes.
+    static_scene: bool = False
 
     # Diffusion config
     use_lora: bool = True      # 4-step distilled LoRA (fast); False = 50 steps
@@ -347,10 +356,10 @@ class RealWorldBackend:
         views = {
             "img": torch.stack([F.to_tensor(im)[None] for im in images], dim=1).to(device),
             "is_target": torch.zeros((1, len(images)), dtype=torch.bool, device=device),
-            "is_static": torch.zeros((1, len(images)), dtype=torch.bool, device=device),
+            "is_static": (torch.ones if bool(getattr(cfg, "static_scene", False)) else torch.zeros)((1, len(images)), dtype=torch.bool, device=device),
             "timestamp": torch.arange(0, len(images), dtype=torch.int64, device=device).unsqueeze(0),
         }
-        print(f"[RealWorldBackend] running reconstructor ...", flush=True)
+        print(f"[RealWorldBackend] running reconstructor ({'STATIC: all frames constant' if bool(getattr(cfg, 'static_scene', False)) else 'dynamic: per-frame Gaussians'}) ...", flush=True)
         free_before, _ = torch.cuda.mem_get_info()
         # torch.no_grad() is CRITICAL: WorldMirror is a 40-layer transformer.
         # Without it, the full forward computation graph is kept alive for
