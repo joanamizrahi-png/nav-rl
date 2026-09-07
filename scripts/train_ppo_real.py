@@ -1513,9 +1513,11 @@ def main():
     ap.add_argument("--goal_dist", type=float, default=None,
                     help="fixed spawn->goal distance in meters (advisor spec)")
     ap.add_argument("--encoder", default="nature",
-                    choices=["nature", "dinov2", "resnet18", "both"],
+                    choices=["nature", "dinov2", "dinov2b", "resnet18", "both"],
                     help="policy visual encoder: SB3 NatureCNN (scratch) or "
                          "a frozen pretrained backbone (advisor ablation)")
+    ap.add_argument("--encoder_grid", type=str, default="",
+                    help='region grid for the frozen ViT patch tokens, e.g. "6x8" (default 3x4)')
     ap.add_argument("--goal_dist_start", type=float, default=None,
                     help="distance curriculum: goals start here and grow to "
                          "--goal_dist as the policy earns wins")
@@ -1760,9 +1762,12 @@ def main():
         policy_kwargs = dict(net_arch=[dict(pi=[64, 64], vf=[64, 64])])
         if getattr(args, "encoder", "nature") != "nature":
             from src.policy.encoders import FrozenBackboneExtractor
+            _fk = dict(backbone=args.encoder)
+            if getattr(args, "encoder_grid", ""):
+                _fk["grid"] = tuple(int(v) for v in str(args.encoder_grid).lower().split("x"))
             policy_kwargs.update(
                 features_extractor_class=FrozenBackboneExtractor,
-                features_extractor_kwargs=dict(backbone=args.encoder))
+                features_extractor_kwargs=_fk)
         model = PPO(
         "MultiInputPolicy", env,
         policy_kwargs=policy_kwargs,

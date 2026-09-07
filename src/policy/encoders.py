@@ -11,7 +11,11 @@ This module provides a frozen-pretrained alternative for the Dict obs
 
   backbone="dinov2":   ViT-S/14 self-supervised features (layout/geometry;
                        our 336x224 divides by the 14-px patches exactly).
+  backbone="dinov2b":  ViT-B/14, 768-d tokens, ~3x the cost (2026-09-07:
+                       the capacity row of the ablation).
   backbone="resnet18": ImageNet-supervised baseline row for the ablation.
+  grid=(gh, gw):       region grid the patch tokens are pooled into; 3x4 by
+                       default, 6x8 keeps narrow gaps from vanishing in a cell.
 
 Both run FROZEN (requires_grad=False, eval mode) with the same small linear
 head, so the comparison isolates feature quality; PPO only trains the head +
@@ -35,19 +39,25 @@ class FrozenBackboneExtractor(BaseFeaturesExtractor):
     GRID = (3, 4)   # D1 (Joana 2026-08-30): pool DINOv2 patches into a 3x4
                     # region grid — location survives ("tree on my LEFT"),
                     # which mean-pooling destroys and avoidance needs.
+    DINO = {"dinov2": ("dinov2_vits14", 384), "dinov2b": ("dinov2_vitb14", 768)}
 
     def __init__(self, observation_space: gym.spaces.Dict,
-                 backbone: str = "dinov2", head_dim: int = 256):
+                 backbone: str = "dinov2", head_dim: int = 256,
+                 grid: "tuple[int, int] | None" = None):
         goal_dim = int(observation_space["goal"].shape[0])
         super().__init__(observation_space, features_dim=head_dim + goal_dim)
         self.backbone_name = backbone
+        self.grid = tuple(int(v) for v in grid) if grid else self.GRID
         self.dino = self.resnet = None
+        self.dino_dim = 0
         feat_dim = 0
-        gh, gw = self.GRID
-        if backbone in ("dinov2", "both"):
-            self.dino = torch.hub.load("facebookresearch/dinov2",
-                                       "dinov2_vits14")
-            feat_dim += 384 + 384 * gh * gw   # CLS + 3x4 region grid
+        gh, gw = self.grid
+        if backbone in self.DINO or backbone == "both":
+            name, self.dino_dim = self.DINO.get(backbone, self.DINO["dinov2"])
+            self.dino = torch.hub.load("facebookresearch/dinov2", name)
+            feat_dim += self.dino_dim * (1 + gh * gw)   # CLS + region grid
+            print(f"[FrozenBackboneExtractor] {name} frozen, {self.dino_dim}-d tokens, "
+                  f"{gh}x{gw} region grid -> {feat_dim} features -> {head_dim}", flush=True)
         if backbone in ("resnet18", "both"):
             from torchvision.models import resnet18, ResNet18_Weights
             net = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
@@ -74,14 +84,14 @@ class FrozenBackboneExtractor(BaseFeaturesExtractor):
         rgb = obs["rgb"].float() / 255.0      # [B,3,H,W] via VecTransposeImage
         rgb = (rgb - IMAGENET_MEAN.to(rgb.device)) / IMAGENET_STD.to(rgb.device)
         parts = []
-        gh, gw = self.GRID
+        gh, gw = self.grid
         with torch.no_grad():
             if self.dino is not None:
                 out = self.dino.forward_features(rgb)
-                tok = out["x_norm_patchtokens"]           # [B, ph*pw, 384]
+                tok = out["x_norm_patchtokens"]           # [B, ph*pw, D]
                 b = tok.shape[0]
                 ph, pw = rgb.shape[-2] // 14, rgb.shape[-1] // 14
-                grid = tok.transpose(1, 2).reshape(b, 384, ph, pw)
+                grid = tok.transpose(1, 2).reshape(b, self.dino_dim, ph, pw)
                 grid = torch.nn.functional.adaptive_avg_pool2d(grid, (gh, gw))
                 parts += [out["x_norm_clstoken"], grid.flatten(1)]
             if self.resnet is not None:
