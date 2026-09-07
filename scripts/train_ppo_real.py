@@ -1527,7 +1527,7 @@ def main():
     ap.add_argument("--ckpt_every_calls", type=int, default=2000,
                     help="checkpoint every N env calls (x n_envs = steps); 2000 x 4 = 8000 steps")
     ap.add_argument("--reward_source", default="generated",
-                    choices=("generated", "map", "map_then_generated"),
+                    choices=("generated", "map", "map_then_generated", "split"),
                     help="labels the reward reads: the generated image, or the scene cloud map")
     ap.add_argument("--map_res_m", type=float, default=0.1)
     ap.add_argument("--map_fallback_void_frac", type=float, default=0.5)

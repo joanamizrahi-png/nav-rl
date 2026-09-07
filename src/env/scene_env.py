@@ -1318,6 +1318,16 @@ class SceneEnv(gym.Env if gym is not None else object):
             }
         if self.cfg.reward_source == "map":
             breakdown = breakdown_map
+        elif self.cfg.reward_source == "split":
+            # 2026-09-07 (new scope): the graded TERRAIN term reads the generated
+            # labels (what the policy sees), the CRASH term (near box) reads the
+            # MAP. The near box sits below the camera, so from the image it can
+            # only come through the frame memory (hit 20-80%), and a box that
+            # swaps between "remembered frame" and "far box fallback" from step
+            # to step is a moving target; the map judges it identically every step.
+            import dataclasses
+            breakdown = dataclasses.replace(breakdown, collision=breakdown_map.collision,
+                                            void_frac=breakdown_map.void_frac)
         elif self.cfg.reward_source == "map_then_generated":
             # the map where it has support; the image only where the footprint
             # is mostly off the reconstruction AND the view is still well

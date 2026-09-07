@@ -359,10 +359,11 @@ def sweep_coverage(args):
     only, the diffusion model is never loaded. Says how far off the walk the
     camera can look before the view is mostly invented -- the number that
     should set the lawn-goal cone, instead of a guess."""
+    scenes = [v.strip() for v in str(args.scene).split(",") if v.strip()]   # SCENE may be a comma list
     cfg = CalibratedBackendConfig(
-        scene_video_paths={args.scene: f"{args.clips_dir}/{args.scene}.mp4"},
-        scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
-        scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
+        scene_video_paths={sc: f"{args.clips_dir}/{sc}.mp4" for sc in scenes},
+        scene_poses_paths={sc: f"{args.poses_dir}/{sc}_poses.npz" for sc in scenes},
+        scene_labels_paths={sc: f"{args.labels_dir}/{sc}.npz" for sc in scenes},
         render_mode="rasterizer_only", sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)),
         model_path=args.model_path, reconstructor_path=args.reconstructor_path,
         H=args.height, W=args.width)
@@ -372,45 +373,57 @@ def sweep_coverage(args):
     pics = bool(getattr(args, "cov_pictures", False))
     world = BatchedLiveDiffusedBackend(cfg, checkpoint=args.live_ckpt, alpha_gate=False, raster_obs=not pics)
     world.num_inference_steps = args.num_steps
-    world.load_scene(args.scene)
-    c = np.load(Path(args.clouds_dir) / f"{args.scene}_cloud.npz")
-    walk = (np.asarray(c["traj_positions"], np.float32) * np.array([1.0, -1.0, 1.0], np.float32))[:, :2]
-    frames = [int(v) for v in str(args.cov_frames).split(",") if v.strip() and int(v) < len(walk) - 1]
-    yaws = [float(v) for v in str(args.cov_yaws).split(",") if v.strip()]
-    if pics:
-        import cv2
-        from src.eval.palette import display_palette
-        _pal = display_palette(args.sem_palette)
-        od = Path(args.out_dir) if getattr(args, "out_dir", None) else Path("/scratch/m000204-pm06b/joana/outputs/check_rewards") / f"covsweep_{args.scene}"
-        od.mkdir(parents=True, exist_ok=True)
-    print(f"=== COVERAGE SWEEP {args.scene}: frames {frames}, yaw offsets {yaws} deg", flush=True)
-    print("frame  " + " ".join(f"{y:>+9.0f}" for y in yaws) + "   (mean alpha / near-ground alpha)", flush=True)
-    per_yaw = {y: [] for y in yaws}; per_yaw_g = {y: [] for y in yaws}
-    for f in frames:
-        dv = walk[min(f + 1, len(walk) - 1)] - walk[f]; yaw0 = float(np.arctan2(dv[1], dv[0]))
-        row = []
-        for y in yaws:
-            pose = pose_at(walk[f], yaw0 + np.deg2rad(y))
-            world._hists = {}                       # fresh history: each view stands alone
-            (rgb_g, _, _, lab_g) = world.render_batch([(0, pose)])[0]
-            a = np.asarray(world.last_alpha[0], dtype=np.float32)
-            if pics:
-                ras = world.last_raster[0] if getattr(world, "last_raster", None) else np.zeros_like(rgb_g)
-                li = np.clip(np.asarray(lab_g, dtype=int), 0, len(_pal) - 1)
-                semc = _pal[li].astype(np.uint8)
-                apan = np.repeat((np.clip(a, 0, 1) * 255).astype(np.uint8)[:, :, None], 3, axis=2)
-                tiles = [np.ascontiguousarray(t[:, :, ::-1]).copy() for t in (ras, rgb_g, semc)] + [apan]
-                for t, nm in zip(tiles, ("RASTER", "DIFFUSED RGB", "GENERATED semantics", "alpha")):
-                    cv2.putText(t, nm, (8, t.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-                pan = np.concatenate(tiles, axis=1)
-                cv2.putText(pan, f"{args.scene} frame {f} yaw {y:+.0f} deg  {'STATIC' if getattr(cfg, 'static_scene', False) else 'dynamic'} scene  alpha {float(a.mean()):.2f}",
-                            (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
-                cv2.imwrite(str(od / f"COV_{args.scene}_{'static' if getattr(cfg, 'static_scene', False) else 'dynamic'}_f{f:02d}_yaw{int(y):+04d}.png"), pan)
-            m_all = float(a.mean()); m_gnd = float(a[int(a.shape[0] * 2 / 3):].mean())
-            per_yaw[y].append(m_all); per_yaw_g[y].append(m_gnd)
-            row.append(f"{m_all:.2f}/{m_gnd:.2f}")
-        print(f"{f:>5}  " + " ".join(f"{r:>9}" for r in row), flush=True)
-    print("MEAN   " + " ".join(f"{np.mean(per_yaw[y]):.2f}/{np.mean(per_yaw_g[y]):.2f}".rjust(9) for y in yaws), flush=True)
+    grand = {}
+    for sc in scenes:
+      args.scene = sc
+      world.load_scene(sc)
+      if not pics:
+          world._cache = {k: v for k, v in world._cache.items() if k == sc}   # one resident scene at a time
+      c = np.load(Path(args.clouds_dir) / f"{sc}_cloud.npz")
+      walk = (np.asarray(c["traj_positions"], np.float32) * np.array([1.0, -1.0, 1.0], np.float32))[:, :2]
+      frames = [int(v) for v in str(args.cov_frames).split(",") if v.strip() and int(v) < len(walk) - 1]
+      yaws = [float(v) for v in str(args.cov_yaws).split(",") if v.strip()]
+      if pics:
+          import cv2
+          from src.eval.palette import display_palette
+          _pal = display_palette(args.sem_palette)
+          od = Path(args.out_dir) if getattr(args, "out_dir", None) else Path("/scratch/m000204-pm06b/joana/outputs/check_rewards") / f"covsweep_{args.scene}"
+          od.mkdir(parents=True, exist_ok=True)
+      print(f"=== COVERAGE SWEEP {args.scene}: frames {frames}, yaw offsets {yaws} deg", flush=True)
+      print("frame  " + " ".join(f"{y:>+9.0f}" for y in yaws) + "   (mean alpha / near-ground alpha)", flush=True)
+      per_yaw = {y: [] for y in yaws}; per_yaw_g = {y: [] for y in yaws}
+      for f in frames:
+          dv = walk[min(f + 1, len(walk) - 1)] - walk[f]; yaw0 = float(np.arctan2(dv[1], dv[0]))
+          row = []
+          for y in yaws:
+              pose = pose_at(walk[f], yaw0 + np.deg2rad(y))
+              world._hists = {}                       # fresh history: each view stands alone
+              (rgb_g, _, _, lab_g) = world.render_batch([(0, pose)])[0]
+              a = np.asarray(world.last_alpha[0], dtype=np.float32)
+              if pics:
+                  ras = world.last_raster[0] if getattr(world, "last_raster", None) else np.zeros_like(rgb_g)
+                  li = np.clip(np.asarray(lab_g, dtype=int), 0, len(_pal) - 1)
+                  semc = _pal[li].astype(np.uint8)
+                  apan = np.repeat((np.clip(a, 0, 1) * 255).astype(np.uint8)[:, :, None], 3, axis=2)
+                  tiles = [np.ascontiguousarray(t[:, :, ::-1]).copy() for t in (ras, rgb_g, semc)] + [apan]
+                  for t, nm in zip(tiles, ("RASTER", "DIFFUSED RGB", "GENERATED semantics", "alpha")):
+                      cv2.putText(t, nm, (8, t.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+                  pan = np.concatenate(tiles, axis=1)
+                  cv2.putText(pan, f"{args.scene} frame {f} yaw {y:+.0f} deg  {'STATIC' if getattr(cfg, 'static_scene', False) else 'dynamic'} scene  alpha {float(a.mean()):.2f}",
+                              (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+                  cv2.imwrite(str(od / f"COV_{args.scene}_{'static' if getattr(cfg, 'static_scene', False) else 'dynamic'}_f{f:02d}_yaw{int(y):+04d}.png"), pan)
+              m_all = float(a.mean()); m_gnd = float(a[int(a.shape[0] * 2 / 3):].mean())
+              per_yaw[y].append(m_all); per_yaw_g[y].append(m_gnd)
+              row.append(f"{m_all:.2f}/{m_gnd:.2f}")
+          print(f"{f:>5}  " + " ".join(f"{r:>9}" for r in row), flush=True)
+      print("MEAN   " + " ".join(f"{np.mean(per_yaw[y]):.2f}/{np.mean(per_yaw_g[y]):.2f}".rjust(9) for y in yaws), flush=True)
+      grand[sc] = {y: (float(np.mean(per_yaw[y])), float(np.mean(per_yaw_g[y]))) for y in yaws}
+
+
+    print("=== GRAND TABLE (near-ground alpha) ===", flush=True)
+    print(f"{'scene':16s} " + " ".join(f"{y:>+6.0f}" for y in yaws), flush=True)
+    for sc, row in grand.items():
+        print(f"{sc:16s} " + " ".join(f"{row[y][1]:6.2f}" for y in yaws), flush=True)
     print("==> coverage sweep done", flush=True)
 
 

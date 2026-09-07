@@ -285,7 +285,7 @@ def main():
     ap.add_argument("--halt_penalty_scale", type=float, default=1.0)
     ap.add_argument("--terrain_speed_scaled", action="store_true")
     ap.add_argument("--reward_source", default="generated",
-                    choices=("generated", "map", "map_then_generated"))
+                    choices=("generated", "map", "map_then_generated", "split"))
     ap.add_argument("--map_res_m", type=float, default=0.1)
     ap.add_argument("--map_fallback_void_frac", type=float, default=0.5)
     ap.add_argument("--map_fallback_min_alpha", type=float, default=0.4)
