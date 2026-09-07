@@ -131,6 +131,8 @@ def main():
     ap.add_argument("--scenes", nargs="+", required=True)
     ap.add_argument("--clouds_dir", default="/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds")
     ap.add_argument("--poses_dir", default="/scratch/m000204-pm06b/joana/outputs/poses", help="draw the RECORDED camera heading (grey) beside the walk direction (orange) at each spawn frame")
+    ap.add_argument("--heading", choices=["recorded", "walk"], default="recorded",
+                    help="which heading centres the cone and orients the spawn: recorded = the env default (camera yaw from the poses file); walk = SPAWNHEADWALK=1")
     ap.add_argument("--trav", default="config/traversability_v14_walkway.yaml")
     ap.add_argument("--out_dir", required=True)
     ap.add_argument("--frames", default="10,20,30,40,50,60,70", help="spawn frames along the walk")
@@ -180,8 +182,14 @@ def main():
         pairs = []
         frame_notes = {}          # why a spawn frame produced nothing (Joana: "why no goals from frame 10?")
         req_frames = [int(v) for v in args.frames.split(",") if int(v) < len(walk) - 1]
+        def spawn_yaw(f):
+            dv = walk[min(f + 2, len(walk) - 1)] - walk[max(f - 2, 0)]
+            yaw_w = float(np.arctan2(dv[1], dv[0]))
+            if args.heading == "recorded" and rec_hd is not None and f < len(rec_hd):
+                return float(np.arctan2(rec_hd[f][1], rec_hd[f][0])), yaw_w
+            return yaw_w, yaw_w
         for f in req_frames:
-            s = walk[f]; dv = walk[min(f + 1, len(walk) - 1)] - walk[f]; yaw = float(np.arctan2(dv[1], dv[0]))
+            s = walk[f]; yaw, _ = spawn_yaw(f)
             sc_ij = cell(s)
             if not inb(sc_ij):
                 frame_notes[f] = "spawn outside the map"; continue
@@ -262,7 +270,7 @@ def main():
             # class, the walkable path drawn for a few corner cases
             got = set(r["frame"] for r in pairs)
             for f in req_frames:
-                sp = walk[f]; dv = walk[min(f + 1, len(walk) - 1)] - walk[f]; yaw = float(np.arctan2(dv[1], dv[0]))
+                sp = walk[f]; yaw, yaw_w = spawn_yaw(f)
                 if f not in got:
                     ax.plot(sp[0], sp[1], "x", c="#7f7f7f", ms=9, mew=2)
                     ax.annotate(f"{f}: {frame_notes.get(f, 'no goals')}", (sp[0], sp[1]), xytext=(6, -12), textcoords="offset points", fontsize=7, color="#7f7f7f")
@@ -279,10 +287,12 @@ def main():
                 # grey = the recorded camera heading (the old spawn), angle between them
                 ax.arrow(sp[0], sp[1], 2.5 * np.cos(yaw), 2.5 * np.sin(yaw), color="#e6550d", width=0.12, head_width=0.6, length_includes_head=True, zorder=5)
                 lab = str(f)
-                if rec_hd is not None and f < len(rec_hd):
-                    rh = rec_hd[f]
-                    ax.arrow(sp[0], sp[1], 2.5 * rh[0], 2.5 * rh[1], color="#333333", width=0.09, head_width=0.5, length_includes_head=True, alpha=0.9, zorder=5)
-                    dang = np.degrees(np.arctan2(rh[0] * np.sin(yaw) - rh[1] * np.cos(yaw), rh[0] * np.cos(yaw) + rh[1] * np.sin(yaw)))
+                # grey = the OTHER heading (walk direction when spawning on the
+                # recorded yaw, recorded yaw when spawning on the walk direction)
+                other = yaw_w if args.heading == "recorded" else (float(np.arctan2(rec_hd[f][1], rec_hd[f][0])) if (rec_hd is not None and f < len(rec_hd)) else None)
+                if other is not None:
+                    ax.arrow(sp[0], sp[1], 2.5 * np.cos(other), 2.5 * np.sin(other), color="#333333", width=0.09, head_width=0.5, length_includes_head=True, alpha=0.9, zorder=5)
+                    dang = np.degrees(np.arctan2(np.sin(other - yaw), np.cos(other - yaw)))
                     lab = f"{f} ({dang:+.0f} deg)"
                 ax.annotate(lab, (sp[0], sp[1]), xytext=(6, 6), textcoords="offset points", fontsize=11, fontweight="bold", color="#e6550d", bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.7))
             for r in pairs:
@@ -297,7 +307,7 @@ def main():
             for k, cc in col.items():
                 ax.plot([], [], ".", c=cc, ms=8, label=f"{k} {counts.get(k, 0)}")
             ax.legend(loc="upper right"); ax.set_aspect("equal")
-            ax.set_title(f"{sc}: goals {lo}-{hi} m in the {args.cone:.0f} deg cone from each spawn frame; orange arrow = walk direction (spawn heading), grey = recorded camera heading; dots = goals by class")
+            ax.set_title(f"{sc}: goals {lo}-{hi} m in the {args.cone:.0f} deg cone from each spawn frame; orange arrow = SPAWN heading ({args.heading}), grey = the other heading, (angle between); dots = goals by class")
             fig.savefig(out / f"{sc}_goal_cases.png", dpi=110, bbox_inches="tight"); plt.close(fig)
     with open(out / "summary.json", "w") as fh:
         json.dump(summary, fh, indent=1)
