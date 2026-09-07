@@ -233,20 +233,33 @@ def main():
             ax.imshow(b, origin="lower", extent=ext, cmap="gray", vmin=0, vmax=1, interpolation="nearest")
             ax.plot(walk[:, 0], walk[:, 1], "-", c="#e6550d", lw=1.2, label="recorded walk")
             col = {"open": "#2ca02c", "corner": "#ff7f0e", "narrow": "#1f77b4", "corner+narrow": "#9467bd", "blocked": "#7f7f7f"}
-            shown = {}
+            # the GOAL VERSION (Joana, 2026-09-07): every spawn frame with its
+            # cone wedge (window lo-hi), every sampled goal as a dot coloured by
+            # class, the walkable path drawn for a few corner cases
+            spawn_frames = sorted(set(r["frame"] for r in pairs))
+            for f in spawn_frames:
+                sp = walk[f]; dv = walk[min(f + 1, len(walk) - 1)] - walk[f]; yaw = float(np.arctan2(dv[1], dv[0]))
+                a0, a1 = yaw - np.deg2rad(args.cone) / 2, yaw + np.deg2rad(args.cone) / 2
+                ang = np.linspace(a0, a1, 24)
+                outer = np.c_[sp[0] + hi * np.cos(ang), sp[1] + hi * np.sin(ang)]
+                inner = np.c_[sp[0] + lo * np.cos(ang[::-1]), sp[1] + lo * np.sin(ang[::-1])]
+                wedge = np.vstack([outer, inner, outer[:1]])
+                ax.plot(wedge[:, 0], wedge[:, 1], "-", c="#e6550d", lw=0.6, alpha=0.5)
+                ax.plot(sp[0], sp[1], "o", c="#e6550d", ms=5)
+                ax.annotate(str(f), (sp[0], sp[1]), xytext=(4, 4), textcoords="offset points", fontsize=8, color="#e6550d")
             for r in pairs:
-                k = r["cls"]
-                if shown.get(k, 0) >= 12:
-                    continue
-                shown[k] = shown.get(k, 0) + 1
-                ax.plot([r["spawn"][0], r["goal"][0]], [r["spawn"][1], r["goal"][1]], "-", c=col[k], lw=0.8, alpha=0.6)
-                ax.plot(r["goal"][0], r["goal"][1], "*", c=col[k], ms=9)
-                if "path" in r:
-                    pp = np.asarray(r["path"]); ax.plot(pp[:, 0], pp[:, 1], "--", c=col[k], lw=1.0, alpha=0.9)
+                ax.plot(r["goal"][0], r["goal"][1], ".", c=col[r["cls"]], ms=5, alpha=0.7)
+            shown = 0
+            for r in pairs:
+                if r["cls"].startswith("corner") and "path" in r and shown < 12:
+                    shown += 1
+                    pp = np.asarray(r["path"]); ax.plot(pp[:, 0], pp[:, 1], "--", c=col[r["cls"]], lw=1.0, alpha=0.9)
+                    ax.plot([r["spawn"][0], r["goal"][0]], [r["spawn"][1], r["goal"][1]], "-", c=col[r["cls"]], lw=0.8, alpha=0.6)
+                    ax.plot(r["goal"][0], r["goal"][1], "*", c=col[r["cls"]], ms=11)
             for k, cc in col.items():
-                ax.plot([], [], "-", c=cc, label=f"{k} {counts.get(k, 0)}")
+                ax.plot([], [], ".", c=cc, ms=8, label=f"{k} {counts.get(k, 0)}")
             ax.legend(loc="upper right"); ax.set_aspect("equal")
-            ax.set_title(f"{sc}: goal cases, window {lo}-{hi} m, cone {args.cone} deg, narrow < {args.narrow_m} m (dashed = walkable path around)")
+            ax.set_title(f"{sc}: goals {lo}-{hi} m in the {args.cone:.0f} deg cone from each spawn frame (orange wedges); dots = sampled goals by class; dashed = walkable path around a corner")
             fig.savefig(out / f"{sc}_goal_cases.png", dpi=110, bbox_inches="tight"); plt.close(fig)
     with open(out / "summary.json", "w") as fh:
         json.dump(summary, fh, indent=1)
