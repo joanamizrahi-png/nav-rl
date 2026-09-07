@@ -71,8 +71,10 @@ fi
 [ "${STATICSCENE:-0}" = "1" ] && EXTRA+=(--static_scene)
 if [ "${COVSWEEP:-0}" = "1" ]; then
     EXTRA+=(--cov_sweep)
-    [ -n "${COVFRAMES:-}" ] && EXTRA+=(--cov_frames "${COVFRAMES}")
-    [ -n "${COVYAWS:-}" ] && EXTRA+=(--cov_yaws "${COVYAWS}")
+    # '=' form: a yaw list starting with '-' (e.g. -90,-60,...) is otherwise
+    # read by argparse as an option name (470307/470308 died on it)
+    [ -n "${COVFRAMES:-}" ] && EXTRA+=(--cov_frames="${COVFRAMES}")
+    [ -n "${COVYAWS:-}" ] && EXTRA+=(--cov_yaws="${COVYAWS}")
     [ "${COVPICS:-0}" = "1" ] && EXTRA+=(--cov_pictures)
     [ -n "${OUTDIR:-}" ] && EXTRA+=(--out_dir "${OUTDIR}")
 fi

@@ -36,11 +36,13 @@ for s in $SCENES; do
 done
 echo "==> clips: $SCENES (from $CLIPS_DIR via $TMP)"
 cd "$NEOVERSE"
+# SAM3 lives in its own conda env (sam3_new_clips.sh uses it); the remap and
+# the poses use the neoverse env
 for s in $SCENES; do
     echo "==== SAM3 $s ===="
-    python sam3_precompute_labels.py --input_path "$TMP/$s.mp4"
+    /users/jmizrahi/.conda/envs/sam3/bin/python sam3_precompute_labels.py --input_path "$TMP/$s.mp4"
 done
-python scripts/remap_labels_to_v14.py --dirs outputs/sam3_labels
+/users/jmizrahi/.conda/envs/neoverse/bin/python scripts/remap_labels_to_v14.py --dirs outputs/sam3_labels
 for s in $SCENES; do
     [ -f "$NEOVERSE/outputs/sam3_labels_v14/$s.npz" ] && echo "labels ok: $s" || echo "MISSING labels: $s"
 done
