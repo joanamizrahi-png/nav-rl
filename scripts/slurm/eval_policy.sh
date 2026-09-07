@@ -154,6 +154,7 @@ fi
 [ -n "${EXPERT:-}" ] && { EXTRA_ARGS+=(--expert "$EXPERT"); OUT_SUFFIX="${OUT_SUFFIX}_expert${EXPERT}"; }
 [ "${KEEPFAILED:-0}" = "1" ] && EXTRA_ARGS+=(--keep_failed_demos)
 [ -n "${FORCEKEYS:-}" ] && { EXTRA_ARGS+=(--force_env_keys "$FORCEKEYS"); OUT_SUFFIX="${OUT_SUFFIX}_forced"; }
+[ "${NOADOPT:-0}" = "1" ] && { EXTRA_ARGS+=(--no_adopt); OUT_SUFFIX="${OUT_SUFFIX}_noadopt"; }
 
 # Reward weights, so the reported `return=` is on TRAINING's scale. They do not
 # change a frozen policy's actions, but a return computed with goal_bonus 50

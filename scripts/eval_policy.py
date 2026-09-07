@@ -334,6 +334,8 @@ def main():
                     help="reject goals with no cloud support within this "
                          "radius, as training does. Adopted from "
                          "env_config.json when present.")
+    ap.add_argument("--no_adopt", action="store_true",
+                    help="do NOT adopt env values from the checkpoint's env_config (mechanism checks with --expert)")
     ap.add_argument("--force_env_keys", type=str, default="",
                     help="comma list of env_config keys the CLI overrides instead of adopting from training")
     ap.add_argument("--collision_box_memory", type=int, default=0)
@@ -435,7 +437,11 @@ def main():
         import json as _json
         _run = Path(args.checkpoint).resolve().parents[1]
         _ec = _run / "env_config.json"
-        if _ec.exists():
+        if getattr(args, "no_adopt", False):
+            # mechanism checks (2026-09-07): the env comes from the CLI only; the
+            # checkpoint supplies resolution and, with --expert, nothing else
+            print(f"[eval] adoption SKIPPED (--no_adopt): env built from the CLI, not from {_ec}", flush=True)
+        elif _ec.exists():
             _tr = _json.loads(_ec.read_text())
             # collision_terminate_* belong here too: training ENDS the
             # episode at >=0.35 footprint non-traversable, eval defaulted to 0
