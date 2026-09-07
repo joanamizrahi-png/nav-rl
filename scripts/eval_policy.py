@@ -182,6 +182,7 @@ def build_env(args):
         goal_case_tries=int(getattr(args, "goal_case_tries", 24)),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
+        label_remap=str(getattr(args, "label_remap", "") or ""),
         random_spawn=True,
         trav_path=args.trav_path,
         collision_terminate_frac=args.collision_terminate_frac,
@@ -317,6 +318,7 @@ def main():
                     help="P(goal on traversable ground by the map); 0 = the sampler's natural mix")
     ap.add_argument("--map_walk_halfwidth_m", type=float, default=0.4)
     ap.add_argument("--map_ignore_classes", default="")
+    ap.add_argument("--label_remap", type=str, default="", help="adopted from env_config.json when present")
     ap.add_argument("--goal_radius", type=float, default=None,
                     help="arrival radius; training's FINAL value, not its start")
     ap.add_argument("--semantic_weight", type=float, default=None)
@@ -495,7 +497,7 @@ def main():
                        "collision_at_next_pose", "look_ahead_auto", "footprint_next_heading", "crash_requires_motion",
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test
-                       "raster_obs", "static_scene", "sem_palette", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix",
+                       "raster_obs", "static_scene", "sem_palette", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix", "label_remap",
                        "goal_nontrav_edge_m", "goal_nontrav_tries", "goal_nontrav_cone_deg", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage

@@ -428,6 +428,13 @@ class SceneEnvConfig:
     map_fill_max_area_m2: float = 10.0  # fill ENCLOSED void regions up to this area entirely
     map_walk_halfwidth_m: float = 0.4   # the recorded walk is walkable, this far each side
     map_ignore_classes: str = ""      # e.g. "12,13" to keep person/vehicle from voting; default: they
+    # 2026-09-07: remap GENERATED label ids before the reward reads them,
+    # "src:dst,src:dst". Measured on 126 static sweep panels: v26 e10 paints
+    # class 12 "person" (magenta, road-purple's palette neighbour) over
+    # 0.2-0.5 of the crash box on static renders of pedestrian-free scenes --
+    # phantom crashes. "12:0" makes it void (small void cost, never certified
+    # walkable); "12:7" makes it road. Temporary until the v30 label head.
+    label_remap: str = ""
     #                                   count, since the generator renders them too and the walk corridor
     #                                   already clears the ones standing on the recorded path
     # Trajectory output (plan-B arm, 2026-08-25): the policy emits k action
@@ -1135,6 +1142,24 @@ class SceneEnv(gym.Env if gym is not None else object):
         # only `d` hid the near end, which the sliding window moves.
         return getattr(cfg, "goal_dist_range", None)
 
+    def _remap_labels(self, labels):
+        """Apply cfg.label_remap ("12:0,13:0") to a label image via a LUT;
+        identity when unset. Counts remapped pixels for the diagnostics."""
+        spec = str(getattr(self.cfg, "label_remap", "") or "").strip()
+        if not spec or labels is None:
+            return labels
+        lut = getattr(self, "_label_lut", None)
+        if lut is None:
+            lut = np.arange(256, dtype=np.int32)
+            for tok in spec.split(","):
+                a, b = tok.split(":"); lut[int(a)] = int(b)
+            self._label_lut = lut
+            print(f"[SceneEnv] label remap active on the reward labels: {spec}", flush=True)
+        lab = np.asarray(labels).astype(np.int32)
+        out = lut[np.clip(lab, 0, 255)]
+        self._label_remapped_frac = float((out != lab).mean())
+        return out.astype(labels.dtype) if hasattr(labels, "dtype") else out
+
     def inject_render(self, rgb: np.ndarray, K: np.ndarray, w2c: np.ndarray,
                       labels: "np.ndarray | None" = None,
                       coverage: "float | None" = None) -> None:
@@ -1343,7 +1368,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             action[0] = 0.0                  # stop means stop: no motion this step
 
         # Semantic labels for the current view (from mock cache OR real segmenter).
-        semantic_image = self.semantic_backend.segment(self._last_rgb)
+        semantic_image = self._remap_labels(self.semantic_backend.segment(self._last_rgb))
 
         # Extract robot position + heading from the 4x4 pose. Heading = local +x
         # of the robot (its "forward"), transformed to world coords.

@@ -596,6 +596,7 @@ def _dump_env_config(args, cfg):
             "spawn_heading_from_walk": bool(getattr(args, "spawn_heading_from_walk", False)),
             "spawn_frames": str(getattr(args, "spawn_frames", "") or ""),
             "goal_case_mix": str(getattr(args, "goal_case_mix", "") or ""),
+            "label_remap": str(getattr(args, "label_remap", "") or ""),
             "goal_case_tries": int(getattr(args, "goal_case_tries", 24)),
             # 2026-09-07: the palette the generator's conditioning is colorized
             # with. Evals adopt it; they ran v1 against training's v4 until today.
@@ -887,6 +888,7 @@ def _scene_env_cfg(args):
         goal_case_tries=int(getattr(args, "goal_case_tries", 24)),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
+        label_remap=str(getattr(args, "label_remap", "") or ""),
         timeout_distance_scaled=getattr(args, "timeout_distance_scaled", False),
         reward_scale=getattr(args, "reward_scale", 1.0),
         random_spawn=True,
@@ -1581,6 +1583,8 @@ def main():
                     help="P(goal on traversable ground by the map); 0 = the sampler's natural mix")
     ap.add_argument("--map_walk_halfwidth_m", type=float, default=0.4)
     ap.add_argument("--map_ignore_classes", default="")
+    ap.add_argument("--label_remap", type=str, default="",
+                    help='remap GENERATED label ids before the reward reads them, e.g. "12:0" (phantom person -> void; 2026-09-07)')
     ap.add_argument("--terrain_speed_scaled", action="store_true",
                     help="terrain cost x |throttle|: driving onto bad ground costs, facing it does not")
     ap.add_argument("--halt_gate", action="store_true",

@@ -148,6 +148,7 @@ fi
 [ "${SPAWNHEADWALK:-0}" = "1" ] && { EXTRA_ARGS+=(--spawn_heading_from_walk); OUT_SUFFIX="${OUT_SUFFIX}_shw"; }
 [ -n "${SPAWNFRAMES:-}" ] && { EXTRA_ARGS+=(--spawn_frames "$SPAWNFRAMES"); OUT_SUFFIX="${OUT_SUFFIX}_sf"; }
 [ -n "${GOALCASE:-}" ] && { EXTRA_ARGS+=(--goal_case_mix "$GOALCASE"); OUT_SUFFIX="${OUT_SUFFIX}_case"; }
+[ -n "${LABELREMAP:-}" ] && { EXTRA_ARGS+=(--label_remap "$LABELREMAP"); OUT_SUFFIX="${OUT_SUFFIX}_lr${LABELREMAP//[:,]/-}"; }
 [ "${NEXTPOSE:-0}" = "1" ] && { EXTRA_ARGS+=(--collision_at_next_pose); OUT_SUFFIX="${OUT_SUFFIX}_np"; }
 [ "${LOOKAUTO:-0}" = "1" ] && { EXTRA_ARGS+=(--look_ahead_auto); OUT_SUFFIX="${OUT_SUFFIX}_la"; }
 [ "${NEXTHEAD:-0}" = "1" ] && { EXTRA_ARGS+=(--footprint_next_heading); OUT_SUFFIX="${OUT_SUFFIX}_nh"; }
