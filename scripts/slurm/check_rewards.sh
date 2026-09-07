@@ -63,6 +63,13 @@ if [ -n "${REPLAY:-}" ]; then
     EXTRA+=(--replay_metrics "${REPLAY}" --replay_episodes "${REPLAYEPS:-}")
     [ -n "${OUTDIR:-}" ] && EXTRA+=(--out_dir "${OUTDIR}")
 fi
+# COVSWEEP=1 [COVFRAMES=10,20,...] [COVYAWS=0,15,...]: raster alpha vs yaw offset
+# from the walk direction at walk frames (no diffusion; minutes).
+if [ "${COVSWEEP:-0}" = "1" ]; then
+    EXTRA+=(--cov_sweep)
+    [ -n "${COVFRAMES:-}" ] && EXTRA+=(--cov_frames "${COVFRAMES}")
+    [ -n "${COVYAWS:-}" ] && EXTRA+=(--cov_yaws "${COVYAWS}")
+fi
 
 python scripts/check_rewards.py \
     --scene "${SCENE:-gnd_AUw360}" \

@@ -138,6 +138,7 @@ fi
 [ -n "${SPAWNSUPPORT:-}" ] && { EXTRA_ARGS+=(--spawn_support_tries "$SPAWNSUPPORT"); OUT_SUFFIX="${OUT_SUFFIX}_ss${SPAWNSUPPORT}"; }
 [ "${GOALMIXMAP:-0}" = "1" ] && { EXTRA_ARGS+=(--goal_mix_map_draw); OUT_SUFFIX="${OUT_SUFFIX}_gmm"; }
 [ -n "${GOALNTTRIES:-}" ] && { EXTRA_ARGS+=(--goal_nontrav_tries "$GOALNTTRIES"); OUT_SUFFIX="${OUT_SUFFIX}_nt${GOALNTTRIES}"; }
+[ -n "${GOALNTCONE:-}" ] && { EXTRA_ARGS+=(--goal_nontrav_cone_deg "$GOALNTCONE"); OUT_SUFFIX="${OUT_SUFFIX}_nc${GOALNTCONE}"; }
 [ -n "${COLLAHEAD:-}" ] && { EXTRA_ARGS+=(--collision_look_ahead "$COLLAHEAD"); OUT_SUFFIX="${OUT_SUFFIX}_ca${COLLAHEAD}"; }
 [ -n "${BOXMEM:-}" ] && { EXTRA_ARGS+=(--collision_box_memory "$BOXMEM"); OUT_SUFFIX="${OUT_SUFFIX}_bm${BOXMEM}"; }
 [ "${RASTEROBS:-0}" = "1" ] && { EXTRA_ARGS+=(--raster_obs); OUT_SUFFIX="${OUT_SUFFIX}_rast"; }
@@ -158,6 +159,7 @@ fi
 [ -n "${PROXW:-}" ]       && EXTRA_ARGS+=(--proximity_weight "$PROXW")
 [ -n "${PROXMARGIN:-}" ]  && EXTRA_ARGS+=(--proximity_margin "$PROXMARGIN")
 [ "${PROXDELTA:-0}" = "1" ] && EXTRA_ARGS+=(--proximity_delta)
+[ -n "${PROXGND:-}" ] && { EXTRA_ARGS+=(--proximity_ground_weight "$PROXGND" --proximity_ground_margin "${PROXGNDM:-1.2}"); OUT_SUFFIX="${OUT_SUFFIX}_pg${PROXGND}m${PROXGNDM:-1.2}"; }
 [ -n "${VOIDCOST:-}" ]    && EXTRA_ARGS+=(--void_cost "$VOIDCOST")
 [ -n "${STEPCOST:-}" ]    && EXTRA_ARGS+=(--step_cost "$STEPCOST")
 

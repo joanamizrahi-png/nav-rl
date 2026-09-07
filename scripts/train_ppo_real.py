@@ -282,7 +282,7 @@ class RewardComponentsCallback(BaseCallback):
     during training instead of at eval."""
 
     KEYS = ("semantic", "goal", "collision", "step", "void", "spin",
-            "backward", "smooth", "timeout", "crash", "proximity",
+            "backward", "smooth", "timeout", "crash", "proximity", "proximity_ground",
             "goal_bonus", "speed_refund", "refusal_bonus", "refusal_paid", "halt_penalty_paid", "total",
             # 2026-09-01: the world model's own uncertainty, logged from day
             # one so any void THRESHOLD gets chosen from the measured
@@ -565,6 +565,9 @@ def _dump_env_config(args, cfg):
             "proximity_weight": getattr(cfg, "proximity_weight", 0.0),
             "proximity_margin": getattr(cfg, "proximity_margin", 1.0),
             "proximity_delta": bool(getattr(cfg, "proximity_delta", False)),
+            "proximity_ground_weight": getattr(cfg, "proximity_ground_weight", 0.0),
+            "proximity_ground_margin": getattr(cfg, "proximity_ground_margin", 1.2),
+            "proximity_ground_classes": getattr(cfg, "proximity_ground_classes", "3,4,5"),
             "reward_scale": getattr(cfg, "reward_scale", 1.0),
             "coherence_cost_weight": getattr(cfg, "coherence_cost_weight", 0.0),
             "coherence_tau": getattr(cfg, "coherence_tau", 0.4),
@@ -605,6 +608,7 @@ def _dump_env_config(args, cfg):
             "goal_nontrav_classes": getattr(cfg, "goal_nontrav_classes", "3,4,5"),
             "goal_nontrav_edge_m": getattr(cfg, "goal_nontrav_edge_m", 0.0),
             "goal_nontrav_tries": getattr(cfg, "goal_nontrav_tries", 0),
+            "goal_nontrav_cone_deg": getattr(cfg, "goal_nontrav_cone_deg", 0.0),
             "map_res_m": getattr(cfg, "map_res_m", 0.1),
         }, indent=2))
         print(f"[train] env recorded for eval: {out}", flush=True)
@@ -746,7 +750,7 @@ def _frozen_probe(env, steps: int = 120) -> None:
     """
     import numpy as _np
     keys = ("semantic", "goal", "collision", "step", "spin", "smooth",
-            "proximity", "coherence", "crash", "timeout", "total")
+            "proximity", "proximity_ground", "coherence", "crash", "timeout", "total")
     sums = {k: 0.0 for k in keys}
     n = 0
     try:
@@ -829,6 +833,9 @@ def _scene_env_cfg(args):
                         or getattr(args, "render_width", None)) else None),
         goal_noise_std=getattr(args, "goal_noise_std", 0.0),
         proximity_delta=getattr(args, "proximity_delta", False),
+        proximity_ground_weight=float(getattr(args, "proximity_ground_weight", 0.0)),
+        proximity_ground_margin=float(getattr(args, "proximity_ground_margin", 1.2)),
+        proximity_ground_classes=str(getattr(args, "proximity_ground_classes", "3,4,5") or "3,4,5"),
         timeout_penalty=getattr(args, "timeout_penalty", 0.0),
         halt_terminate_steps=getattr(args, "halt_terminate_steps", 0),
         halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
@@ -856,6 +863,7 @@ def _scene_env_cfg(args):
         goal_nontrav_classes=str(getattr(args, "goal_nontrav_classes", "3,4,5") or "3,4,5"),
         goal_nontrav_edge_m=float(getattr(args, "goal_nontrav_edge_m", 0.0)),
         goal_nontrav_tries=int(getattr(args, "goal_nontrav_tries", 0)),
+        goal_nontrav_cone_deg=float(getattr(args, "goal_nontrav_cone_deg", 0.0)),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
         timeout_distance_scaled=getattr(args, "timeout_distance_scaled", False),
@@ -1528,6 +1536,9 @@ def main():
     ap.add_argument("--goal_mix_map_draw", action="store_true",
                     help="draw the non-traversable share of the goal mix straight from map cells (grass etc.) in the window and cone")
     ap.add_argument("--goal_nontrav_classes", type=str, default="3,4,5")
+    ap.add_argument("--goal_nontrav_cone_deg", type=float, default=0.0,
+                    help="cone of the map-direct lawn draw (0 = the goal cone). Lawn lies BESIDE "
+                         "the walk: the 50-degree cone held no lawn cell on most frames (2026-09-06)")
     ap.add_argument("--goal_nontrav_tries", type=int, default=0,
                     help="tries of the map-direct lawn draw (0 = goal_mix_tries, 12). "
                          "12 delivered 15%% lawn goals instead of 25%% (2026-09-06)")
@@ -1617,6 +1628,11 @@ def main():
                          "GEOMETRIC obstacle (scene cloud) — undreamable, "
                          "unlike the semantic footprint. 0 = off")
     ap.add_argument("--proximity_margin", type=float, default=1.0)
+    ap.add_argument("--proximity_ground_weight", type=float, default=0.0,
+                    help="potential-shaped cost per metre of approach toward the map's GRASS points "
+                         "inside proximity_ground_margin (0 = off). Needs --clouds_dir.")
+    ap.add_argument("--proximity_ground_margin", type=float, default=1.2)
+    ap.add_argument("--proximity_ground_classes", type=str, default="3,4,5")
     ap.add_argument("--clouds_dir", default=None,
                     help="dir with <scene>_cloud.npz from dump_scene_cloud.py "
                          "(required for --proximity_weight > 0)")

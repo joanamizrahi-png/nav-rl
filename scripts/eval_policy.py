@@ -127,6 +127,9 @@ def build_env(args):
         proximity_weight=getattr(args, "proximity_weight", 0.0),
         proximity_margin=getattr(args, "proximity_margin", 1.0),
         proximity_delta=bool(getattr(args, "proximity_delta", False)),
+        proximity_ground_weight=float(getattr(args, "proximity_ground_weight", 0.0)),
+        proximity_ground_margin=float(getattr(args, "proximity_ground_margin", 1.2)),
+        proximity_ground_classes=str(getattr(args, "proximity_ground_classes", "3,4,5") or "3,4,5"),
         timeout_distance_scaled=bool(
             getattr(args, "timeout_distance_scaled", False)),
         clouds_dir=getattr(args, "clouds_dir", None),
@@ -164,6 +167,7 @@ def build_env(args):
         goal_nontrav_classes=str(getattr(args, "goal_nontrav_classes", "3,4,5") or "3,4,5"),
         goal_nontrav_edge_m=float(getattr(args, "goal_nontrav_edge_m", 0.0)),
         goal_nontrav_tries=int(getattr(args, "goal_nontrav_tries", 0)),
+        goal_nontrav_cone_deg=float(getattr(args, "goal_nontrav_cone_deg", 0.0)),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
         random_spawn=True,
@@ -185,7 +189,7 @@ def build_env(args):
 # shows WHY a return is what it is -- a -1000 return from one crash and a -1000
 # return from a hundred bad steps are different diagnoses.
 EVAL_COMPONENTS = ("semantic", "goal", "collision", "step", "spin", "backward",
-                   "smooth", "timeout", "crash", "proximity", "goal_bonus", "speed_refund", "refusal_bonus",
+                   "smooth", "timeout", "crash", "proximity", "proximity_ground", "goal_bonus", "speed_refund", "refusal_bonus",
                    "coherence", "coherence_crash")
 
 
@@ -234,6 +238,9 @@ def main():
     ap.add_argument("--proximity_weight", type=float, default=0.0)
     ap.add_argument("--proximity_margin", type=float, default=1.0)
     ap.add_argument("--proximity_delta", action="store_true")
+    ap.add_argument("--proximity_ground_weight", type=float, default=0.0)
+    ap.add_argument("--proximity_ground_margin", type=float, default=1.2)
+    ap.add_argument("--proximity_ground_classes", type=str, default="3,4,5")
     ap.add_argument("--void_cost", type=float, default=0.3)
     ap.add_argument("--step_cost", type=float, default=0.05)
     ap.add_argument("--coherence_cost_weight", type=float, default=0.0,
@@ -286,6 +293,8 @@ def main():
     ap.add_argument("--goal_mix_map_draw", action="store_true",
                     help="draw the non-traversable share of the goal mix straight from map cells (grass etc.) in the window and cone")
     ap.add_argument("--goal_nontrav_classes", type=str, default="3,4,5")
+    ap.add_argument("--goal_nontrav_cone_deg", type=float, default=0.0,
+                    help="cone of the map-direct lawn draw (0 = goal cone); adopted from env_config.json when present")
     ap.add_argument("--goal_nontrav_tries", type=int, default=0,
                     help="tries of the map-direct lawn draw (0 = 12); adopted from env_config.json when present")
     ap.add_argument("--goal_nontrav_edge_m", type=float, default=0.0,
@@ -459,7 +468,7 @@ def main():
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test
                        "raster_obs",
-                       "goal_nontrav_edge_m", "goal_nontrav_tries", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
+                       "goal_nontrav_edge_m", "goal_nontrav_tries", "goal_nontrav_cone_deg", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage
                        # pixels into void -- and void leaves the collision
@@ -479,7 +488,7 @@ def main():
                        "step_cost", "void_cost", "terrain_as_cost",
                        "spin_cost", "backward_cost", "action_smooth_cost",
                        "goal_bonus", "timeout_penalty", "proximity_weight",
-                       "proximity_margin", "proximity_delta", "reward_scale",
+                       "proximity_margin", "proximity_delta", "proximity_ground_weight", "proximity_ground_margin", "proximity_ground_classes", "reward_scale",
                        "coherence_cost_weight", "coherence_tau",
                        "coherence_terminate_tau"):
                 if _k not in _tr:

@@ -48,6 +48,7 @@ def main():
     ap.add_argument("--per_frame", type=int, default=6)
     ap.add_argument("--window", default="3,8")
     ap.add_argument("--cone", type=float, default=50.0)
+    ap.add_argument("--lawn_cone", type=float, default=0.0, help="cone of the LAWN draw (GOALNTCONE; 0 = --cone)")
     ap.add_argument("--edge", type=float, default=0.0, help="goal_nontrav_edge_m (0 = off)")
     ap.add_argument("--refusal_dist", type=float, default=2.5)
     ap.add_argument("--verge_dist", type=float, default=1.5, help="refusal radius around the VERGE point")
@@ -86,6 +87,7 @@ def main():
         env.cfg.goal_nontrav_edge_m = args.edge
         env.cfg.goal_nontrav_known_min = 0.5
         env.cfg.goal_nontrav_tries = int(args.tries)
+        env.cfg.goal_nontrav_cone_deg = float(args.lawn_cone)
         env._lawn_draw_report = lambda st: None
         env.world_backend = types.SimpleNamespace(cfg=Cfg()); env.world_backend.cfg.goal_dist_range = (lo, hi); env.world_backend.cfg.goal_cone_deg = args.cone
         env._label_grids = {sc: g}; env._scene_id = sc; env._non_trav = nontrav; env._ground_pts = {sc: gr}
@@ -120,7 +122,8 @@ def main():
             d = np.linalg.norm(near - walk[f][None, :], axis=1)
             ang = np.arctan2(near[:, 1] - walk[f, 1], near[:, 0] - walk[f, 0])
             dth = np.abs((ang - yaw + np.pi) % (2 * np.pi) - np.pi)
-            inwin = (d >= lo) & (d <= hi); incone = inwin & (dth <= np.deg2rad(args.cone) / 2)
+            _lc = args.lawn_cone if args.lawn_cone > 0 else args.cone
+            inwin = (d >= lo) & (d <= hi); incone = inwin & (dth <= np.deg2rad(_lc) / 2)
             cand = near[incone]
             sh_ok = sup_ok = 0
             for cxy in cand[:: max(1, len(cand) // 200)]:

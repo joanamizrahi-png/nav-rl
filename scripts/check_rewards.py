@@ -214,6 +214,12 @@ def render_replay(args):
         for k in range(min(n, len(tr))):
             pose = pose_at(tr[k, :2], float(tr[k, 2]))
             (rgb, K, w2c, lab) = world.render_batch([(0, pose)])[0]
+            # GENERATED semantics (the label head's own output for this frame),
+            # colorized -- this is what differs between checkpoints; the RGB
+            # hole-filling is the shared base model's (Joana, 2026-09-06).
+            from src.eval.palette import CLASS_COLORS_V14_255
+            lab_i = np.clip(np.asarray(lab, dtype=int), 0, len(CLASS_COLORS_V14_255) - 1)
+            semc = CLASS_COLORS_V14_255[lab_i].astype(np.uint8)
             alpha = getattr(world, "last_alpha", None)
             a = None if not alpha else np.asarray(alpha[0], dtype=np.float32)
             ras = getattr(world, "last_raster", None)
@@ -228,7 +234,13 @@ def render_replay(args):
             H, W = rgb.shape[:2]
             inside = front & (uv[:, 0] >= 0) & (uv[:, 0] < W) & (uv[:, 1] >= 0) & (uv[:, 1] < H)
             dif = np.ascontiguousarray(rgb[:, :, ::-1]).copy(); rasb = np.ascontiguousarray(ras[:, :, ::-1]).copy()
-            for img in (dif, rasb):
+            semb = np.ascontiguousarray(semc[:, :, ::-1]).copy()
+            # generated label under each projected map cell: agreement counts
+            _uv_in = uv[inside].astype(int); _map_nt = cell_nt[sel][inside]
+            _gen_nt = non_trav[np.clip(lab_i[np.clip(_uv_in[:, 1], 0, H - 1), np.clip(_uv_in[:, 0], 0, W - 1)], 0, len(non_trav) - 1)]
+            n_cells = int(len(_map_nt)); n_agree = int((_gen_nt == _map_nt).sum())
+            n_gen_walk_map_grass = int((~_gen_nt & _map_nt).sum()); n_gen_grass_map_walk = int((_gen_nt & ~_map_nt).sum())
+            for img in (dif, semb, rasb):
                 for (u, v), bad in zip(uv[inside].astype(int), cell_nt[sel][inside]):
                     cv2.circle(img, (int(u), int(v)), 1, (0, 0, 255) if bad else (0, 200, 0), -1)
                 for dist, colr in ((near_d, (255, 0, 255)), (args.look_ahead, (0, 255, 255))):
@@ -241,14 +253,55 @@ def render_replay(args):
             near_frac = float((non_trav[cl] & (cl != 0)).mean())
             cov = float(a.mean()) if a is not None else float("nan")
             apan = (np.repeat((np.clip(a, 0, 1) * 255).astype(np.uint8)[:, :, None], 3, axis=2) if a is not None else np.zeros_like(dif))
-            panel = np.concatenate([dif, rasb, apan], axis=1)
-            cv2.putText(panel, f"ep {e['episode']} step {k} | map near box {near_frac:.2f} | alpha {cov:.2f} | red = map non-traversable, green = walkable; magenta near box, yellow far box",
-                        (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-            for j, name in enumerate(["RGB diffused (what the policy saw) + MAP", "RGB raster (reconstruction) + MAP", "SUPPORT (alpha)"]):
+            panel = np.concatenate([dif, semb, rasb, apan], axis=1)
+            _ag = (n_agree / n_cells) if n_cells else float("nan")
+            cv2.putText(panel, f"ep {e['episode']} step {k} | map near box {near_frac:.2f} | alpha {cov:.2f} | gen-vs-map agree {_ag:.2f} on {n_cells} cells, gen walkable/map grass {n_gen_walk_map_grass} | red = map non-trav, green = walkable; magenta near, yellow far box",
+                        (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+            for j, name in enumerate(["RGB diffused (what the policy saw) + MAP", "GENERATED semantics + MAP", "RGB raster (reconstruction) + MAP", "SUPPORT (alpha)"]):
                 cv2.putText(panel, name, (j * W + 8, H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
             cv2.imwrite(str(od / f"REPLAY_{args.scene}_ep{e['episode']}_s{k:02d}.png"), panel)
-            print(f"    step {k:2d}: map near box {near_frac:.2f}  alpha {cov:.2f}  projected cells {int(inside.sum())}", flush=True)
+            print(f"    step {k:2d}: map near box {near_frac:.2f}  alpha {cov:.2f}  projected cells {int(inside.sum())}  "
+                  f"gen-vs-map agree {_ag:.2f}  gen-walkable/map-grass {n_gen_walk_map_grass}  gen-grass/map-walkable {n_gen_grass_map_walk}", flush=True)
     print(f"==> {od}", flush=True)
+
+
+def sweep_coverage(args):
+    """COVERAGE vs YAW OFFSET (2026-09-06): at walk frames, turn the camera
+    off the walk direction by each yaw offset and read the raster alpha (mean
+    over the frame, and over the bottom third = the near ground). Rasterizer
+    only, the diffusion model is never loaded. Says how far off the walk the
+    camera can look before the view is mostly invented -- the number that
+    should set the lawn-goal cone, instead of a guess."""
+    cfg = CalibratedBackendConfig(
+        scene_video_paths={args.scene: f"{args.clips_dir}/{args.scene}.mp4"},
+        scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
+        scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
+        render_mode="rasterizer_only", sem_palette_version=args.sem_palette,
+        model_path=args.model_path, reconstructor_path=args.reconstructor_path,
+        H=args.height, W=args.width)
+    world = BatchedLiveDiffusedBackend(cfg, checkpoint=args.live_ckpt, alpha_gate=False, raster_obs=True)
+    world.load_scene(args.scene)
+    c = np.load(Path(args.clouds_dir) / f"{args.scene}_cloud.npz")
+    walk = (np.asarray(c["traj_positions"], np.float32) * np.array([1.0, -1.0, 1.0], np.float32))[:, :2]
+    frames = [int(v) for v in str(args.cov_frames).split(",") if v.strip() and int(v) < len(walk) - 1]
+    yaws = [float(v) for v in str(args.cov_yaws).split(",") if v.strip()]
+    print(f"=== COVERAGE SWEEP {args.scene}: frames {frames}, yaw offsets {yaws} deg", flush=True)
+    print("frame  " + " ".join(f"{y:>+9.0f}" for y in yaws) + "   (mean alpha / near-ground alpha)", flush=True)
+    per_yaw = {y: [] for y in yaws}; per_yaw_g = {y: [] for y in yaws}
+    for f in frames:
+        dv = walk[min(f + 1, len(walk) - 1)] - walk[f]; yaw0 = float(np.arctan2(dv[1], dv[0]))
+        row = []
+        for y in yaws:
+            pose = pose_at(walk[f], yaw0 + np.deg2rad(y))
+            world._hists = {}                       # fresh history: each view stands alone
+            world.render_batch([(0, pose)])
+            a = np.asarray(world.last_alpha[0], dtype=np.float32)
+            m_all = float(a.mean()); m_gnd = float(a[int(a.shape[0] * 2 / 3):].mean())
+            per_yaw[y].append(m_all); per_yaw_g[y].append(m_gnd)
+            row.append(f"{m_all:.2f}/{m_gnd:.2f}")
+        print(f"{f:>5}  " + " ".join(f"{r:>9}" for r in row), flush=True)
+    print("MEAN   " + " ".join(f"{np.mean(per_yaw[y]):.2f}/{np.mean(per_yaw_g[y]):.2f}".rjust(9) for y in yaws), flush=True)
+    print("==> coverage sweep done", flush=True)
 
 
 def render_episodes(args):
@@ -723,6 +776,9 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--replay_metrics", default="", help="metrics.json of an eval: re-render its recorded poses with the map projected in")
     ap.add_argument("--replay_episodes", default="", help="comma list of episode ids to replay (empty = all)")
+    ap.add_argument("--cov_sweep", action="store_true", help="coverage vs yaw offset at walk frames (rasterizer only)")
+    ap.add_argument("--cov_frames", default="10,20,30,40,50,60,70")
+    ap.add_argument("--cov_yaws", default="0,15,30,45,60,90,-15,-30,-45,-60,-90")
     ap.add_argument("--out_dir", default="")
     ap.add_argument("--tag", default="")
     ap.add_argument("--out",
@@ -743,6 +799,9 @@ def main():
               f"spawn_frame {args.spawn_frame}", flush=True)
     print(f"=== sweep taus {taus}", flush=True)
 
+    if getattr(args, "cov_sweep", False):
+        sweep_coverage(args)
+        return
     if getattr(args, "replay_metrics", None):
         render_replay(args)
         return

@@ -137,6 +137,12 @@ class SceneEnvConfig:
     # AUw360 alone (469883/469884, 2026-09-06): most random lawn cells fail
     # the arrival-disc tests, and a failed draw becomes a walkable goal.
     goal_nontrav_tries: int = 0
+    # Cone of the map-direct LAWN draw in degrees (0 = the backend's goal
+    # cone). Funnel 2026-09-06: with the 50-degree cone most walk frames
+    # have lawn cells in the 4-8 m window but NONE inside the cone (lawn is
+    # beside the walk, not ahead), so the draw fails and the episode gets a
+    # walkable goal: 15% lawn goals instead of 25%, 5% on AUw360.
+    goal_nontrav_cone_deg: float = 0.0
     # Map-direct draw for the NON-traversable share of the mix (2026-09-04
     # night). Rejection sampling from the walk sampler found no lawn goal in
     # 12 draws on short windows and on scenes without lawn beside the walk,
@@ -237,6 +243,17 @@ class SceneEnvConfig:
     # weight*(d_{t-1}-d_t) while within proximity_margin of an obstacle —
     # approaching costs, retreating refunds, standing is free.
     proximity_delta: bool = False
+    # GROUND proximity (2026-09-06, Joana): the same potential-shaped term
+    # against the map's GRASS points (ground-height points of these classes).
+    # Approaching grass inside the margin costs weight per metre, retreating
+    # refunds it, standing is free; the potential is clipped at the margin so
+    # only the part of a move inside the margin counts. With the verge
+    # progress term pulling toward the edge, a weight above the goal weight
+    # makes the two potentials balance about one margin short of the grass:
+    # a standoff inside the verge radius where still steps come for free.
+    proximity_ground_weight: float = 0.0    # 0 = off
+    proximity_ground_margin: float = 1.2    # metres from the body centre
+    proximity_ground_classes: str = "3,4,5"
     # Timeout penalty (2026-08-27, advisor reward spec): subtracted when the
     # episode hits max_steps without reaching the goal. Makes freezing/stalling
     # strictly worse than trying — the missing counterweight to termination
@@ -671,6 +688,8 @@ class SceneEnv(gym.Env if gym is not None else object):
         d = np.linalg.norm(cells - spawn[None, :], axis=1)
         ok = (d >= float(lo_d)) & (d <= float(hi_d))
         cone = float(getattr(bcfg, "goal_cone_deg", 360.0))
+        if float(getattr(self.cfg, "goal_nontrav_cone_deg", 0.0) or 0.0) > 0.0:
+            cone = float(self.cfg.goal_nontrav_cone_deg)
         if cone < 360.0 and _yaw is not None:
             ang = np.arctan2(cells[:, 1] - spawn[1], cells[:, 0] - spawn[0])
             dth = (ang - float(_yaw) + np.pi) % (2.0 * np.pi) - np.pi
@@ -759,6 +778,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         super().reset(seed=seed)
         self._last_action = None
         self._prev_obstacle_dist = None
+        self._prev_grass_dist = None
         # Choose a scene (round-robin for now; can be random later).
         idx = self.np_random.integers(0, len(self.scene_ids))
         self._scene_id = self.scene_ids[idx]
@@ -1085,6 +1105,15 @@ class SceneEnv(gym.Env if gym is not None else object):
         # reconstructed at all. Goal support needs the latter.
         gr = pts[(pts[:, 2] < 0.15) & (labs >= 0)][:, :2]
         self._ground_pts[scene_id] = gr[::4].astype(np.float32) if len(gr) else None
+        # GRASS points for the ground-proximity term (ground height, chosen classes)
+        if not hasattr(self, "_grass_pts"):
+            self._grass_pts = {}
+        _gcls = [int(v) for v in str(self.cfg.proximity_ground_classes).split(",") if v.strip()]
+        gc = pts[np.isin(labs, _gcls) & (pts[:, 2] < 0.15)][:, :2]
+        self._grass_pts[scene_id] = gc[::4].astype(np.float32) if len(gc) else None
+        if float(self.cfg.proximity_ground_weight) > 0.0:
+            print(f"[SceneEnv] ground proximity ON: {0 if self._grass_pts[scene_id] is None else len(self._grass_pts[scene_id])} "
+                  f"grass points on {scene_id}, weight {self.cfg.proximity_ground_weight}, margin {self.cfg.proximity_ground_margin} m", flush=True)
         if self.cfg.reward_source != "generated" or self.cfg.map_diagnostics:
             from src.eval.reward_map import build_label_grid, VOID
             if not hasattr(self, "_label_grids"):
@@ -1146,6 +1175,23 @@ class SceneEnv(gym.Env if gym is not None else object):
         if dmin >= self.cfg.proximity_margin:
             return 0.0
         return -self.cfg.proximity_weight * (self.cfg.proximity_margin - dmin) / self.cfg.proximity_margin
+
+    def _ground_proximity_term(self, robot_xy: np.ndarray) -> float:
+        w = float(self.cfg.proximity_ground_weight)
+        if w <= 0.0:
+            return 0.0
+        gp = getattr(self, "_grass_pts", {}).get(self._scene_id)
+        if gp is None or len(gp) == 0:
+            return 0.0
+        dmin = float(np.sqrt(((gp - robot_xy[None, :2]) ** 2).sum(1)).min())
+        m = float(self.cfg.proximity_ground_margin)
+        prev = getattr(self, "_prev_grass_dist", None)
+        self._prev_grass_dist = dmin
+        self._grass_dist = dmin
+        if prev is None:
+            return 0.0
+        # potential clipped at the margin: phi(d) = w * min(d, m); reward = phi(d_t) - phi(d_{t-1})
+        return -w * (min(prev, m) - min(dmin, m))
 
     def step(self, action: np.ndarray):
         """Chunk-aware step: executes cfg.action_chunk sub-actions (1 = the
@@ -1384,6 +1430,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             truncated = True
             bonus = 0.0
         prox_term = self._proximity_term(self._robot_pose_world[:2, 3])
+        gprox_term = self._ground_proximity_term(self._robot_pose_world[:2, 3])
 
         # ---- coherence: is this frame still the world? ----
         coverage = getattr(self, "_last_coverage", None)
@@ -1460,7 +1507,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             _thr = min(1.0, abs(float(action[0])))
             speed_refund = -(float(breakdown.semantic) + float(breakdown.collision)) * (1.0 - _thr)
         reward = (breakdown.total + spin_term + back_term + smooth_term
-                  + bonus + crash + prox_term + timeout_term
+                  + bonus + crash + prox_term + gprox_term + timeout_term
                   + coh_term + coh_crash + speed_refund + refusal_term)
 
         info = breakdown.to_dict()
@@ -1500,6 +1547,8 @@ class SceneEnv(gym.Env if gym is not None else object):
         if getattr(self, "_map_vs_gen", None):
             info.update(self._map_vs_gen)
         info["proximity"] = prox_term
+        info["proximity_ground"] = gprox_term
+        info["grass_dist"] = float(getattr(self, "_grass_dist", float("nan")))
         # Always logged, on or off, so the coverage the policy actually
         # experiences shows up in wandb from the first run.
         info["coverage"] = float("nan") if coverage is None else coverage
