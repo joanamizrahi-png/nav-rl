@@ -136,7 +136,7 @@ def main():
     ap.add_argument("--window", default="4,8")
     ap.add_argument("--cone", type=float, default=50.0)
     ap.add_argument("--goals_per_spawn", type=int, default=40)
-    ap.add_argument("--narrow_m", type=float, default=1.5, help="corridor width below which a case is NARROW")
+    ap.add_argument("--narrow_m", type=float, default=1.0, help="corridor width below which a case is NARROW")
     ap.add_argument("--detour_min", type=float, default=1.15, help="path/straight ratio above which a blocked line counts as CORNER")
     ap.add_argument("--inflate", type=float, default=0.1)
     ap.add_argument("--inflate_classes", default="10,11,13")
