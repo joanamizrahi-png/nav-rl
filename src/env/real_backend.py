@@ -176,6 +176,7 @@ class RealWorldBackendConfig:
     # Gaussians (plus one neighbour): striped alpha off the walk, and an
     # abrupt switch every time the nearest frame changes.
     static_scene: bool = False
+    static_movers: str = ""            # "12,13": classes kept per-frame in static mode (see the setter before reconstruct)
 
     # Diffusion config
     use_lora: bool = True      # 4-step distilled LoRA (fast); False = 50 steps
@@ -366,6 +367,17 @@ class RealWorldBackend:
         # backprop (~50-70 GB of activations at 82 frames), which then can't be
         # reclaimed by empty_cache(). This is what blew our VRAM before Wan
         # could load.
+        # STATIC MOVERS (2026-09-07): with static_scene, Gaussians labelled with
+        # these classes (12 person, 13 vehicle) stay per-frame instead of being
+        # fused into the constant set, so a pedestrian is drawn once, at their
+        # own frame, not as a trail over every view. Must match the label
+        # head's training (v31/v32 = 12,13; v26/v30 = none).
+        _mv = tuple(int(v) for v in str(getattr(cfg, "static_movers", "") or "").split(",") if v.strip())
+        _rast = reconstructor.gs_renderer.rasterizer
+        if tuple(getattr(_rast, "dynamic_label_ids", ())) != _mv:
+            _rast.dynamic_label_ids = _mv
+        if _mv:
+            print(f"[RealWorldBackend] static movers: classes {_mv} stay per-frame", flush=True)
         with torch.no_grad(), torch.amp.autocast("cuda", dtype=dtype):
             predictions = reconstructor(views, is_inference=True, use_motion=False)
         free_after, _ = torch.cuda.mem_get_info()

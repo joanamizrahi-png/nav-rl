@@ -638,6 +638,17 @@ class CalibratedRealWorldBackend(RealWorldBackend):
                     device=device).unsqueeze(0)], dim=1)
             print(f"[pano] {_vp.stem}: appended side view yaw{_yaw:03d} "
                   f"({len(keep)}/{m} frames, stride {_stride})", flush=True)
+        # STATIC MOVERS (2026-09-07): with static_scene, Gaussians labelled with
+        # these classes (12 person, 13 vehicle) stay per-frame instead of being
+        # fused into the constant set, so a pedestrian is drawn once, at their
+        # own frame, not as a trail over every view. Must match the label
+        # head's training (v31/v32 = 12,13; v26/v30 = none).
+        _mv = tuple(int(v) for v in str(getattr(cfg, "static_movers", "") or "").split(",") if v.strip())
+        _rast = reconstructor.gs_renderer.rasterizer
+        if tuple(getattr(_rast, "dynamic_label_ids", ())) != _mv:
+            _rast.dynamic_label_ids = _mv
+        if _mv:
+            print(f"[RealWorldBackend] static movers: classes {_mv} stay per-frame", flush=True)
         with torch.no_grad(), torch.amp.autocast("cuda", dtype=dtype):
             predictions = reconstructor(views, is_inference=True, use_motion=False)
         cache = {

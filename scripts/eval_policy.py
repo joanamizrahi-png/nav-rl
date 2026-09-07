@@ -71,6 +71,7 @@ def build_env(args):
         spawn_min_frame=args.spawn_min_frame,
         render_mode="rasterizer_only",
         static_scene=bool(getattr(args, "static_scene", False)),
+        static_movers=str(getattr(args, "static_movers", "") or ""),
         spawn_heading_from_walk=bool(getattr(args, "spawn_heading_from_walk", False)),
         spawn_frames_by_scene=str(getattr(args, "spawn_frames", "") or ""),
         # 2026-09-07: the backend palette was never set in evals (default v1)
@@ -326,6 +327,7 @@ def main():
     ap.add_argument("--action_smooth_cost", type=float, default=None)
     ap.add_argument("--spin_cost", type=float, default=None)
     ap.add_argument("--static_scene", action="store_true", help="adopted from env_config.json when present")
+    ap.add_argument("--static_movers", type=str, default="", help="adopted from env_config.json when present")
     ap.add_argument("--spawn_heading_from_walk", action="store_true", help="adopted from env_config.json when present")
     ap.add_argument("--spawn_frames", type=str, default="", help="adopted from env_config.json when present")
     ap.add_argument("--goal_case_mix", type=str, default="", help="adopted from env_config.json when present")
@@ -497,7 +499,7 @@ def main():
                        "collision_at_next_pose", "look_ahead_auto", "footprint_next_heading", "crash_requires_motion",
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test
-                       "raster_obs", "static_scene", "sem_palette", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix", "label_remap",
+                       "raster_obs", "static_scene", "static_movers", "sem_palette", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix", "label_remap",
                        "goal_nontrav_edge_m", "goal_nontrav_tries", "goal_nontrav_cone_deg", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage
@@ -639,6 +641,13 @@ def main():
         if _ws is None or bool(_ws) != bool(args._adopted["static_scene"]):
             print(f"[eval] REFUSED: training had static_scene={args._adopted['static_scene']} "
                   f"but the built backend has {_ws!r}", flush=True)
+            raise SystemExit(3)
+    if "static_movers" in (getattr(args, "_adopted", {}) or {}):
+        _wb = getattr(inner_env.unwrapped, "world_backend", None)
+        _wm = str(getattr(getattr(_wb, "cfg", None), "static_movers", "") or "")
+        if _wm != str(args._adopted["static_movers"] or ""):
+            print(f"[eval] REFUSED: training had static_movers={args._adopted['static_movers']!r} "
+                  f"but the built backend has {_wm!r}", flush=True)
             raise SystemExit(3)
     if getattr(args, "_adopted", None):
         print(f"[eval] verified {len(args._adopted)} adopted env values against the built env", flush=True)

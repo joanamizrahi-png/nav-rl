@@ -145,6 +145,7 @@ fi
 [ -n "${BOXMEM:-}" ] && { EXTRA_ARGS+=(--collision_box_memory "$BOXMEM"); OUT_SUFFIX="${OUT_SUFFIX}_bm${BOXMEM}"; }
 [ "${RASTEROBS:-0}" = "1" ] && { EXTRA_ARGS+=(--raster_obs); OUT_SUFFIX="${OUT_SUFFIX}_rast"; }
 [ "${STATICSCENE:-0}" = "1" ] && { EXTRA_ARGS+=(--static_scene); OUT_SUFFIX="${OUT_SUFFIX}_static"; }
+[ -n "${STATICMOVERS:-}" ] && { EXTRA_ARGS+=(--static_movers "$STATICMOVERS"); OUT_SUFFIX="${OUT_SUFFIX}_mv${STATICMOVERS//,/-}"; }
 [ "${SPAWNHEADWALK:-0}" = "1" ] && { EXTRA_ARGS+=(--spawn_heading_from_walk); OUT_SUFFIX="${OUT_SUFFIX}_shw"; }
 [ -n "${SPAWNFRAMES:-}" ] && { EXTRA_ARGS+=(--spawn_frames "$SPAWNFRAMES"); OUT_SUFFIX="${OUT_SUFFIX}_sf"; }
 [ -n "${GOALCASE:-}" ] && { EXTRA_ARGS+=(--goal_case_mix "$GOALCASE"); OUT_SUFFIX="${OUT_SUFFIX}_case"; }

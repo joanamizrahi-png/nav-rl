@@ -459,6 +459,7 @@ def make_env(args):
         spawn_heading_from_walk=bool(getattr(args, "spawn_heading_from_walk", False)),
         spawn_frames_by_scene=str(getattr(args, "spawn_frames", "") or ""),
         sem_palette_version=getattr(args, "sem_palette", 1), static_scene=bool(getattr(args, "static_scene", False)),
+        static_movers=str(getattr(args, "static_movers", "") or ""),
         render_mode="rasterizer_only",       # cheap per-step; diffusion later
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -593,6 +594,7 @@ def _dump_env_config(args, cfg):
             # never trained on.
             "raster_obs": bool(getattr(args, "raster_obs", False)),
             "static_scene": bool(getattr(args, "static_scene", False)),
+            "static_movers": str(getattr(args, "static_movers", "") or ""),
             "spawn_heading_from_walk": bool(getattr(args, "spawn_heading_from_walk", False)),
             "spawn_frames": str(getattr(args, "spawn_frames", "") or ""),
             "goal_case_mix": str(getattr(args, "goal_case_mix", "") or ""),
@@ -932,6 +934,7 @@ def make_live_vec_env(args):
         spawn_heading_from_walk=bool(getattr(args, "spawn_heading_from_walk", False)),
         spawn_frames_by_scene=str(getattr(args, "spawn_frames", "") or ""),
         sem_palette_version=getattr(args, "sem_palette", 1), static_scene=bool(getattr(args, "static_scene", False)),
+        static_movers=str(getattr(args, "static_movers", "") or ""),
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -1649,6 +1652,8 @@ def main():
                     help="spawn facing the walk's direction of travel instead of the recorded camera yaw")
     ap.add_argument("--static_scene", action="store_true",
                     help="reconstruct as a STATIC scene: every source frame's Gaussians render from any pose")
+    ap.add_argument("--static_movers", type=str, default="",
+                    help='with --static_scene: classes kept per-frame, e.g. "12,13" (person, vehicle); must match the label head (v31+)')
     ap.add_argument("--sem_palette", type=int, default=1,
                     help="v14 palette version for the live semantic decode — "
                          "must match --live_ckpt's training palette "
