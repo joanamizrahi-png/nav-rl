@@ -273,6 +273,20 @@ def render_replay(args):
                 saved_hists = {rid: list(h) for rid, h in world._hists.items()}
                 saved_k = world.live_frames
                 tiles_rgb, tiles_sem, names = [], [], []
+                # reference tiles, independent of the history: the raster the
+                # generator is conditioned on (with the map dots) and the
+                # raster's own label conditioning, colorized with the same palette
+                ref_rgb = rasb.copy()
+                cv2.putText(ref_rgb, "RASTER (input render) + MAP", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+                _sr = getattr(world, "last_sem_raster", None)
+                if _sr:
+                    _sri = np.clip(np.asarray(_sr[0], dtype=int), 0, len(CLASS_COLORS_V14_255) - 1)
+                    ref_sem = np.ascontiguousarray(CLASS_COLORS_V14_255[_sri][:, :, ::-1]).copy()
+                else:
+                    ref_sem = np.zeros_like(rasb)
+                for (u, v), bad in zip(uv[inside].astype(int), cell_nt[sel][inside]):
+                    cv2.circle(ref_sem, (int(u), int(v)), 1, (0, 0, 255) if bad else (0, 200, 0), -1)
+                cv2.putText(ref_sem, "RASTER labels (conditioning) + MAP", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
                 scene_c = world._cache[world._current_scene_id]
                 pr, _ = world._pose_nav_to_recon(pose)
                 src = scene_c["cam2world"].detach().cpu().float().numpy()
@@ -294,14 +308,17 @@ def render_replay(args):
                         t_rgb = np.ascontiguousarray(r2[:, :, ::-1]).copy()
                         l2 = np.clip(np.asarray(lab2, dtype=int), 0, len(CLASS_COLORS_V14_255) - 1)
                         t_sem = np.ascontiguousarray(CLASS_COLORS_V14_255[l2][:, :, ::-1]).copy()
+                        for img2 in (t_rgb, t_sem):
+                            for (u, v), bad in zip(uv[inside].astype(int), cell_nt[sel][inside]):
+                                cv2.circle(img2, (int(u), int(v)), 1, (0, 0, 255) if bad else (0, 200, 0), -1)
                         cv2.putText(t_rgb, f"{mode}  alpha {a2:.2f}", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
                         tiles_rgb.append(t_rgb); tiles_sem.append(t_sem); names.append(mode)
                     except Exception as ex:
                         print(f"    [hist {mode}] FAILED: {type(ex).__name__}: {str(ex)[:160]}", flush=True)
                 world._hists = saved_hists; world.live_frames = saved_k; world.hist_jump_m = 0.5
                 if tiles_rgb:
-                    hp = np.concatenate([np.concatenate(tiles_rgb, axis=1), np.concatenate(tiles_sem, axis=1)], axis=0)
-                    cv2.putText(hp, f"ep {e['episode']} step 0 spawn: first frame under each HISTORY mode (top RGB, bottom generated semantics)",
+                    hp = np.concatenate([np.concatenate([ref_rgb] + tiles_rgb, axis=1), np.concatenate([ref_sem] + tiles_sem, axis=1)], axis=0)
+                    cv2.putText(hp, f"ep {e['episode']} step 0 spawn: left = the render and its labels; then the first frame under each HISTORY mode (top RGB, bottom generated semantics), map dots everywhere",
                                 (8, hp.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
                     cv2.imwrite(str(od / f"REPLAY_{args.scene}_ep{e['episode']}_s00_HIST.png"), hp)
                     print(f"    step  0 history modes rendered: {names}", flush=True)
