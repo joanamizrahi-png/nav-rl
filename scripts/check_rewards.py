@@ -287,6 +287,29 @@ def render_replay(args):
                 for (u, v), bad in zip(uv[inside].astype(int), cell_nt[sel][inside]):
                     cv2.circle(ref_sem, (int(u), int(v)), 1, (0, 0, 255) if bad else (0, 200, 0), -1)
                 cv2.putText(ref_sem, "RASTER labels (conditioning) + MAP", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+                # the REAL photograph: the source video frame whose camera is
+                # nearest the spawn, with its SAM3 labels (the ground truth the
+                # reconstruction and the generator both descend from)
+                photo = np.zeros_like(rasb); photo_lab = np.zeros_like(rasb)
+                try:
+                    i_ph = int(np.argmin(np.linalg.norm(src[:, :3, 3] - pr[:3, 3][None, :], axis=1)))
+                    _scale = float(getattr(world._calib[world._current_scene_id], "scale", 1.0) or 1.0)
+                    d_ph = float(np.linalg.norm(src[i_ph, :3, 3] - pr[:3, 3])) * _scale
+                    im = scene_c["views"]["img"][0, i_ph].detach().float().cpu().numpy()   # [3,H,W] 0..1
+                    im = (np.clip(np.transpose(im, (1, 2, 0)), 0, 1) * 255).astype(np.uint8)
+                    if im.shape[:2] != rasb.shape[:2]:
+                        im = cv2.resize(im, (rasb.shape[1], rasb.shape[0]), interpolation=cv2.INTER_AREA)
+                    photo = np.ascontiguousarray(im[:, :, ::-1]).copy()
+                    cv2.putText(photo, f"PHOTO walk frame {i_ph}, {d_ph:.1f} m from spawn", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+                    lb = scene_c["views"]["labels"][0, i_ph].detach().cpu().numpy().astype(int)
+                    lb = np.clip(lb, 0, len(CLASS_COLORS_V14_255) - 1)
+                    pl = CLASS_COLORS_V14_255[lb].astype(np.uint8)
+                    if pl.shape[:2] != rasb.shape[:2]:
+                        pl = cv2.resize(pl, (rasb.shape[1], rasb.shape[0]), interpolation=cv2.INTER_NEAREST)
+                    photo_lab = np.ascontiguousarray(pl[:, :, ::-1]).copy()
+                    cv2.putText(photo_lab, "SAM3 labels of the photo", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+                except Exception as ex:
+                    print(f"    [hist photo] not available: {type(ex).__name__}: {str(ex)[:120]}", flush=True)
                 scene_c = world._cache[world._current_scene_id]
                 pr, _ = world._pose_nav_to_recon(pose)
                 src = scene_c["cam2world"].detach().cpu().float().numpy()
@@ -317,7 +340,7 @@ def render_replay(args):
                         print(f"    [hist {mode}] FAILED: {type(ex).__name__}: {str(ex)[:160]}", flush=True)
                 world._hists = saved_hists; world.live_frames = saved_k; world.hist_jump_m = 0.5
                 if tiles_rgb:
-                    hp = np.concatenate([np.concatenate([ref_rgb] + tiles_rgb, axis=1), np.concatenate([ref_sem] + tiles_sem, axis=1)], axis=0)
+                    hp = np.concatenate([np.concatenate([photo, ref_rgb] + tiles_rgb, axis=1), np.concatenate([photo_lab, ref_sem] + tiles_sem, axis=1)], axis=0)
                     cv2.putText(hp, f"ep {e['episode']} step 0 spawn: left = the render and its labels; then the first frame under each HISTORY mode (top RGB, bottom generated semantics), map dots everywhere",
                                 (8, hp.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
                     cv2.imwrite(str(od / f"REPLAY_{args.scene}_ep{e['episode']}_s00_HIST.png"), hp)
