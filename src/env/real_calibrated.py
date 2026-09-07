@@ -223,6 +223,10 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # recorded camera yaw (spawn_pose_check found 30-150 deg errors on turns
     # and on GTc2d210 throughout). The goal cone is centred on it too.
     spawn_heading_from_walk: bool = False
+    # 2026-09-07: spawn ONLY at these frames per scene, chosen from the goal
+    # sheets: "gnd_AUd210:10,20,30,40,50,55;gnd_AUw360:10,20,40,50". Scenes
+    # not listed keep the [spawn_min, spawn_max) range.
+    spawn_frames_by_scene: str = ""
     # v14 palette version for the semantic pipe's colorize/DECODE. MUST match
     # the checkpoint's training palette: v21 and earlier = 1, v22b = 2,
     # v23 = 3, v24/v25 line = 4. Wrong version decodes to wrong classes and
@@ -320,6 +324,23 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         else:
             hi = min(self.cfg.goal_frame - 5, len(cal.positions) - 6)
         hi = max(lo + 1, hi)
+        _sf = str(getattr(self.cfg, "spawn_frames_by_scene", "") or "").strip()
+        if _sf:
+            _lists = {}
+            for tok in _sf.split(";"):
+                if ":" in tok:
+                    k, v = tok.split(":", 1)
+                    _lists[k.strip()] = [int(x) for x in v.split(",") if x.strip()]
+            if scene_id in _lists and _lists[scene_id]:
+                _fr = [f for f in _lists[scene_id] if 0 <= f < len(cal.positions) - 1]
+                if not getattr(self, "_spawn_list_announced", {}).get(scene_id):
+                    if not hasattr(self, "_spawn_list_announced"):
+                        self._spawn_list_announced = {}
+                    self._spawn_list_announced[scene_id] = True
+                    print(f"[spawn frames] {scene_id}: spawning only at frames {_fr}", flush=True)
+                return self._jitter_spawn(
+                    cal.robot_pose_nav(int(_fr[int(rng.integers(0, len(_fr)))]),
+                                       heading_from_walk=bool(getattr(self.cfg, "spawn_heading_from_walk", False))), rng)
         if self.cfg.spawn_max_frame is not None:
             hi = max(lo + 1, min(hi, self.cfg.spawn_max_frame))
         # SHOUT if the spawn range has collapsed. This has now bitten twice:

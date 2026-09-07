@@ -72,6 +72,7 @@ def build_env(args):
         render_mode="rasterizer_only",
         static_scene=bool(getattr(args, "static_scene", False)),
         spawn_heading_from_walk=bool(getattr(args, "spawn_heading_from_walk", False)),
+        spawn_frames_by_scene=str(getattr(args, "spawn_frames", "") or ""),
         # 2026-09-07: the backend palette was never set in evals (default v1)
         # while training passes --sem_palette 4; see the log line "active palette"
         sem_palette_version=int(getattr(args, "sem_palette", 4)),
@@ -177,6 +178,8 @@ def build_env(args):
         goal_nontrav_edge_m=float(getattr(args, "goal_nontrav_edge_m", 0.0)),
         goal_nontrav_tries=int(getattr(args, "goal_nontrav_tries", 0)),
         goal_nontrav_cone_deg=float(getattr(args, "goal_nontrav_cone_deg", 0.0)),
+        goal_case_mix=str(getattr(args, "goal_case_mix", "") or ""),
+        goal_case_tries=int(getattr(args, "goal_case_tries", 24)),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
         random_spawn=True,
@@ -322,6 +325,9 @@ def main():
     ap.add_argument("--spin_cost", type=float, default=None)
     ap.add_argument("--static_scene", action="store_true", help="adopted from env_config.json when present")
     ap.add_argument("--spawn_heading_from_walk", action="store_true", help="adopted from env_config.json when present")
+    ap.add_argument("--spawn_frames", type=str, default="", help="adopted from env_config.json when present")
+    ap.add_argument("--goal_case_mix", type=str, default="", help="adopted from env_config.json when present")
+    ap.add_argument("--goal_case_tries", type=int, default=24)
     ap.add_argument("--sem_palette", type=int, default=4,
                     help="colour table for the video semantic panels. MUST "
                          "match the semantics model (v26 = 4, v21 = 1) or the "
@@ -489,7 +495,7 @@ def main():
                        "collision_at_next_pose", "look_ahead_auto", "footprint_next_heading", "crash_requires_motion",
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test
-                       "raster_obs", "static_scene", "sem_palette", "spawn_heading_from_walk",
+                       "raster_obs", "static_scene", "sem_palette", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix",
                        "goal_nontrav_edge_m", "goal_nontrav_tries", "goal_nontrav_cone_deg", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage
@@ -786,6 +792,9 @@ def main():
                         "box_memory_hit": bm_hit, "box_memory_miss": bm_miss,
                         "goal_traversable": (None if goal_trav != goal_trav else (True if goal_trav >= 0.75 else (False if goal_trav <= 0.25 else "edge"))),
                         "halt_at_verge": bool(at_verge), "passed_through_goal": bool(passed_goal),
+                        "goal_case": str(getattr(env.unwrapped, "_goal_case", "unknown")),
+                        "goal_detour": float(getattr(env.unwrapped, "_goal_detour", float("nan"))),
+                        "goal_min_width_m": float(getattr(env.unwrapped, "_goal_min_width", float("nan"))),
                         # the crash that ended this episode was one the map did not see
                         "crash_was_phantom": bool(outcome == "CRASH" and last_phantom > 0),
                         "mean_coverage": (round(cov_sum / cov_n, 3)
@@ -812,6 +821,15 @@ def main():
                   f"goal_traversable={goal_trav})", flush=True)
 
     succ = [r for r in results if r["success"]]
+    # OUTCOMES BY GOAL CASE (2026-09-07): the corner number is the paper's number
+    _cases = {}
+    for r in results:
+        _cases.setdefault(r.get("goal_case", "unknown"), []).append(r)
+    print("OUTCOMES BY GOAL CASE (open / corner / narrow from the map's straight-line rule; the rule is not perfect, judge with the sheets):", flush=True)
+    for _k, _rs in sorted(_cases.items()):
+        _n = len(_rs); _s = sum(1 for r in _rs if r["success"]); _c = sum(1 for r in _rs if r["outcome"] == "CRASH")
+        _dt = [r["goal_detour"] for r in _rs if r.get("goal_detour", float("nan")) == r.get("goal_detour", float("nan")) and np.isfinite(r.get("goal_detour", float("nan")))]
+        print(f"  {_k:14s} n={_n:3d}  GOAL {_s:3d} ({100.0 * _s / max(_n, 1):4.0f}%)  CRASH {_c:3d}  median detour {np.median(_dt) if _dt else float('nan'):.2f}", flush=True)
     # aggregate terrain occupancy across all episodes (share of ALL steps)
     agg: dict = {}
     for rr in results:

@@ -162,6 +162,17 @@ class SceneEnvConfig:
     # beside the walk, not ahead), so the draw fails and the episode gets a
     # walkable goal: 15% lawn goals instead of 25%, 5% on AUw360.
     goal_nontrav_cone_deg: float = 0.0
+    # 2026-09-07 (new scope): label every episode's goal by the straight-line
+    # rule (open / corner / narrow / blocked) on the map, and optionally DRAW
+    # goals to a target mix, e.g. "corner:0.5,narrow:0.25,open:0.25":
+    # redraw (window + cone) until the drawn goal's class matches the wanted
+    # one, at most goal_case_tries times, keeping the last walkable draw.
+    # Every draw must be walkable (disc share >= goal_case_walkable_min).
+    goal_case_mix: str = ""
+    goal_case_tries: int = 24
+    goal_case_walkable_min: float = 0.5
+    goal_case_narrow_m: float = 1.0
+    goal_case_detour_min: float = 1.15
     # Map-direct draw for the NON-traversable share of the mix (2026-09-04
     # night). Rejection sampling from the walk sampler found no lawn goal in
     # 12 draws on short windows and on scenes without lawn beside the walk,
@@ -897,6 +908,63 @@ class SceneEnv(gym.Env if gym is not None else object):
                               flush=True)
         else:
             self._goal_world = self.world_backend.goal_position(self._scene_id).copy()
+        # ---- GOAL CASE (2026-09-07): label the goal, optionally draw to a mix ----
+        self._goal_case = "unknown"; self._goal_detour = float("nan"); self._goal_min_width = float("nan")
+        _g = getattr(self, "_label_grids", {}).get(self._scene_id)
+        if _g is not None and getattr(self, "_goal_world", None) is not None:
+            from src.eval.goal_cases import scene_case_maps, classify_pair
+            if not hasattr(self, "_case_maps"):
+                self._case_maps = {}
+            if self._scene_id not in self._case_maps:
+                self._case_maps[self._scene_id] = scene_case_maps(_g, self._non_trav)
+            _maps = self._case_maps[self._scene_id]
+            _sp = np.asarray(self._robot_pose_world[:2, 3], float)
+            _mix = str(self.cfg.goal_case_mix or "").strip()
+            def _cls_of(goal):
+                r = classify_pair(_g, _maps, _sp, np.asarray(goal, float)[:2],
+                                  narrow_m=float(self.cfg.goal_case_narrow_m), detour_min=float(self.cfg.goal_case_detour_min))
+                return r
+            if _mix:
+                _probs = {}
+                for tok in _mix.split(","):
+                    k, v = tok.split(":"); _probs[k.strip()] = float(v)
+                _keys = list(_probs); _pv = np.array([_probs[k] for k in _keys], float); _pv /= _pv.sum()
+                _want = _keys[int(self.np_random.choice(len(_keys), p=_pv))]
+                _yaw0 = float(np.arctan2(self._robot_pose_world[1, 0], self._robot_pose_world[0, 0]))
+                _base = getattr(self.world_backend, "last_spawn_base_yaw", None)
+                _yaw0 = float(_base()) if callable(_base) and _base() is not None else _yaw0
+                _best = None; _best_r = None
+                for _t in range(max(1, int(self.cfg.goal_case_tries))):
+                    _cand = self._goal_world if _t == 0 else self._draw_supported_goal(_yaw0)
+                    _wf = self._goal_walkable_share(_cand)
+                    if not (_wf == _wf and _wf >= float(self.cfg.goal_case_walkable_min)):
+                        continue
+                    _r = _cls_of(_cand)
+                    if _r["cls"] in ("blocked", "offmap"):
+                        continue
+                    if _best is None:
+                        _best, _best_r = _cand, _r
+                    _hit = (_r["cls"] == _want) or (_want == "corner" and _r["cls"] == "corner+narrow")                            or (_want == "narrow" and _r["cls"] == "corner+narrow")
+                    if _hit:
+                        _best, _best_r = _cand, _r
+                        break
+                if _best is not None:
+                    self._goal_world = np.asarray(_best, dtype=np.float32)
+                    _r = _best_r
+                    if not hasattr(self, "_case_stats"):
+                        self._case_stats = {"want": {}, "got": {}, "n": 0}
+                    self._case_stats["n"] += 1
+                    self._case_stats["want"][_want] = self._case_stats["want"].get(_want, 0) + 1
+                    self._case_stats["got"][_r["cls"]] = self._case_stats["got"].get(_r["cls"], 0) + 1
+                    if self._case_stats["n"] in (50, 500, 2000):
+                        print(f"[goal case] {self._case_stats['n']} episodes: wanted {self._case_stats['want']} got {self._case_stats['got']}", flush=True)
+                else:
+                    _r = _cls_of(self._goal_world)
+            else:
+                _r = _cls_of(self._goal_world)
+            self._goal_case = str(_r["cls"]); self._goal_detour = float(_r.get("detour", float("nan"))); self._goal_min_width = float(_r.get("min_width_m", float("nan")))
+            # the reward goal / distances must follow a redrawn goal
+            self._initial_goal_dist = float(np.linalg.norm(self._robot_pose_world[:3, 3] - self._goal_world))
         self._prev_position = None
         # Stale from the previous episode otherwise: the rollout video drew the
         # spawn frame's footprint with the LAST episode's final heading (09-04).
@@ -1613,6 +1681,12 @@ class SceneEnv(gym.Env if gym is not None else object):
             info.update(self._map_vs_gen)
         info["proximity"] = prox_term
         info["look_ahead_m"] = float(self.cfg.look_ahead_dist)
+        _gc = str(getattr(self, "_goal_case", "unknown"))
+        info["goal_case_open"] = float(_gc == "open")
+        info["goal_case_corner"] = float(_gc in ("corner", "corner+narrow"))
+        info["goal_case_narrow"] = float(_gc in ("narrow", "corner+narrow"))
+        info["goal_detour"] = float(getattr(self, "_goal_detour", float("nan")))
+        info["goal_min_width_m"] = float(getattr(self, "_goal_min_width", float("nan")))
         info["proximity_ground"] = gprox_term
         info["grass_dist"] = float(getattr(self, "_grass_dist", float("nan")))
         # Always logged, on or off, so the coverage the policy actually

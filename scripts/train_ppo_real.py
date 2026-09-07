@@ -317,7 +317,8 @@ class RewardComponentsCallback(BaseCallback):
     # did-the-mechanism-fire flag, `goal_dist_frac` is a distance ratio. They
     # go under diag/ so reward/ contains only things that are summed into the
     # return (her ask 2026-09-02).
-    DIAG_KEYS = ("coverage", "collision_off_frame", "box_memory_age", "box_memory_hit", "box_memory_miss", "goal_dist_frac",
+    DIAG_KEYS = ("goal_case_open", "goal_case_corner", "goal_case_narrow", "goal_detour", "goal_min_width_m", "look_ahead_m",
+                 "coverage", "collision_off_frame", "box_memory_age", "box_memory_hit", "box_memory_miss", "goal_dist_frac",
                  # 2026-09-04: generator vs map reading of the same footprint
                  "phantom", "missed", "label_agree", "trav_agree", "gen_collision_frac", "map_collision_frac",
                  "used_generated", "map_void_frac",
@@ -456,6 +457,7 @@ def make_env(args):
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
         spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
         spawn_heading_from_walk=bool(getattr(args, "spawn_heading_from_walk", False)),
+        spawn_frames_by_scene=str(getattr(args, "spawn_frames", "") or ""),
         sem_palette_version=getattr(args, "sem_palette", 1), static_scene=bool(getattr(args, "static_scene", False)),
         render_mode="rasterizer_only",       # cheap per-step; diffusion later
         model_path=args.model_path,
@@ -592,6 +594,9 @@ def _dump_env_config(args, cfg):
             "raster_obs": bool(getattr(args, "raster_obs", False)),
             "static_scene": bool(getattr(args, "static_scene", False)),
             "spawn_heading_from_walk": bool(getattr(args, "spawn_heading_from_walk", False)),
+            "spawn_frames": str(getattr(args, "spawn_frames", "") or ""),
+            "goal_case_mix": str(getattr(args, "goal_case_mix", "") or ""),
+            "goal_case_tries": int(getattr(args, "goal_case_tries", 24)),
             # 2026-09-07: the palette the generator's conditioning is colorized
             # with. Evals adopt it; they ran v1 against training's v4 until today.
             "sem_palette": int(getattr(args, "sem_palette", 1)),
@@ -878,6 +883,8 @@ def _scene_env_cfg(args):
         goal_nontrav_edge_m=float(getattr(args, "goal_nontrav_edge_m", 0.0)),
         goal_nontrav_tries=int(getattr(args, "goal_nontrav_tries", 0)),
         goal_nontrav_cone_deg=float(getattr(args, "goal_nontrav_cone_deg", 0.0)),
+        goal_case_mix=str(getattr(args, "goal_case_mix", "") or ""),
+        goal_case_tries=int(getattr(args, "goal_case_tries", 24)),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
         timeout_distance_scaled=getattr(args, "timeout_distance_scaled", False),
@@ -921,6 +928,7 @@ def make_live_vec_env(args):
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
         spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
         spawn_heading_from_walk=bool(getattr(args, "spawn_heading_from_walk", False)),
+        spawn_frames_by_scene=str(getattr(args, "spawn_frames", "") or ""),
         sem_palette_version=getattr(args, "sem_palette", 1), static_scene=bool(getattr(args, "static_scene", False)),
         render_mode="rasterizer_only",
         model_path=args.model_path,
@@ -1624,6 +1632,13 @@ def main():
                          "deviation (her J-v2 spec)")
     ap.add_argument("--spawn_lat_jitter", type=float, default=0.0,
                     help="slide each spawn laterally by U(-x,+x) meters")
+    ap.add_argument("--spawn_frames", type=str, default="",
+                    help='spawn only at these frames per scene: "scene:10,20,30;scene2:20,40"')
+    ap.add_argument("--goal_case_mix", type=str, default="",
+                    help='target goal-case mix, e.g. "corner:0.5,narrow:0.25,open:0.25" (empty = label only)')
+    ap.add_argument("--goal_case_tries", type=int, default=24)
+    ap.add_argument("--wandb_project", type=str, default="nav-rl",
+                    help="wandb project; new-scope arms go to their own project so the graphs stay readable")
     ap.add_argument("--spawn_heading_from_walk", action="store_true",
                     help="spawn facing the walk's direction of travel instead of the recorded camera yaw")
     ap.add_argument("--static_scene", action="store_true",
@@ -1813,7 +1828,7 @@ def main():
         try:
             import wandb
             from wandb.integration.sb3 import WandbCallback
-            wandb.init(project="nav-rl",
+            wandb.init(project=str(getattr(args, "wandb_project", "nav-rl") or "nav-rl"),
                        name=(args.run_label or args.output_dir.name),
                        config=vars(args) | {"total_steps": args.total_steps},
                        sync_tensorboard=True, dir=str(args.output_dir))
