@@ -130,6 +130,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scenes", nargs="+", required=True)
     ap.add_argument("--clouds_dir", default="/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds")
+    ap.add_argument("--poses_dir", default="/scratch/m000204-pm06b/joana/outputs/poses", help="draw the RECORDED camera heading (grey) beside the walk direction (orange) at each spawn frame")
     ap.add_argument("--trav", default="config/traversability_v14_walkway.yaml")
     ap.add_argument("--out_dir", required=True)
     ap.add_argument("--frames", default="10,20,30,40,50,60,70", help="spawn frames along the walk")
@@ -154,6 +155,15 @@ def main():
             print(f"{sc}: no cloud"); continue
         c = np.load(p)
         walk = (np.asarray(c["traj_positions"], np.float32) * np.array([1.0, -1.0, 1.0], np.float32))[:, :2]
+        rec_hd = None
+        pp = Path(args.poses_dir) / f"{sc}_poses.npz"
+        if pp.exists():
+            try:
+                _d = np.load(pp); _h = np.asarray(_d["headings"], np.float32)
+                rec_hd = (_h * np.array([1.0, -1.0, 1.0], np.float32))[:, :2]     # same y-flip as the walk
+                rec_hd = rec_hd / (np.linalg.norm(rec_hd, axis=1, keepdims=True) + 1e-9)
+            except Exception:
+                rec_hd = None
         g = build_label_grid(c["points"], c["labels"].astype(int), nontrav, res=0.1, inflate_m=args.inflate,
                              inflate_classes=tuple(int(v) for v in args.inflate_classes.split(",") if v.strip()), walk_xy=walk)
         L = g.labels; known = L >= 0
@@ -264,7 +274,16 @@ def main():
                 wedge = np.vstack([outer, inner, outer[:1]])
                 ax.plot(wedge[:, 0], wedge[:, 1], "-", c="#e6550d", lw=0.6, alpha=0.5)
                 ax.plot(sp[0], sp[1], "o", c="#e6550d", ms=5)
-                ax.annotate(str(f), (sp[0], sp[1]), xytext=(4, 4), textcoords="offset points", fontsize=8, color="#e6550d")
+                # the two headings: orange = walk direction (what SPAWNHEADWALK spawns on),
+                # grey = the recorded camera heading (the old spawn), angle between them
+                ax.arrow(sp[0], sp[1], 2.0 * np.cos(yaw), 2.0 * np.sin(yaw), color="#e6550d", width=0.06, head_width=0.35, length_includes_head=True)
+                lab = str(f)
+                if rec_hd is not None and f < len(rec_hd):
+                    rh = rec_hd[f]
+                    ax.arrow(sp[0], sp[1], 2.0 * rh[0], 2.0 * rh[1], color="#555555", width=0.04, head_width=0.3, length_includes_head=True, alpha=0.8)
+                    dang = np.degrees(np.arctan2(rh[0] * np.sin(yaw) - rh[1] * np.cos(yaw), rh[0] * np.cos(yaw) + rh[1] * np.sin(yaw)))
+                    lab = f"{f} ({dang:+.0f} deg)"
+                ax.annotate(lab, (sp[0], sp[1]), xytext=(4, 4), textcoords="offset points", fontsize=8, color="#e6550d")
             for r in pairs:
                 ax.plot(r["goal"][0], r["goal"][1], ".", c=col[r["cls"]], ms=5, alpha=0.7)
             shown = 0
@@ -277,7 +296,7 @@ def main():
             for k, cc in col.items():
                 ax.plot([], [], ".", c=cc, ms=8, label=f"{k} {counts.get(k, 0)}")
             ax.legend(loc="upper right"); ax.set_aspect("equal")
-            ax.set_title(f"{sc}: goals {lo}-{hi} m in the {args.cone:.0f} deg cone from each spawn frame (orange wedges); dots = sampled goals by class; dashed = walkable path around a corner")
+            ax.set_title(f"{sc}: goals {lo}-{hi} m in the {args.cone:.0f} deg cone from each spawn frame; orange arrow = walk direction (spawn heading), grey = recorded camera heading; dots = goals by class")
             fig.savefig(out / f"{sc}_goal_cases.png", dpi=110, bbox_inches="tight"); plt.close(fig)
     with open(out / "summary.json", "w") as fh:
         json.dump(summary, fh, indent=1)
