@@ -51,6 +51,8 @@ RUN_SHORT=$(echo "$RUN_NAME" \
           -e 's/_pal4//' -e 's/v21obs_//' -e 's/_trstrict//' -e 's/_semw5//' \
           -e 's/_rs0\.01//' -e 's/_g360//')
 RUN_SHORT=${RUN_SHORT:0:110}
+# an expert recording keeps its tag at the FRONT so the hashed name still says so
+[ -n "${EXPERT:-}" ] && RUN_SHORT="expert${EXPERT}_${RUN_SHORT}"
 EXTRA_ARGS=()
 # Accept the training spellings too. train_ppo_real.sh uses SPAWNMIN/SPAWNMAX,
 # this script used SPAWN_MIN/SPAWN_MAX, and a mismatched name is silently

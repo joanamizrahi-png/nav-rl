@@ -52,13 +52,14 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         self._hists: dict[int, list] = {}
+        self.hist_jump_m = 0.5      # a pose jump beyond this drops the history (reset)
 
     def _robot_hist(self, robot_id: int, pose_recon: np.ndarray) -> list:
         from .live_backend import cold_history
         hist = self._hists.get(robot_id, [])
         if hist:
             jump = np.linalg.norm(hist[-1][:3, 3] - pose_recon[:3, 3])
-            if jump > 0.5:
+            if jump > float(getattr(self, "hist_jump_m", 0.5)):
                 hist = []
         if not hist:
             scene = self._cache.get(self._current_scene_id)

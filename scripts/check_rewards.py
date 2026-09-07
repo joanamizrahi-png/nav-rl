@@ -260,6 +260,50 @@ def render_replay(args):
             for j, name in enumerate(["RGB diffused (what the policy saw) + MAP", "GENERATED semantics + MAP", "RGB raster (reconstruction) + MAP", "SUPPORT (alpha)"]):
                 cv2.putText(panel, name, (j * W + 8, H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
             cv2.imwrite(str(od / f"REPLAY_{args.scene}_ep{e['episode']}_s{k:02d}.png"), panel)
+            # ---- STEP-0 HISTORY COMPARISON (Joana, 2026-09-06): the first frame
+            # of every episode is conditioned on a SYNTHETIC approach (four poses
+            # back-extrapolated behind the spawn). Render the same spawn under
+            # each history mode and put them side by side:
+            #   cold   = the synthetic straight walk-in (what training/eval do)
+            #   walk   = the four RECORDED camera poses before the nearest walk frame
+            #   same   = five identical poses (the old cold start)
+            #   single = one frame, no history (num_frames=1), if the pipe allows
+            if k == 0 and str(getattr(args, "hist_modes", "") or "").strip():
+                saved_hists = {rid: list(h) for rid, h in world._hists.items()}
+                saved_k = world.live_frames
+                tiles_rgb, tiles_sem, names = [], [], []
+                scene_c = world._cache[world._current_scene_id]
+                pr, _ = world._pose_nav_to_recon(pose)
+                src = scene_c["cam2world"].detach().cpu().float().numpy()
+                for mode in [m.strip() for m in str(args.hist_modes).split(",") if m.strip()]:
+                    world._hists = {}; world.live_frames = saved_k; world.hist_jump_m = 0.5
+                    try:
+                        if mode == "walk":
+                            i0 = int(np.argmin(np.linalg.norm(src[:, :3, 3] - pr[:3, 3][None, :], axis=1)))
+                            idx = [max(0, i0 - d) for d in range(saved_k - 1, 0, -1)]
+                            world._hists = {0: [src[t].astype(np.float32) for t in idx]}
+                            world.hist_jump_m = 1e9
+                        elif mode == "same":
+                            world._hists = {0: [pr.astype(np.float32).copy() for _ in range(saved_k - 1)]}
+                            world.hist_jump_m = 1e9
+                        elif mode == "single":
+                            world.live_frames = 1
+                        (r2, _, _, lab2) = world.render_batch([(0, pose)])[0]
+                        a2 = float(np.asarray(world.last_alpha[0], dtype=np.float32).mean()) if getattr(world, "last_alpha", None) else float("nan")
+                        t_rgb = np.ascontiguousarray(r2[:, :, ::-1]).copy()
+                        l2 = np.clip(np.asarray(lab2, dtype=int), 0, len(CLASS_COLORS_V14_255) - 1)
+                        t_sem = np.ascontiguousarray(CLASS_COLORS_V14_255[l2][:, :, ::-1]).copy()
+                        cv2.putText(t_rgb, f"{mode}  alpha {a2:.2f}", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+                        tiles_rgb.append(t_rgb); tiles_sem.append(t_sem); names.append(mode)
+                    except Exception as ex:
+                        print(f"    [hist {mode}] FAILED: {type(ex).__name__}: {str(ex)[:160]}", flush=True)
+                world._hists = saved_hists; world.live_frames = saved_k; world.hist_jump_m = 0.5
+                if tiles_rgb:
+                    hp = np.concatenate([np.concatenate(tiles_rgb, axis=1), np.concatenate(tiles_sem, axis=1)], axis=0)
+                    cv2.putText(hp, f"ep {e['episode']} step 0 spawn: first frame under each HISTORY mode (top RGB, bottom generated semantics)",
+                                (8, hp.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+                    cv2.imwrite(str(od / f"REPLAY_{args.scene}_ep{e['episode']}_s00_HIST.png"), hp)
+                    print(f"    step  0 history modes rendered: {names}", flush=True)
             print(f"    step {k:2d}: map near box {near_frac:.2f}  alpha {cov:.2f}  projected cells {int(inside.sum())}  "
                   f"gen-vs-map agree {_ag:.2f}  gen-walkable/map-grass {n_gen_walk_map_grass}  gen-grass/map-walkable {n_gen_grass_map_walk}", flush=True)
     print(f"==> {od}", flush=True)
@@ -777,6 +821,7 @@ def main():
     ap.add_argument("--replay_metrics", default="", help="metrics.json of an eval: re-render its recorded poses with the map projected in")
     ap.add_argument("--replay_episodes", default="", help="comma list of episode ids to replay (empty = all)")
     ap.add_argument("--cov_sweep", action="store_true", help="coverage vs yaw offset at walk frames (rasterizer only)")
+    ap.add_argument("--hist_modes", default="", help="replay: also render each episode's step 0 under these history modes (cold,walk,same,single)")
     ap.add_argument("--cov_frames", default="10,20,30,40,50,60,70")
     ap.add_argument("--cov_yaws", default="0,15,30,45,60,90,-15,-30,-45,-60,-90")
     ap.add_argument("--out_dir", default="")

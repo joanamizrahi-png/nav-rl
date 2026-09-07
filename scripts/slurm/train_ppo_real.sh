@@ -102,9 +102,11 @@ if [ "${LIVE:-0}" = "1" ]; then
         # so the BC arm can be queued with --dependency=afterok:<recorder>
         # before the recorder has run (2026-09-06). Refuses if none exists.
         if [ "$LIVE_DEMOS" = "auto" ]; then
-            LIVE_DEMOS=$(ls -t /scratch/m000204-pm06b/joana/outputs/eval_*expertmap*/demos.npz 2>/dev/null | head -1)
+            # eval dir names over 200 chars are hashed and lose the _expertmap
+            # suffix (469970 did), so match on the demos file itself
+            LIVE_DEMOS=$(ls -t /scratch/m000204-pm06b/joana/outputs/eval_*/demos.npz 2>/dev/null | head -1)
             if [ -z "$LIVE_DEMOS" ]; then
-                echo "REFUSED: LIVE_DEMOS=auto but no outputs/eval_*expertmap*/demos.npz exists"
+                echo "REFUSED: LIVE_DEMOS=auto but no outputs/eval_*/demos.npz exists"
                 exit 3
             fi
             echo "==> LIVE_DEMOS resolved to $LIVE_DEMOS"

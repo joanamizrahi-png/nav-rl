@@ -62,6 +62,8 @@ fi
 if [ -n "${REPLAY:-}" ]; then
     EXTRA+=(--replay_metrics "${REPLAY}" --replay_episodes "${REPLAYEPS:-}")
     [ -n "${OUTDIR:-}" ] && EXTRA+=(--out_dir "${OUTDIR}")
+    # HISTMODES=cold,walk,same,single: step-0 frame under each history seeding
+    [ -n "${HISTMODES:-}" ] && EXTRA+=(--hist_modes "${HISTMODES}")
 fi
 # COVSWEEP=1 [COVFRAMES=10,20,...] [COVYAWS=0,15,...]: raster alpha vs yaw offset
 # from the walk direction at walk frames (no diffusion; minutes).
