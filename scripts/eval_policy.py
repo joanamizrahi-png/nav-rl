@@ -71,6 +71,7 @@ def build_env(args):
         spawn_min_frame=args.spawn_min_frame,
         render_mode="rasterizer_only",
         static_scene=bool(getattr(args, "static_scene", False)),
+        spawn_heading_from_walk=bool(getattr(args, "spawn_heading_from_walk", False)),
         # 2026-09-07: the backend palette was never set in evals (default v1)
         # while training passes --sem_palette 4; see the log line "active palette"
         sem_palette_version=int(getattr(args, "sem_palette", 4)),
@@ -320,6 +321,7 @@ def main():
     ap.add_argument("--action_smooth_cost", type=float, default=None)
     ap.add_argument("--spin_cost", type=float, default=None)
     ap.add_argument("--static_scene", action="store_true", help="adopted from env_config.json when present")
+    ap.add_argument("--spawn_heading_from_walk", action="store_true", help="adopted from env_config.json when present")
     ap.add_argument("--sem_palette", type=int, default=4,
                     help="colour table for the video semantic panels. MUST "
                          "match the semantics model (v26 = 4, v21 = 1) or the "
@@ -487,7 +489,7 @@ def main():
                        "collision_at_next_pose", "look_ahead_auto", "footprint_next_heading", "crash_requires_motion",
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test
-                       "raster_obs", "static_scene", "sem_palette",
+                       "raster_obs", "static_scene", "sem_palette", "spawn_heading_from_walk",
                        "goal_nontrav_edge_m", "goal_nontrav_tries", "goal_nontrav_cone_deg", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage

@@ -455,6 +455,7 @@ def make_env(args):
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
         spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
+        spawn_heading_from_walk=bool(getattr(args, "spawn_heading_from_walk", False)),
         sem_palette_version=getattr(args, "sem_palette", 1), static_scene=bool(getattr(args, "static_scene", False)),
         render_mode="rasterizer_only",       # cheap per-step; diffusion later
         model_path=args.model_path,
@@ -590,6 +591,7 @@ def _dump_env_config(args, cfg):
             # never trained on.
             "raster_obs": bool(getattr(args, "raster_obs", False)),
             "static_scene": bool(getattr(args, "static_scene", False)),
+            "spawn_heading_from_walk": bool(getattr(args, "spawn_heading_from_walk", False)),
             # 2026-09-07: the palette the generator's conditioning is colorized
             # with. Evals adopt it; they ran v1 against training's v4 until today.
             "sem_palette": int(getattr(args, "sem_palette", 1)),
@@ -918,6 +920,7 @@ def make_live_vec_env(args):
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
         spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
+        spawn_heading_from_walk=bool(getattr(args, "spawn_heading_from_walk", False)),
         sem_palette_version=getattr(args, "sem_palette", 1), static_scene=bool(getattr(args, "static_scene", False)),
         render_mode="rasterizer_only",
         model_path=args.model_path,
@@ -1621,6 +1624,8 @@ def main():
                          "deviation (her J-v2 spec)")
     ap.add_argument("--spawn_lat_jitter", type=float, default=0.0,
                     help="slide each spawn laterally by U(-x,+x) meters")
+    ap.add_argument("--spawn_heading_from_walk", action="store_true",
+                    help="spawn facing the walk's direction of travel instead of the recorded camera yaw")
     ap.add_argument("--static_scene", action="store_true",
                     help="reconstruct as a STATIC scene: every source frame's Gaussians render from any pose")
     ap.add_argument("--sem_palette", type=int, default=1,

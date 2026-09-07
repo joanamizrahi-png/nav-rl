@@ -118,10 +118,29 @@ class NavCalibration:
         M[:3, 3] = self.A.T @ np.array([0.0, 0.0, self.ground_z])
         return M
 
-    def robot_pose_nav(self, frame: int) -> np.ndarray:
-        """(4,4) robot-to-nav-world pose from the real trajectory (z=0, yaw from heading)."""
-        fwd = self.headings[frame].copy()
-        fwd[2] = 0.0
+    def walk_direction(self, frame: int, half: int = 2) -> "np.ndarray | None":
+        """Unit xy direction the walk MOVES at `frame` (positions[f+half] -
+        positions[f-half]); None when the robot stood still there."""
+        n = len(self.positions)
+        a, b = max(0, frame - half), min(n - 1, frame + half)
+        mv = np.asarray(self.positions[b], float) - np.asarray(self.positions[a], float)
+        mv[2] = 0.0
+        if np.linalg.norm(mv) < 0.05 * max(b - a, 1):
+            return None
+        return mv / np.linalg.norm(mv)
+
+    def robot_pose_nav(self, frame: int, heading_from_walk: bool = False) -> np.ndarray:
+        """(4,4) robot-to-nav-world pose from the real trajectory (z=0, yaw from
+        the recorded camera heading, or -- 2026-09-07, Joana's spawn-pose check
+        -- from the direction the walk moves, which the pose estimator's yaw
+        errors do not touch; falls back to the recorded heading when standing)."""
+        fwd = None
+        if heading_from_walk:
+            fwd = self.walk_direction(frame)
+        if fwd is None:
+            fwd = self.headings[frame].copy()
+            fwd[2] = 0.0
+        fwd = np.asarray(fwd, float).copy()
         fwd /= max(np.linalg.norm(fwd), 1e-8)
         up = np.array([0.0, 0.0, 1.0])
         pose = np.eye(4)
@@ -200,6 +219,10 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # the cold-start jitter walks (sy20/sl0.4) and the strafe cov sweep.
     spawn_yaw_jitter_deg: float = 0.0
     spawn_lat_jitter_m: float = 0.0
+    # 2026-09-07: spawn heading = the walk's direction of travel instead of the
+    # recorded camera yaw (spawn_pose_check found 30-150 deg errors on turns
+    # and on GTc2d210 throughout). The goal cone is centred on it too.
+    spawn_heading_from_walk: bool = False
     # v14 palette version for the semantic pipe's colorize/DECODE. MUST match
     # the checkpoint's training palette: v21 and earlier = 1, v22b = 2,
     # v23 = 3, v24/v25 line = 4. Wrong version decodes to wrong classes and
@@ -324,11 +347,13 @@ class CalibratedRealWorldBackend(RealWorldBackend):
             cand = [f for f in range(lo, hi) if ok[f]]
             if cand:
                 return self._jitter_spawn(
-                    cal.robot_pose_nav(int(cand[int(rng.integers(0, len(cand)))])), rng)
+                    cal.robot_pose_nav(int(cand[int(rng.integers(0, len(cand)))]),
+                                       heading_from_walk=bool(getattr(self.cfg, "spawn_heading_from_walk", False))), rng)
             print(f"[spawn_label_classes] WARNING: no valid spawn frames in "
                   f"[{lo},{hi}) for {scene_id}; falling back to unfiltered")
         return self._jitter_spawn(
-            cal.robot_pose_nav(int(rng.integers(lo, hi))), rng)
+            cal.robot_pose_nav(int(rng.integers(lo, hi)),
+                               heading_from_walk=bool(getattr(self.cfg, "spawn_heading_from_walk", False))), rng)
 
     _last_spawn_base_yaw: "float | None" = None
 

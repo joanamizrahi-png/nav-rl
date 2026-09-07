@@ -145,6 +145,7 @@ fi
 [ -n "${BOXMEM:-}" ] && { EXTRA_ARGS+=(--collision_box_memory "$BOXMEM"); OUT_SUFFIX="${OUT_SUFFIX}_bm${BOXMEM}"; }
 [ "${RASTEROBS:-0}" = "1" ] && { EXTRA_ARGS+=(--raster_obs); OUT_SUFFIX="${OUT_SUFFIX}_rast"; }
 [ "${STATICSCENE:-0}" = "1" ] && { EXTRA_ARGS+=(--static_scene); OUT_SUFFIX="${OUT_SUFFIX}_static"; }
+[ "${SPAWNHEADWALK:-0}" = "1" ] && { EXTRA_ARGS+=(--spawn_heading_from_walk); OUT_SUFFIX="${OUT_SUFFIX}_shw"; }
 [ "${NEXTPOSE:-0}" = "1" ] && { EXTRA_ARGS+=(--collision_at_next_pose); OUT_SUFFIX="${OUT_SUFFIX}_np"; }
 [ "${LOOKAUTO:-0}" = "1" ] && { EXTRA_ARGS+=(--look_ahead_auto); OUT_SUFFIX="${OUT_SUFFIX}_la"; }
 [ "${NEXTHEAD:-0}" = "1" ] && { EXTRA_ARGS+=(--footprint_next_heading); OUT_SUFFIX="${OUT_SUFFIX}_nh"; }
