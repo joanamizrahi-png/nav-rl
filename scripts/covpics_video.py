@@ -29,14 +29,17 @@ def main():
     args = ap.parse_args()
     import cv2
     pat = re.compile(r"COV_(?P<scene>.+)_(?P<mode>static|dynamic)_f(?P<f>\d+)_yaw(?P<yaw>[+-]\d+)\.png")
-    def index(d):
+    def index(d, mode):
+        # both modes may sit in ONE folder (check_rewards writes to
+        # covsweep_<scene>/ by default): keep only this mode's files
         items = {}
         for p in Path(d).glob("COV_*.png"):
             m = pat.match(p.name)
-            if m:
+            if m and m["mode"] == mode:
                 items[(int(m["f"]), int(m["yaw"]))] = p
         return items
-    dyn, sta = index(args.dynamic), index(args.static)
+    dyn, sta = index(args.dynamic, "dynamic"), index(args.static, "static")
+    print(f"dynamic pictures: {len(dyn)}   static pictures: {len(sta)}   shared (frame, yaw): {len(set(dyn) & set(sta))}")
     keys = sorted(set(dyn) & set(sta), key=lambda k: (k[0], k[1]))
     if not keys:
         raise SystemExit("no matching (frame, yaw) pictures in both folders")
