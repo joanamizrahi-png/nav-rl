@@ -52,6 +52,7 @@ def main():
     ap.add_argument("--refusal_dist", type=float, default=2.5)
     ap.add_argument("--verge_dist", type=float, default=1.5, help="refusal radius around the VERGE point")
     ap.add_argument("--classes", default="3,4,5")
+    ap.add_argument("--tries", type=int, default=12, help="tries of the map-direct lawn draw (GOALNTTRIES)")
     ap.add_argument("--out_dir", required=True)
     args = ap.parse_args()
     out = Path(args.out_dir); out.mkdir(parents=True, exist_ok=True)
@@ -84,6 +85,8 @@ def main():
         env.cfg.goal_support_radius_m = 0.6; env.cfg.goal_support_min_frac = 0.6; env.cfg.goal_support_tries = 8
         env.cfg.goal_nontrav_edge_m = args.edge
         env.cfg.goal_nontrav_known_min = 0.5
+        env.cfg.goal_nontrav_tries = int(args.tries)
+        env._lawn_draw_report = lambda st: None
         env.world_backend = types.SimpleNamespace(cfg=Cfg()); env.world_backend.cfg.goal_dist_range = (lo, hi); env.world_backend.cfg.goal_cone_deg = args.cone
         env._label_grids = {sc: g}; env._scene_id = sc; env._non_trav = nontrav; env._ground_pts = {sc: gr}
         env._support_ref = {sc: ref}; env._walk_xy = {sc: walk}; env.np_random = np.random.default_rng(0)
@@ -106,7 +109,9 @@ def main():
         for i0 in range(0, len(cells), 4096):
             blk = cells[i0:i0 + 4096]
             d2w[i0:i0 + 4096] = ((blk[:, None, :] - walk[None, :, :]) ** 2).sum(-1).min(axis=1)
-        near = cells[d2w <= args.edge ** 2]
+        # edge 0 = the edge rule is OFF: every lawn cell is a candidate (it used
+        # to keep none, so the funnel printed zeros for every frame)
+        near = cells if args.edge <= 0.0 else cells[d2w <= args.edge ** 2]
         cls_counts = {int(k): int(v) for k, v in zip(*np.unique(L[L >= 0], return_counts=True))}
         print(f"  {sc}: known cells by class {cls_counts}")
         print(f"  {sc}: {len(cells)} cells of classes {cls}; {len(near)} within {args.edge} m of the walk")
@@ -123,11 +128,14 @@ def main():
                 sh = env._goal_walkable_share(gl)
                 if sh == sh and sh <= 0.25:
                     sh_ok += 1
-                    if env._goal_supported(gl):
+                    # the real draw's second test (no support rule since 09-05)
+                    if env._disc_known_share(gl) >= env.cfg.goal_nontrav_known_min:
                         sup_ok += 1
             n_s = len(cand[:: max(1, len(cand) // 200)])
             print(f"    frame {f:2d}: in window {int(inwin.sum())}, in cone {int(incone.sum())}, "
-                  f"of {n_s} sampled: share<=0.25 {sh_ok}, +supported {sup_ok}")
+                  f"of {n_s} sampled: share<=0.25 {sh_ok}, +known>=0.5 {sup_ok}  "
+                  f"(pass rate {sup_ok / max(1, n_s):.2f}; P(12 tries fail) {(1 - sup_ok / max(1, n_s)) ** 12:.2f}, "
+                  f"P({args.tries} fail) {(1 - sup_ok / max(1, n_s)) ** args.tries:.3f})")
         frames = [int(v) for v in args.frames.split(",") if int(v) < len(walk) - 1]
         for f in frames:
             dv = walk[min(f + 1, len(walk) - 1)] - walk[f]; yaw = float(np.arctan2(dv[1], dv[0]))
