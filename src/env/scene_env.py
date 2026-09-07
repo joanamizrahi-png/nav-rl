@@ -132,6 +132,11 @@ class SceneEnvConfig:
     # scene ~none). The sampler only; the policy never sees it.
     goal_traversable_mix: float = 0.0
     goal_mix_tries: int = 12
+    # Tries of the map-direct LAWN draw (0 = goal_mix_tries). 12 silently
+    # delivered 15% lawn goals instead of 25% on the six-scene set and 5% on
+    # AUw360 alone (469883/469884, 2026-09-06): most random lawn cells fail
+    # the arrival-disc tests, and a failed draw becomes a walkable goal.
+    goal_nontrav_tries: int = 0
     # Map-direct draw for the NON-traversable share of the mix (2026-09-04
     # night). Rejection sampling from the walk sampler found no lawn goal in
     # 12 draws on short windows and on scenes without lawn beside the walk,
@@ -671,10 +676,17 @@ class SceneEnv(gym.Env if gym is not None else object):
             dth = (ang - float(_yaw) + np.pi) % (2.0 * np.pi) - np.pi
             ok &= np.abs(dth) <= np.deg2rad(cone) / 2.0
         idx = np.nonzero(ok)[0]
+        if not hasattr(self, "_lawn_draw_stats"):
+            self._lawn_draw_stats = {}
+        st = self._lawn_draw_stats.setdefault(self._scene_id, {"calls": 0, "no_cells": 0, "disc_fail": 0, "ok": 0})
+        st["calls"] += 1
         if len(idx) == 0:
+            st["no_cells"] += 1
+            self._lawn_draw_report(st)
             return None
         half = g.res / 2.0
-        for _ in range(max(1, int(self.cfg.goal_mix_tries))):
+        _tries = int(self.cfg.goal_nontrav_tries) if int(self.cfg.goal_nontrav_tries) > 0 else int(self.cfg.goal_mix_tries)
+        for _ in range(max(1, _tries)):
             c = cells[idx[int(self.np_random.integers(0, len(idx)))]]
             goal = np.array([c[0] + self.np_random.uniform(-half, half),
                              c[1] + self.np_random.uniform(-half, half), 0.0], dtype=np.float32)
@@ -685,8 +697,19 @@ class SceneEnv(gym.Env if gym is not None else object):
             # ground by construction, and the share test already refuses a
             # disc that is less than half reconstructed.
             if wf == wf and wf <= 0.25 and self._disc_known_share(goal) >= float(self.cfg.goal_nontrav_known_min):
+                st["ok"] += 1
+                self._lawn_draw_report(st)
                 return goal
+        st["disc_fail"] += 1
+        self._lawn_draw_report(st)
         return None
+
+    def _lawn_draw_report(self, st: dict) -> None:
+        # why lawn goals go missing, per scene, at 20 / 200 / 2000 calls
+        if st["calls"] in (20, 200, 2000):
+            print(f"[goal mix] lawn draw on {self._scene_id}: {st['calls']} calls, "
+                  f"{st['ok']} ok, {st['no_cells']} no lawn cell in window+cone, "
+                  f"{st['disc_fail']} all tries failed the disc tests", flush=True)
 
     def _draw_supported_goal(self, _yaw) -> np.ndarray:
         """One goal draw from the backend's sampler, re-drawn up to
