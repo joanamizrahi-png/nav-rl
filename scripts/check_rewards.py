@@ -345,8 +345,10 @@ def render_replay(args):
                                 (8, hp.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
                     cv2.imwrite(str(od / f"REPLAY_{args.scene}_ep{e['episode']}_s00_HIST.png"), hp)
                     print(f"    step  0 history modes rendered: {names}", flush=True)
+            _ti = getattr(world, "last_t_idx", None); _ti = (_ti[0] if _ti else -1)
             print(f"    step {k:2d}: map near box {near_frac:.2f}  alpha {cov:.2f}  projected cells {int(inside.sum())}  "
-                  f"gen-vs-map agree {_ag:.2f}  gen-walkable/map-grass {n_gen_walk_map_grass}  gen-grass/map-walkable {n_gen_grass_map_walk}", flush=True)
+                  f"gen-vs-map agree {_ag:.2f}  gen-walkable/map-grass {n_gen_walk_map_grass}  gen-grass/map-walkable {n_gen_grass_map_walk}  "
+                  f"source frame {_ti}", flush=True)
     print(f"==> {od}", flush=True)
 
 

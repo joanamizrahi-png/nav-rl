@@ -119,6 +119,13 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
         src_pos = scene["cam2world"][:, :3, 3]
         t_idx = torch.cdist(flat[:, :3, 3].float(), src_pos.float()).argmin(dim=1)
         target_ts = scene["timestamps"][t_idx]
+        # which SOURCE FRAME's time each view is rendered at (the scene is
+        # time-associated: when the nearest source camera changes, the set of
+        # Gaussians rendered changes with it). Exposed for the replay log.
+        try:
+            self.last_t_idx = t_idx.detach().cpu().numpy().reshape(B, k)[:, -1].tolist()
+        except Exception:
+            self.last_t_idx = None
 
         raster = recon.gs_renderer.rasterizer
         rgb_t, depth_t, alpha_t = raster.forward(
