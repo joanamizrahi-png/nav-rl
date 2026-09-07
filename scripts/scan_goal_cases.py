@@ -168,17 +168,28 @@ def main():
         fy, fx = np.nonzero(free)
         free_xy = np.c_[g.x0 + (fx + 0.5) * g.res, g.y0 + (fy + 0.5) * g.res].astype(np.float32)
         pairs = []
-        for f in [int(v) for v in args.frames.split(",") if int(v) < len(walk) - 1]:
+        frame_notes = {}          # why a spawn frame produced nothing (Joana: "why no goals from frame 10?")
+        req_frames = [int(v) for v in args.frames.split(",") if int(v) < len(walk) - 1]
+        for f in req_frames:
             s = walk[f]; dv = walk[min(f + 1, len(walk) - 1)] - walk[f]; yaw = float(np.arctan2(dv[1], dv[0]))
             sc_ij = cell(s)
-            if not inb(sc_ij) or not free[sc_ij]:
-                continue
+            if not inb(sc_ij):
+                frame_notes[f] = "spawn outside the map"; continue
+            if not free[sc_ij]:
+                # the walk point sits on a non-walkable/unknown cell (label error,
+                # hole, inflation): snap to the nearest walkable cell within 0.5 m
+                sn = snap(free, sc_ij, max_cells=5)
+                if sn is None:
+                    frame_notes[f] = "spawn cell not walkable (no walkable cell within 0.5 m)"; continue
+                frame_notes[f] = f"spawn snapped {0.1 * np.hypot(sn[0] - sc_ij[0], sn[1] - sc_ij[1]):.1f} m to a walkable cell"
+                sc_ij = sn; s = np.array([g.x0 + (sn[1] + 0.5) * g.res, g.y0 + (sn[0] + 0.5) * g.res], np.float32)
             d = np.linalg.norm(free_xy - s[None, :], axis=1)
             ang = np.arctan2(free_xy[:, 1] - s[1], free_xy[:, 0] - s[0])
             dth = np.abs((ang - yaw + np.pi) % (2 * np.pi) - np.pi)
-            cand = np.nonzero((d >= lo) & (d <= hi) & (dth <= np.deg2rad(args.cone) / 2))[0]
+            in_win = (d >= lo) & (d <= hi)
+            cand = np.nonzero(in_win & (dth <= np.deg2rad(args.cone) / 2))[0]
             if len(cand) == 0:
-                continue
+                frame_notes[f] = f"no walkable cell in the cone ({int(in_win.sum())} in the window, none within {args.cone:.0f} deg)"; continue
             for gi in rng.choice(cand, size=min(args.goals_per_spawn, len(cand)), replace=False):
                 gxy = free_xy[gi]; g_ij = cell(gxy)
                 # straight line, widened to the body: every sample must be body_ok
@@ -217,6 +228,9 @@ def main():
         counts = {}
         for r in pairs:
             counts[r["cls"]] = counts.get(r["cls"], 0) + 1
+        for f in req_frames:
+            if f in frame_notes and not any(r["frame"] == f for r in pairs):
+                print(f"    frame {f:2d}: NO goals -- {frame_notes[f]}", flush=True)
         n = max(1, len(pairs))
         summary[sc] = {k: counts.get(k, 0) for k in ("open", "corner", "narrow", "corner+narrow", "blocked")}
         summary[sc]["pairs"] = len(pairs)
@@ -236,9 +250,13 @@ def main():
             # the GOAL VERSION (Joana, 2026-09-07): every spawn frame with its
             # cone wedge (window lo-hi), every sampled goal as a dot coloured by
             # class, the walkable path drawn for a few corner cases
-            spawn_frames = sorted(set(r["frame"] for r in pairs))
-            for f in spawn_frames:
+            got = set(r["frame"] for r in pairs)
+            for f in req_frames:
                 sp = walk[f]; dv = walk[min(f + 1, len(walk) - 1)] - walk[f]; yaw = float(np.arctan2(dv[1], dv[0]))
+                if f not in got:
+                    ax.plot(sp[0], sp[1], "x", c="#7f7f7f", ms=9, mew=2)
+                    ax.annotate(f"{f}: {frame_notes.get(f, 'no goals')}", (sp[0], sp[1]), xytext=(6, -12), textcoords="offset points", fontsize=7, color="#7f7f7f")
+                    continue
                 a0, a1 = yaw - np.deg2rad(args.cone) / 2, yaw + np.deg2rad(args.cone) / 2
                 ang = np.linspace(a0, a1, 24)
                 outer = np.c_[sp[0] + hi * np.cos(ang), sp[1] + hi * np.sin(ang)]
