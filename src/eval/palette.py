@@ -62,3 +62,27 @@ CLASS_COLORS_V14_255 = np.array([
     (205,  70, 145),   # 12 person
     (110, 130, 220),   # 13 vehicle
 ], dtype=np.uint8)
+
+
+def display_palette(sem_palette: int = 4) -> np.ndarray:
+    """[14,3] uint8 colors for label ids, the SAME rule save_rollout_video uses
+    for the eval videos (2026-09-06, Joana: the side panels must match the
+    sighted/blind videos): diffsynth's v14_palette(sem_palette) when the
+    NeoVerse tree is importable, else the static CLASS_COLORS_V14_255."""
+    try:
+        import sys
+        from pathlib import Path
+        _nv = Path(__file__).resolve().parents[2].parent / "NeoVerse"
+        if _nv.exists() and str(_nv) not in sys.path:
+            sys.path.insert(0, str(_nv))
+        from diffsynth.utils.class_taxonomy import v14_palette
+        pal = (v14_palette(int(sem_palette)).numpy() * 255).astype(np.uint8)
+        if pal.ndim == 2 and pal.shape[1] == 3 and len(pal) >= 14:
+            return pal[:14]
+    except Exception:
+        pass
+    return CLASS_COLORS_V14_255
+
+
+CLASS_NAMES_V14 = ["void", "sky", "trail", "grass", "rough", "water", "sidewalk", "road",
+                   "pavement?", "stairs", "obstacle", "vegetation", "person", "vehicle"]

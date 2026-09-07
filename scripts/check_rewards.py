@@ -217,7 +217,8 @@ def render_replay(args):
             # GENERATED semantics (the label head's own output for this frame),
             # colorized -- this is what differs between checkpoints; the RGB
             # hole-filling is the shared base model's (Joana, 2026-09-06).
-            from src.eval.palette import CLASS_COLORS_V14_255
+            from src.eval.palette import display_palette
+            CLASS_COLORS_V14_255 = display_palette(args.sem_palette)   # same colors as the eval videos
             lab_i = np.clip(np.asarray(lab, dtype=int), 0, len(CLASS_COLORS_V14_255) - 1)
             semc = CLASS_COLORS_V14_255[lab_i].astype(np.uint8)
             alpha = getattr(world, "last_alpha", None)
