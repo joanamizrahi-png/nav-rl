@@ -53,7 +53,30 @@ def main():
     for sc in args.scenes:
         p = Path(args.clouds_dir) / f"{sc}_cloud.npz"
         if not p.exists():
-            print(f"{sc}: no cloud"); continue
+            # no cloud yet: still show the video so the scene can be judged by eye
+            clip = find_clip(sc, clip_dirs)
+            tiles = []
+            if clip is not None:
+                cap = cv2.VideoCapture(str(clip)); n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                for i in range(0, n, args.every):
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, i); ok, fr = cap.read()
+                    if not ok:
+                        continue
+                    fr = cv2.resize(fr, (args.tile_w, int(args.tile_w * fr.shape[0] / fr.shape[1])))
+                    cv2.putText(fr, f"frame {i}", (6, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3, cv2.LINE_AA)
+                    cv2.putText(fr, f"frame {i}", (6, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+                    tiles.append(fr)
+                cap.release()
+            if not tiles:
+                print(f"{sc}: no cloud and no clip"); continue
+            cols = 3; th, tw = tiles[0].shape[:2]; rows = int(np.ceil(len(tiles) / cols))
+            sheet = np.zeros((rows * th + 30, cols * tw, 3), np.uint8)
+            cv2.putText(sheet, f"{sc}: NO CLOUD YET (video only)", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
+            for k, t in enumerate(tiles):
+                r, cc = divmod(k, cols); sheet[30 + r * th:30 + (r + 1) * th, cc * tw:(cc + 1) * tw] = t
+            cv2.imwrite(str(out / f"{sc}_sheet.png"), sheet)
+            print(f"{sc}: no cloud, {len(tiles)} video frames -> {sc}_sheet.png", flush=True)
+            continue
         c = np.load(p)
         walk = (np.asarray(c["traj_positions"], np.float32) * np.array([1.0, -1.0, 1.0], np.float32))[:, :2]
         g = build_label_grid(c["points"], c["labels"].astype(int), nontrav, res=0.1, inflate_m=0.1,
