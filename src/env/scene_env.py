@@ -171,6 +171,11 @@ class SceneEnvConfig:
     goal_case_mix: str = ""
     goal_case_tries: int = 24
     goal_case_walkable_min: float = 0.5
+    # 2026-09-07 (Joana: edge goals with a smaller radius): reject a goal when
+    # ANY non-walkable map cell lies within this distance of its CENTRE, so a
+    # goal cannot sit against a wall or half on grass. 0 = off (every arm so
+    # far). Set it to the arrival radius before any radius reduction.
+    goal_center_clear_m: float = 0.0
     goal_case_narrow_m: float = 1.0
     goal_case_detour_min: float = 1.15
     # Map-direct draw for the NON-traversable share of the mix (2026-09-04
@@ -790,14 +795,15 @@ class SceneEnv(gym.Env if gym is not None else object):
                         self._scene_id, self.np_random, self._robot_pose_world[:2, 3], cone_yaw=_yaw).copy()
         return goal
 
-    def _goal_walkable_share(self, goal_world) -> float:
+    def _goal_walkable_share(self, goal_world, radius: "float | None" = None) -> float:
         """Walkable share of the arrival disc on the map; nan if no map or
         less than half the disc is reconstructed. Used by the goal mix at
-        sampling time and by the refusal metric."""
+        sampling time and by the refusal metric. `radius` overrides the
+        arrival radius (the centre-clearance check uses a smaller disc)."""
         _g = getattr(self, "_label_grids", {}).get(self._scene_id)
         if _g is None:
             return float("nan")
-        _r = max(float(self.cfg.goal_radius), 0.3)
+        _r = max(float(self.cfg.goal_radius if radius is None else radius), 0.3)
         _a = np.arange(-_r, _r + 1e-6, _g.res / 2.0)
         _X, _Y = np.meshgrid(_a, _a, indexing="ij")
         _pts = np.c_[_X.ravel(), _Y.ravel()]
@@ -946,6 +952,11 @@ class SceneEnv(gym.Env if gym is not None else object):
                     _wf = self._goal_walkable_share(_cand)
                     if not (_wf == _wf and _wf >= float(self.cfg.goal_case_walkable_min)):
                         continue
+                    _cl = float(getattr(self.cfg, "goal_center_clear_m", 0.0) or 0.0)
+                    if _cl > 0.0:
+                        _wc = self._goal_walkable_share(_cand, radius=_cl)
+                        if not (_wc == _wc and _wc >= 0.999):
+                            continue
                     _r = _cls_of(_cand)
                     if _r["cls"] in ("blocked", "offmap"):
                         continue
