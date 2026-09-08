@@ -644,7 +644,7 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         # own frame, not as a trail over every view. Must match the label
         # head's training (v31/v32 = 12,13; v26/v30 = none).
         _mv = tuple(int(v) for v in str(getattr(cfg, "static_movers", "") or "").split(",") if v.strip())
-        _rast = reconstructor.gs_renderer.rasterizer
+        _rast = reconstructor.gs_renderer   # owns separate_splats / _classify_gaussians; .rasterizer only draws
         if tuple(getattr(_rast, "dynamic_label_ids", ())) != _mv:
             _rast.dynamic_label_ids = _mv
         if _mv:

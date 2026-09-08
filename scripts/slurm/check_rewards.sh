@@ -69,7 +69,7 @@ fi
 # STATICSCENE=1: static reconstruction (all frames' Gaussians always rendered)
 # OUTDIR: output directory for ANY mode (survey videos of different
 # reconstruction modes would otherwise overwrite each other).
-[ -n "${OUTDIR:-}" ] && EXTRA+=(--out_dir "${OUTDIR}")
+[ -n "${OUTDIR:-}" ] && EXTRA+=(--out_dir "${OUTDIR}" --out "${OUTDIR}")
 [ "${STATICSCENE:-0}" = "1" ] && EXTRA+=(--static_scene)
 # STATICMOVERS=12,13: person/vehicle Gaussians stay per-frame in static mode
 [ -n "${STATICMOVERS:-}" ] && EXTRA+=(--static_movers "${STATICMOVERS}")
