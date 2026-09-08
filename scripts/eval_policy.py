@@ -182,6 +182,7 @@ def build_env(args):
         goal_case_mix=str(getattr(args, "goal_case_mix", "") or ""),
         goal_case_tries=int(getattr(args, "goal_case_tries", 24)),
         goal_center_clear_m=float(getattr(args, "goal_center_clear_m", 0.0) or 0.0),
+        mirror_prob=float(getattr(args, "mirror_prob", 0.0) or 0.0),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
         label_remap=str(getattr(args, "label_remap", "") or ""),
@@ -322,6 +323,8 @@ def main():
     ap.add_argument("--map_ignore_classes", default="")
     ap.add_argument("--label_remap", type=str, default="", help="adopted from env_config.json when present")
     ap.add_argument("--goal_center_clear_m", type=float, default=0.0, help="adopted from env_config.json when present")
+    ap.add_argument("--mirror_prob", type=float, default=0.0,
+                    help="mirrored-episode probability; NOT adopted from training -- evaluate in the real world unless you pass it explicitly")
     ap.add_argument("--goal_radius", type=float, default=None,
                     help="arrival radius; training's FINAL value, not its start")
     ap.add_argument("--semantic_weight", type=float, default=None)

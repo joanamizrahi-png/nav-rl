@@ -176,6 +176,16 @@ class SceneEnvConfig:
     # goal cannot sit against a wall or half on grass. 0 = off (every arm so
     # far). Set it to the arrival radius before any radius reduction.
     goal_center_clear_m: float = 0.0
+    # MIRROR AUGMENTATION (2026-09-08). The five training scenes carry 158
+    # right-turn corner goals against 52 left-turn ones (three of five have
+    # essentially no left turns), so a policy learns "at a corner, turn
+    # right". With probability mirror_prob an episode is presented mirrored:
+    # the image is flipped left-right and the goal's lateral offset and
+    # bearing are negated, and the policy's yaw command is negated on the way
+    # back in. The world, the map and the reward are untouched -- only what
+    # the policy sees and commands is reflected -- so a right turn in the
+    # world is a left turn for the policy exactly half the time.
+    mirror_prob: float = 0.0
     goal_case_narrow_m: float = 1.0
     goal_case_detour_min: float = 1.15
     # Map-direct draw for the NON-traversable share of the mix (2026-09-04
@@ -823,6 +833,8 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._prev_obstacle_dist = None
         self._prev_grass_dist = None
         # Choose a scene (round-robin for now; can be random later).
+        self._mirrored = bool(float(getattr(self.cfg, "mirror_prob", 0.0)) > 0.0
+                              and self.np_random.random() < float(self.cfg.mirror_prob))
         idx = self.np_random.integers(0, len(self.scene_ids))
         self._scene_id = self.scene_ids[idx]
         self.world_backend.load_scene(self._scene_id)
@@ -1344,6 +1356,10 @@ class SceneEnv(gym.Env if gym is not None else object):
         observation returned is the one AFTER the whole chunk."""
         k = max(1, self.cfg.action_chunk)
         action = np.asarray(action, dtype=np.float32).clip(-1.0, 1.0)
+        if getattr(self, "_mirrored", False):
+            # the policy acted in the mirrored frame: reflect its yaw back
+            action = action.copy()
+            action[1::2] = -action[1::2]
         if k == 1:
             return self._step_single(action)
         total_r, agg = 0.0, None
@@ -1750,11 +1766,17 @@ class SceneEnv(gym.Env if gym is not None else object):
 
     def _obs(self) -> dict:
         goal_robot = self._goal_in_robot_frame()
+        if getattr(self, "_mirrored", False):
+            goal_robot = goal_robot.copy()
+            goal_robot[1] = -goal_robot[1]
+            goal_robot[2] = -goal_robot[2]
         if self.cfg.goal_noise_std > 0.0:
             goal_robot = goal_robot.copy()
             goal_robot[:2] += self.np_random.normal(
                 0.0, self.cfg.goal_noise_std, size=2)
         rgb = self._last_rgb
+        if getattr(self, "_mirrored", False):
+            rgb = rgb[:, ::-1]
         if self.cfg.obs_out_hw is not None:
             oh, ow = int(self.cfg.obs_out_hw[0]), int(self.cfg.obs_out_hw[1])
             if rgb.shape[0] != oh or rgb.shape[1] != ow:

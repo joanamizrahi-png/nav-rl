@@ -15,9 +15,14 @@
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-eval-policy-%j.err
 #SBATCH --exclude=n04,n13,n17,n24
 set -euo pipefail
-module load conda/24.3.0-0
-module load cuda12.9/toolkit/12.9.1
-export PATH=/users/jmizrahi/.conda/envs/neoverse/bin:$PATH
+# PORTABLE (2026-09-08): the same launcher must run on Marlowe (module
+# system + the shared conda env) and on a rented cloud GPU (neither).
+if command -v module >/dev/null 2>&1; then
+    module load conda/24.3.0-0
+    module load cuda12.9/toolkit/12.9.1
+fi
+[ -d /users/jmizrahi/.conda/envs/neoverse/bin ] && export PATH=/users/jmizrahi/.conda/envs/neoverse/bin:$PATH
+
 export PYTHONNOUSERSITE=1
 hash -r
 cd /scratch/m000204-pm06b/joana/nav-rl
@@ -151,6 +156,7 @@ fi
 [ -n "${GOALCASE:-}" ] && { EXTRA_ARGS+=(--goal_case_mix "$GOALCASE"); OUT_SUFFIX="${OUT_SUFFIX}_case"; }
 [ -n "${LABELREMAP:-}" ] && { EXTRA_ARGS+=(--label_remap "$LABELREMAP"); OUT_SUFFIX="${OUT_SUFFIX}_lr${LABELREMAP//[:,]/-}"; }
 [ -n "${GOALCLEAR:-}" ] && { EXTRA_ARGS+=(--goal_center_clear_m "$GOALCLEAR"); OUT_SUFFIX="${OUT_SUFFIX}_gclr${GOALCLEAR}"; }
+[ -n "${MIRROR:-}" ] && { EXTRA_ARGS+=(--mirror_prob "$MIRROR"); OUT_SUFFIX="${OUT_SUFFIX}_mir${MIRROR}"; }
 [ "${NEXTPOSE:-0}" = "1" ] && { EXTRA_ARGS+=(--collision_at_next_pose); OUT_SUFFIX="${OUT_SUFFIX}_np"; }
 [ "${LOOKAUTO:-0}" = "1" ] && { EXTRA_ARGS+=(--look_ahead_auto); OUT_SUFFIX="${OUT_SUFFIX}_la"; }
 [ "${NEXTHEAD:-0}" = "1" ] && { EXTRA_ARGS+=(--footprint_next_heading); OUT_SUFFIX="${OUT_SUFFIX}_nh"; }

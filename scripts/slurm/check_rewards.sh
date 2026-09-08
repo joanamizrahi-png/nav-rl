@@ -40,9 +40,14 @@
 #        SURVEY (per-scene RGB | diffused sem | splat sem mp4).
 
 set -euo pipefail
-module load conda/24.3.0-0
-module load cuda12.9/toolkit/12.9.1
-export PATH=/users/jmizrahi/.conda/envs/neoverse/bin:$PATH
+# PORTABLE (2026-09-08): the same launcher must run on Marlowe (module
+# system + the shared conda env) and on a rented cloud GPU (neither).
+if command -v module >/dev/null 2>&1; then
+    module load conda/24.3.0-0
+    module load cuda12.9/toolkit/12.9.1
+fi
+[ -d /users/jmizrahi/.conda/envs/neoverse/bin ] && export PATH=/users/jmizrahi/.conda/envs/neoverse/bin:$PATH
+
 export PYTHONNOUSERSITE=1
 hash -r
 cd /scratch/m000204-pm06b/joana/nav-rl

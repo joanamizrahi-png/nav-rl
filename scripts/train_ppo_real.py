@@ -601,6 +601,7 @@ def _dump_env_config(args, cfg):
             "label_remap": str(getattr(args, "label_remap", "") or ""),
             "goal_case_tries": int(getattr(args, "goal_case_tries", 24)),
             "goal_center_clear_m": float(getattr(args, "goal_center_clear_m", 0.0) or 0.0),
+            "mirror_prob": float(getattr(args, "mirror_prob", 0.0) or 0.0),
             # 2026-09-07: the palette the generator's conditioning is colorized
             # with. Evals adopt it; they ran v1 against training's v4 until today.
             "sem_palette": int(getattr(args, "sem_palette", 1)),
@@ -890,6 +891,7 @@ def _scene_env_cfg(args):
         goal_case_mix=str(getattr(args, "goal_case_mix", "") or ""),
         goal_case_tries=int(getattr(args, "goal_case_tries", 24)),
         goal_center_clear_m=float(getattr(args, "goal_center_clear_m", 0.0) or 0.0),
+        mirror_prob=float(getattr(args, "mirror_prob", 0.0) or 0.0),
         map_walk_halfwidth_m=float(getattr(args, "map_walk_halfwidth_m", 0.4)),
         map_ignore_classes=str(getattr(args, "map_ignore_classes", "")),
         label_remap=str(getattr(args, "label_remap", "") or ""),
@@ -1613,6 +1615,8 @@ def main():
                     help="P(goal on traversable ground by the map); 0 = the sampler's natural mix")
     ap.add_argument("--map_walk_halfwidth_m", type=float, default=0.4)
     ap.add_argument("--map_ignore_classes", default="")
+    ap.add_argument("--mirror_prob", type=float, default=0.0,
+                    help="probability an episode is presented MIRRORED (image flipped, goal lateral+bearing negated, yaw command negated): balances the 3:1 right-turn bias of the training scenes")
     ap.add_argument("--goal_center_clear_m", type=float, default=0.0,
                     help="reject goals with any non-walkable map cell within this distance of the centre (0 = off)")
     ap.add_argument("--label_remap", type=str, default="",
