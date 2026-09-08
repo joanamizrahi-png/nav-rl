@@ -1046,14 +1046,31 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
                     (255, 255, 255), 1, cv2.LINE_AA)
         return col
 
-    def _footprint_uv(base_env, world):
+    def _footprint_uv(base_env, world, action=None):
         """Project the reward's footprint quad into the CURRENT view. Same math
         as compute_reward: corners from pose+heading, camera from the cached
-        view actually served (so the box lands where the reward truly read)."""
+        view actually served (so the box lands where the reward truly read).
+
+        2026-09-08: the box is drawn BEFORE env.step(), so `_last_fp_heading`
+        is the PREVIOUS step's post-turn heading. With footprint_next_heading
+        the reward scores the box at THIS step's post-turn heading, and the box
+        is only 0.3 m wide 1.5 m ahead: a yaw command of 0.7 (0.2 rad) shifts
+        it 0.31 m = one full box width, so the drawn box and the scored box did
+        not overlap whenever the policy turned (Joana: "how is that not a
+        collision" on a frame whose drawn box sat on grass while the reward
+        read 0.06). Rotate by the action about to be taken, exactly as
+        SceneEnv.step does."""
         try:
             pose = base_env._robot_pose_world
             pos = pose[:3, 3]
-            hd = getattr(base_env, "_last_fp_heading", None)
+            hd = None
+            if action is not None and bool(getattr(base_env.cfg, "footprint_next_heading", False)):
+                _w = float(np.asarray(action).reshape(-1)[1]) * float(base_env.cfg.yaw_step_rad)
+                _c, _s = np.cos(_w), np.sin(_w)
+                _R = np.array([[_c, -_s, 0.0], [_s, _c, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64)
+                hd = (_R @ pose[:3, :3].astype(np.float64)) @ np.array([1.0, 0.0, 0.0])
+            if hd is None:
+                hd = getattr(base_env, "_last_fp_heading", None)
             if hd is None:
                 hd = pose[:3, :3] @ np.array([1.0, 0.0, 0.0], dtype=np.float64)
             corners = _footprint_corners_world(
@@ -1140,8 +1157,14 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
         # If this arrow ever disagrees with where the white path advances next
         # frame, the pose/obs frames are inconsistent — the suspected frame bug.
         hd = pose[:2, 0] / (np.linalg.norm(pose[:2, 0]) + 1e-9)
-        hx, hy = to_px(path_xy[-1] + hd * 0.8)
-        draw.line([(ax, ay), (hx, hy)], fill=(255, 160, 0, 255), width=2)
+        # 2.5 m and thicker: at 0.8 m the arrow was a few pixels on the
+        # mini-map and unreadable in the episode videos (Joana, 2026-09-07).
+        hx, hy = to_px(path_xy[-1] + hd * 2.5)
+        draw.line([(ax, ay), (hx, hy)], fill=(255, 160, 0, 255), width=3)
+        _ph = np.array([-hd[1], hd[0]]); _tip = path_xy[-1] + hd * 2.5
+        for _sgn in (1.0, -1.0):
+            _bx, _by = to_px(_tip - hd * 0.6 + _sgn * _ph * 0.4)
+            draw.line([(hx, hy), (_bx, _by)], fill=(255, 160, 0, 255), width=3)
 
         # goal-bearing compass on the FPV: obs dyaw, 0 = dead ahead (up),
         # positive = goal to the LEFT. The needle should swing to center as
@@ -1165,7 +1188,7 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
                              if getattr(world, "_last_lookup", None) else ""),
                   fill=(255, 255, 255, 255))
         frame = np.array(img.convert("RGB"))
-        fp_uv = _footprint_uv(base_env, world)
+        fp_uv = _footprint_uv(base_env, world, action)
         if fp_uv is not None:
             import cv2 as _cv
             _cv.polylines(frame, [fp_uv.astype(np.int32)], True, (255, 255, 0), 2, _cv.LINE_AA)
