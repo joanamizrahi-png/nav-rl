@@ -61,14 +61,18 @@ fi
 # poses with the reward map projected into the raster and the diffused frame.
 if [ -n "${REPLAY:-}" ]; then
     EXTRA+=(--replay_metrics "${REPLAY}" --replay_episodes "${REPLAYEPS:-}")
-    [ -n "${OUTDIR:-}" ] && EXTRA+=(--out_dir "${OUTDIR}")
     # HISTMODES=cold,walk,same,single: step-0 frame under each history seeding
     [ -n "${HISTMODES:-}" ] && EXTRA+=(--hist_modes "${HISTMODES}")
 fi
 # COVSWEEP=1 [COVFRAMES=10,20,...] [COVYAWS=0,15,...]: raster alpha vs yaw offset
 # from the walk direction at walk frames (no diffusion; minutes).
 # STATICSCENE=1: static reconstruction (all frames' Gaussians always rendered)
+# OUTDIR: output directory for ANY mode (survey videos of different
+# reconstruction modes would otherwise overwrite each other).
+[ -n "${OUTDIR:-}" ] && EXTRA+=(--out_dir "${OUTDIR}")
 [ "${STATICSCENE:-0}" = "1" ] && EXTRA+=(--static_scene)
+# STATICMOVERS=12,13: person/vehicle Gaussians stay per-frame in static mode
+[ -n "${STATICMOVERS:-}" ] && EXTRA+=(--static_movers "${STATICMOVERS}")
 if [ "${COVSWEEP:-0}" = "1" ]; then
     EXTRA+=(--cov_sweep)
     # '=' form: a yaw list starting with '-' (e.g. -90,-60,...) is otherwise
@@ -76,7 +80,6 @@ if [ "${COVSWEEP:-0}" = "1" ]; then
     [ -n "${COVFRAMES:-}" ] && EXTRA+=(--cov_frames="${COVFRAMES}")
     [ -n "${COVYAWS:-}" ] && EXTRA+=(--cov_yaws="${COVYAWS}")
     [ "${COVPICS:-0}" = "1" ] && EXTRA+=(--cov_pictures)
-    [ -n "${OUTDIR:-}" ] && EXTRA+=(--out_dir "${OUTDIR}")
 fi
 
 python scripts/check_rewards.py \

@@ -183,7 +183,7 @@ def render_replay(args):
         scene_video_paths={args.scene: f"{args.clips_dir}/{args.scene}.mp4"},
         scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
-        render_mode="rasterizer_only", sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)),
+        render_mode="rasterizer_only", sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)), static_movers=str(getattr(args, "static_movers", "") or ""),
         model_path=args.model_path, reconstructor_path=args.reconstructor_path,
         H=args.height, W=args.width)
     world = BatchedLiveDiffusedBackend(cfg, checkpoint=args.live_ckpt, alpha_gate=False)
@@ -364,7 +364,7 @@ def sweep_coverage(args):
         scene_video_paths={sc: f"{args.clips_dir}/{sc}.mp4" for sc in scenes},
         scene_poses_paths={sc: f"{args.poses_dir}/{sc}_poses.npz" for sc in scenes},
         scene_labels_paths={sc: f"{args.labels_dir}/{sc}.npz" for sc in scenes},
-        render_mode="rasterizer_only", sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)),
+        render_mode="rasterizer_only", sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)), static_movers=str(getattr(args, "static_movers", "") or ""),
         model_path=args.model_path, reconstructor_path=args.reconstructor_path,
         H=args.height, W=args.width)
     # --cov_pictures: ALSO run the generator at each view and save a panel
@@ -435,7 +435,7 @@ def render_episodes(args):
         scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
         render_mode="rasterizer_only",
-        sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)),
+        sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)), static_movers=str(getattr(args, "static_movers", "") or ""),
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
         H=args.height, W=args.width,
@@ -833,6 +833,7 @@ def main():
     ap.add_argument("--height", type=int, default=336)
     ap.add_argument("--width", type=int, default=560)
     ap.add_argument("--num_steps", type=int, default=4)
+    ap.add_argument("--static_movers", type=str, default="", help="with --static_scene: classes kept per-frame, e.g. 12,13 (needs the movers reconstructor)")
     ap.add_argument("--static_scene", action="store_true",
                     help="reconstruct as a STATIC scene: every source frame's Gaussians render from any pose")
     ap.add_argument("--sem_palette", type=int, default=1)
