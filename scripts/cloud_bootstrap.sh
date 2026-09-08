@@ -23,18 +23,34 @@ if ! command -v conda >/dev/null 2>&1; then
   bash /tmp/mc.sh -b -p /workspace/miniconda3
 fi
 export PATH=/workspace/miniconda3/bin:$PATH
+# conda refuses to create environments until the channel terms are accepted
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main >/dev/null 2>&1 || true
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r    >/dev/null 2>&1 || true
 eval "$(conda shell.bash hook)"
 conda env list | grep -q "^neoverse " || conda create -y -n neoverse python=3.10
 conda activate neoverse
 pip install -q --upgrade pip
-python -c "import torch" 2>/dev/null || pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cu128
+# torch must match the CUDA toolkit on the box, or gsplat refuses to compile
+# (RunPod images ship a cu130 torch while nvcc is 12.8 -> CUDA_MISMATCH).
+NVCC_CUDA=$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9.]*\).*/\1/p')
+TORCH_CUDA=$(python -c "import torch; print(torch.version.cuda)" 2>/dev/null || echo none)
+echo "[bootstrap] nvcc CUDA=${NVCC_CUDA:-none}  torch CUDA=${TORCH_CUDA}"
+if [ "$TORCH_CUDA" != "12.8" ]; then
+  pip install --force-reinstall torch==2.10.0 torchvision==0.25.0 --index-url https://download.pytorch.org/whl/cu128
+fi
 pip install -q \
   "numpy==1.26.4" scipy safetensors einops ftfy sentencepiece regex tqdm pyyaml \
   "opencv-python==4.11.0.86" imageio imageio-ffmpeg matplotlib \
   accelerate==1.14.0 deepspeed==0.16.7 peft==0.19.1 modelscope==1.38.1 \
   huggingface_hub "stable_baselines3==2.9.0" "gymnasium==1.3.0" wandb
+export CUDA_HOME=${CUDA_HOME:-/usr/local/cuda}
+export TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST:-9.0}
+export MAX_JOBS=${MAX_JOBS:-16}
+# --no-build-isolation: otherwise pip builds gsplat in a fresh env and pulls
+# its OWN torch (cu130 on RunPod images), which mismatches nvcc 12.8 and fails.
+pip install -q setuptools wheel ninja
 python -c "import gsplat" 2>/dev/null || \
-  pip install "git+https://github.com/nerfstudio-project/gsplat.git@8b6319f8335df7de18d4514feb90b60e3941a073"
+  pip install --no-build-isolation "git+https://github.com/nerfstudio-project/gsplat.git@8b6319f8335df7de18d4514feb90b60e3941a073"
 
 echo "=== 3/5 public Wan 2.1 weights (~70 GB)"
 mkdir -p "$ROOT/NeoVerse/models/NeoVerse"
