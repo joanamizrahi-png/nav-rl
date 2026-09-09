@@ -79,7 +79,9 @@ def main():
     ap.add_argument("--rate", type=float, default=2.0)
     ap.add_argument("--max_v", type=float, default=0.6)
     ap.add_argument("--max_w", type=float, default=0.8)
-    ap.add_argument("--goal_radius", type=float, default=0.75)
+    ap.add_argument("--goal_radius", type=float, default=None,
+                    help="stop within this distance; defaults to the run's "
+                         "goal_radius from env_config.json, else 0.75 m")
     ap.add_argument("--image_topic", default="/camera/camera/color/image_raw/compressed")
     ap.add_argument("--odom_topic", default="/Odometry")
     ap.add_argument("--cmd_topic", default="/cmd_vel")
@@ -101,6 +103,9 @@ def main():
                     help="radians per decision at |a1|=1; overridden by the run's env_config.json")
     ap.add_argument("--dry_run", action="store_true")
     args = ap.parse_args()
+    args.goal_radius_set = args.goal_radius is not None
+    if args.goal_radius is None:
+        args.goal_radius = 0.75
 
     import cv2
     import rclpy
@@ -135,11 +140,20 @@ def main():
                 envc = json.load(fh)
             if "step_size_m" in envc:  step_m = float(envc["step_size_m"]); src = cfg_path
             if "yaw_step_rad" in envc: yaw_rad = float(envc["yaw_step_rad"])
+            # Match the radius the policy was trained to stop inside; a tighter
+            # one asks for precision it never learned.
+            if "goal_radius" in envc and not args.goal_radius_set:
+                args.goal_radius = float(envc["goal_radius"])
         print(f"[deploy] loaded {args.checkpoint}")
         print(f"[deploy] observation from checkpoint: {OBS_W}x{OBS_H} (WxH)")
         print(f"[deploy] step {step_m} m, yaw {yaw_rad} rad per decision  [{src}]")
         print(f"[deploy] at {args.rate} Hz -> max v {step_m * args.rate:.2f} m/s, "
               f"max w {yaw_rad * args.rate:.2f} rad/s (clipped to {args.max_v}/{args.max_w})")
+        print(f"[deploy] stop radius {args.goal_radius:.2f} m")
+        if args.max_v < step_m * args.rate - 1e-6:
+            print(f"[deploy] WARNING: max_v {args.max_v} clips the policy's full-forward "
+                  f"command ({step_m * args.rate:.2f} m/s). It will move less than it "
+                  f"expects each decision. Prefer lowering --rate to go slower.")
 
     class PolicyNode(Node):
         def __init__(self):
