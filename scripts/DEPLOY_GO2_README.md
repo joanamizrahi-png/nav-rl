@@ -94,19 +94,56 @@ ros2 topic hz /camera/camera/color/image_raw/compressed
 ros2 topic hz /Odometry
 ```
 
-**Check the camera topic**, always after a camera change. The node subscribes
-as `CompressedImage` and assumes the decode is BGR; a raw `Image` topic or an
-RGB stream produces no error, just silence or swapped colours:
+**Check the camera topic**, always after a camera change:
 
 ```bash
-~/nav_env/bin/python3 check_camera_topic.py --topic /your/camera/topic
+ros2 topic list | grep -i -E "image|color|odin"
+ros2 topic info /odin1/image/undistorted
+
+~/nav_env/bin/python3 check_camera_topic.py \
+    --topic /odin1/image/undistorted \
+    --out ~/nav_policy/frame_check.png \
+    --policy_out ~/nav_policy/frame_policy_view.png
 ```
 
-It prints the encoding, resolution and aspect, and writes `/tmp/frame_check.png`
-interpreted exactly as the deploy node reads it. Grass green and sky blue means
-the decode is right. Topics are flags on the deploy node too
-(`--image_topic`, `--odom_topic`, `--cmd_topic`), so pass the new one rather
-than editing code.
+(2026-09-09: the camera on Thor is `/odin1/image/undistorted`, a raw
+`sensor_msgs/msg/Image`, `bgr8`, 1600x1296. Aspect 1.23 against the policy's
+1.67, so the crop keeps the FULL WIDTH and trims top and bottom to about 74%
+of the vertical field of view. Pass the same `--image_topic` to
+`deploy_go2.py`. Since 2026-09-09 it is also the DEFAULT in both
+scripts, so `--image_topic` only needs passing if you switch back to the
+RealSense.)
+
+It prints the encoding, the resolution and aspect, the per-channel means, and
+writes three images: the full frame, `frame_policy_view.png` which is the exact
+336x224 the network receives, and `frame_policy_view_2x.png` which is the same
+doubled so it is viewable. **Look at the policy view**, not just the full frame:
+the horizon should sit near the middle with a good amount of ground in the lower
+half, like the training footage. A horizon very high or very low means the
+camera is framed differently from what the policy trained on, and that matters
+more than any flag. On colour: grass green and sky blue means the decode is
+right; an orange sky means the channels are swapped and you should add
+`--swap_rb` to the deploy command.
+
+Why this check exists, and what it protects against:
+
+- **Wrong transport.** `Image` is the raw pixel array (~900 kB a frame),
+  `CompressedImage` is the JPEG (~50 kB). Both scripts pick the type from the
+  topic name: ending in `/compressed` means `CompressedImage`, otherwise
+  `Image`. Subscribing with the wrong type fires no callback and raises no
+  error, so the node would sit on "waiting for camera/odom" forever.
+- **Wrong colour order.** `cv2.imdecode` returns BGR and the node flips it to
+  RGB. A raw topic's `encoding` field is honoured automatically; anything else
+  else odd is what `--swap_rb` is for. Swapped channels do not crash, they just make
+  the policy behave strangely.
+- **Field of view.** The policy trained on the field of view of the original
+  walk footage. `preprocess` center-crops to 5:3 and resizes, which fixes shape
+  but not FOV. A much wider or narrower camera shows the world at a different
+  scale than the policy expects, and that is a better explanation for odd
+  behaviour than a bad policy.
+
+Topics are flags on the deploy node (`--image_topic`, `--odom_topic`,
+`--cmd_topic`), so pass the new one rather than editing code.
 
 **Dry run.** Computes and prints commands, publishes nothing, robot cannot
 move:

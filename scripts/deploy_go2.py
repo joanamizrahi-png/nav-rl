@@ -82,7 +82,9 @@ def main():
     ap.add_argument("--goal_radius", type=float, default=None,
                     help="stop within this distance; defaults to the run's "
                          "goal_radius from env_config.json, else 0.75 m")
-    ap.add_argument("--image_topic", default="/camera/camera/color/image_raw/compressed")
+    ap.add_argument("--image_topic", default="/odin1/image/undistorted",
+                    help="camera topic; CompressedImage if it ends in /compressed, "
+                         "else raw Image (2026-09-09: Odin camera on Thor)")
     ap.add_argument("--odom_topic", default="/Odometry")
     ap.add_argument("--cmd_topic", default="/cmd_vel")
     ap.add_argument("--smooth", type=float, default=0.5,
@@ -91,8 +93,8 @@ def main():
                          "= gentler transitions (soar-go2's RL rate-limits "
                          "velocity changes the same way in training)")
     ap.add_argument("--swap_rb", action="store_true",
-                    help="flip red and blue, if check_camera_topic.py showed an "
-                         "orange sky (stream is RGB where BGR was assumed)")
+                    help="flip red and blue: use when check_camera_topic.py shows "
+                         "an orange sky (stream is RGB where BGR was assumed)")
     ap.add_argument("--timeout_s", type=float, default=60.0,
                     help="abort and stop the robot after this long (0 disables)")
     ap.add_argument("--no_progress_s", type=float, default=15.0,

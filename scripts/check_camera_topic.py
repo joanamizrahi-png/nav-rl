@@ -20,8 +20,12 @@ import argparse
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--topic", default="/camera/camera/color/image_raw/compressed")
+    ap.add_argument("--topic", default="/odin1/image/undistorted")
     ap.add_argument("--out", default="/tmp/frame_check.png")
+    ap.add_argument("--policy_out", default="/tmp/frame_policy_view.png",
+                    help="also save the cropped+resized frame the policy actually receives")
+    ap.add_argument("--obs_w", type=int, default=336)
+    ap.add_argument("--obs_h", type=int, default=224)
     ap.add_argument("--timeout_s", type=float, default=10.0)
     args = ap.parse_args()
 
@@ -70,9 +74,28 @@ def main():
         b, g, r = (float(img[:, :, i].mean()) for i in range(3))
         print(f"channel means: ch0 {b:.0f}  ch1 {g:.0f}  ch2 {r:.0f}")
         cv2.imwrite(args.out, img)
+        # Exactly what deploy_go2.py feeds the network: center-crop to the
+        # policy's aspect, then resize. Saved back in BGR so it looks normal.
+        ar = args.obs_w / args.obs_h
+        ch = int(w / ar)
+        if ch <= h:
+            y0 = (h - ch) // 2
+            crop = img[y0:y0 + ch]
+        else:
+            cw = int(h * ar)
+            x0 = (w - cw) // 2
+            crop = img[:, x0:x0 + cw]
+        small = cv2.resize(crop, (args.obs_w, args.obs_h), interpolation=cv2.INTER_AREA)
+        cv2.imwrite(args.policy_out, small)
+        big = cv2.resize(small, (args.obs_w * 2, args.obs_h * 2), interpolation=cv2.INTER_NEAREST)
+        cv2.imwrite(args.policy_out.replace(".png", "_2x.png"), big)
+        print(f"crop kept {crop.shape[1]}x{crop.shape[0]} of {w}x{h} "
+              f"({100 * crop.shape[0] / h:.0f}% of height, {100 * crop.shape[1] / w:.0f}% of width)")
+        print(f"wrote {args.policy_out} ({args.obs_w}x{args.obs_h}, what the policy sees)")
+        print(f"wrote {args.policy_out.replace('.png', '_2x.png')} (same, doubled for viewing)")
         print(f"wrote {args.out} -- open it. Grass green and sky blue means the")
-        print("decode matches what deploy_go2.py assumes. Orange sky means the")
-        print("channels are swapped; tell Claude and we add a flag.")
+        print("decode matches what deploy_go2.py assumes. An orange sky means the")
+        print("channels are swapped: run deploy_go2.py with --swap_rb.")
     rclpy.shutdown()
 
 
