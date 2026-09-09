@@ -38,11 +38,28 @@ echo "[bootstrap] nvcc CUDA=${NVCC_CUDA:-none}  torch CUDA=${TORCH_CUDA}"
 if [ "$TORCH_CUDA" != "12.8" ]; then
   pip install --force-reinstall torch==2.10.0 torchvision==0.25.0 --index-url https://download.pytorch.org/whl/cu128
 fi
+# torchvision is imported by inference_semantic.py but is NOT a torch dependency,
+# so it must be installed even when the image already ships a matching torch.
+python -c "import torchvision" 2>/dev/null || \
+  pip install torchvision==0.25.0 --index-url https://download.pytorch.org/whl/cu128
+# Derived from the imports NeoVerse/nav-rl actually make, pinned to the
+# versions on Marlowe. The short hand-written list this replaces was missing
+# torchvision, torch-scatter, omegaconf, addict, decord, e3nn and more, each
+# of which surfaced only after a pipeline load failed.
 pip install -q \
-  "numpy==1.26.4" scipy safetensors einops ftfy sentencepiece regex tqdm pyyaml \
-  "opencv-python==4.11.0.86" imageio imageio-ffmpeg matplotlib \
-  accelerate==1.14.0 deepspeed==0.16.7 peft==0.19.1 modelscope==1.38.1 \
-  huggingface_hub "stable_baselines3==2.9.0" "gymnasium==1.3.0" wandb
+  "numpy==1.26.4" "pillow==12.2.0" "accelerate==1.14.0" "addict==2.4.0" \
+  "decord==0.6.0" "e3nn==0.6.0" "einops==0.8.2" "evo==1.36.5" "ftfy==6.1.1" \
+  "huggingface_hub==1.22.0" "imageio==2.37.3" "imageio-ffmpeg==0.6.0" \
+  "jaxtyping==0.3.7" "matplotlib==3.10.9" "modelscope==1.38.1" "moviepy==1.0.3" \
+  "omegaconf==2.3.1" "pandas==2.3.3" "peft==0.19.1" "regex==2026.6.28" \
+  "requests==2.34.2" "rosbags==0.11.4" "safetensors==0.8.0" "scipy==1.15.3" \
+  "sentencepiece==0.2.1" "timm==1.0.27" "tqdm==4.68.4" "transformers==4.57.6" \
+  "trimesh==4.12.2" "typing_extensions==4.15.0" "wandb==0.28.0" \
+  "opencv-python==4.11.0.86" "deepspeed==0.16.7" pyyaml \
+  "stable_baselines3==2.9.0" "gymnasium==1.3.0"
+# torch-scatter compiles against torch, like gsplat.
+python -c "import torch_scatter" 2>/dev/null || \
+  pip install --no-build-isolation torch-scatter
 export CUDA_HOME=${CUDA_HOME:-/usr/local/cuda}
 export TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST:-9.0}
 export MAX_JOBS=${MAX_JOBS:-16}
@@ -54,8 +71,13 @@ python -c "import gsplat" 2>/dev/null || \
 
 echo "=== 3/5 public Wan 2.1 weights (~70 GB)"
 mkdir -p "$ROOT/NeoVerse/models/NeoVerse"
+# One --include per pattern. Passing several patterns after a single
+# --include makes them POSITIONAL FILENAMES and silently drops the flag --
+# that is how the 28 GB DiT went missing while the run still said "Downloaded".
 hf download Wan-AI/Wan2.1-T2V-14B \
-  --include "diffusion_pytorch_model*" "models_t5_umt5-xxl-enc-bf16.pth" "Wan2.1_VAE.pth" \
+  --include "diffusion_pytorch_model*" \
+  --include "models_t5_umt5-xxl-enc-bf16.pth" \
+  --include "Wan2.1_VAE.pth" \
   --local-dir "$ROOT/NeoVerse/models/NeoVerse"
 
 echo "=== 4/5 our private bundle"
@@ -83,5 +105,13 @@ for f in NeoVerse/models/NeoVerse/reconstructor.ckpt \
          outputs/scene_clouds/clouds/gnd_AUw360_cloud.npz; do
   [ -f "$ROOT/$f" ] && echo "ok      $f" || echo "MISSING $f"
 done
+# The DiT is sharded, so check the count and the total size, not one filename.
+python - <<'PY2'
+import glob, os
+d = os.path.join(os.environ.get("ROOT",""), "NeoVerse/models/NeoVerse")
+sh = sorted(glob.glob(os.path.join(d, "diffusion_pytorch_model*.safetensors")))
+gb = sum(os.path.getsize(f) for f in sh) / 2**30
+print(("ok      " if gb > 20 else "MISSING ") + "DiT shards: %d files, %.1f GB" % (len(sh), gb))
+PY2
 df -h /workspace | tail -1
 echo "==> done. Activate with: export PATH=/workspace/miniconda3/bin:\$PATH && conda activate neoverse"
