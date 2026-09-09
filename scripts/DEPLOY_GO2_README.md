@@ -70,6 +70,18 @@ former, which fed recent policies a differently-framed picture than they
 trained on. If `env_config.json` is missing it falls back to `--step_m` /
 `--yaw_rad` and says so.
 
+## Safety guards (2026-09-08)
+
+- `--timeout_s 60` stops the robot after a minute, `--no_progress_s 15` stops
+  it if the goal distance has not improved by 0.25 m in 15 s. That second one
+  is the circling guard: the simulated corner evals showed loops and
+  overshoots, so do not rely on catching it by eye.
+- `--log run.csv` records t, x, y, yaw, dist, bearing, v, w, latency for every
+  decision, so a bad run can be analysed instead of argued about.
+- `--smooth 0.5` blends each new command with the previous one. Decisions run
+  at `--rate` (2 Hz); the command is republished at 20 Hz as the deadman
+  keep-alive; only the newest camera frame is used at each decision.
+
 ## Run
 
 Goal = (`--goal_dx` m forward, `--goal_dy` m left) of the robot's pose WHEN THE

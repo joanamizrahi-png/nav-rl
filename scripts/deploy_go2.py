@@ -88,6 +88,13 @@ def main():
                          "(1-smooth)*previous. 1.0 = raw policy output; lower "
                          "= gentler transitions (soar-go2's RL rate-limits "
                          "velocity changes the same way in training)")
+    ap.add_argument("--timeout_s", type=float, default=60.0,
+                    help="abort and stop the robot after this long (0 disables)")
+    ap.add_argument("--no_progress_s", type=float, default=15.0,
+                    help="abort if the goal distance has not improved by 0.25 m "
+                         "within this many seconds -- catches circling (0 disables)")
+    ap.add_argument("--log", default=None,
+                    help="write a CSV of every decision for later analysis")
     ap.add_argument("--step_m", type=float, default=0.25,
                     help="metres per decision at |a0|=1; overridden by the run's env_config.json")
     ap.add_argument("--yaw_rad", type=float, default=0.30,
@@ -146,6 +153,11 @@ def main():
             self.goal_odom = None       # set on first odom using startup frame
             self.lat = []
             self.cmd = (0.0, 0.0)       # latest decided (v, w)
+            self.t_start = time.time()
+            self.best_dist = float("inf")
+            self.t_best = time.time()
+            self.rows = []              # per-decision log for post-hoc analysis
+            self.done = False
             self.create_timer(1.0 / args.rate, self.tick)
             # deadman keep-alive: motion_control stops if /cmd_vel goes quiet,
             # so re-send the current command at 20 Hz between policy decisions
@@ -165,7 +177,15 @@ def main():
                 self.get_logger().info(f"goal fixed at odom ({self.goal_odom[0]:.2f}, "
                                        f"{self.goal_odom[1]:.2f})")
 
+        def abort(self, why):
+            self.done = True
+            self.publish(0.0, 0.0)
+            self.get_logger().error(f"ABORT: {why} -- robot stopped")
+
         def tick(self):
+            if self.done:
+                self.publish(0.0, 0.0)
+                return
             if self.img is None or self.pose is None or self.goal_odom is None:
                 self.get_logger().info("waiting for camera/odom ...", throttle_duration_sec=2.0)
                 return
@@ -176,9 +196,20 @@ def main():
             dx, dy = c * dxw - s * dyw, s * dxw + c * dyw   # goal in robot frame
             bearing = float(np.arctan2(dy, dx))
             if dist < args.goal_radius:
+                self.done = True
                 self.publish(0.0, 0.0)
                 self.get_logger().info(f"GOAL REACHED ({dist:.2f} m) — holding")
                 return
+            # Circling and stalling guards. The corner evals in simulation showed
+            # loops and overshoots, so do not rely on watching it by eye.
+            now = time.time()
+            if dist < self.best_dist - 0.25:
+                self.best_dist, self.t_best = dist, now
+            if args.timeout_s > 0 and now - self.t_start > args.timeout_s:
+                return self.abort(f"timeout after {args.timeout_s:.0f} s")
+            if args.no_progress_s > 0 and now - self.t_best > args.no_progress_s:
+                return self.abort(f"no progress for {args.no_progress_s:.0f} s "
+                                  f"(best {self.best_dist:.2f} m, now {dist:.2f} m)")
             t0 = time.perf_counter()
             if args.baseline:
                 v = float(np.clip(0.5 * dist, 0.0, args.max_v))
@@ -195,6 +226,7 @@ def main():
             v = a * v + (1.0 - a) * self.cmd[0]
             w = a * w + (1.0 - a) * self.cmd[1]
             self.publish(v, w)
+            self.rows.append((now - self.t_start, x, y, yaw, dist, bearing, v, w, ms))
             self.get_logger().info(
                 f"dist {dist:4.1f} m bearing {np.degrees(bearing):+5.0f} deg | "
                 f"v {v:+.2f} w {w:+.2f} | policy {ms:.1f} ms "
@@ -226,6 +258,13 @@ def main():
         if node.lat:
             print(f"[deploy] policy latency: median {np.median(node.lat):.1f} ms "
                   f"over {len(node.lat)} inferences")
+        if args.log and node.rows:
+            import csv
+            with open(args.log, "w", newline="") as fh:
+                wtr = csv.writer(fh)
+                wtr.writerow(["t", "x", "y", "yaw", "dist", "bearing", "v", "w", "ms"])
+                wtr.writerows(node.rows)
+            print(f"[deploy] wrote {len(node.rows)} decisions to {args.log}")
         rclpy.shutdown()
 
 
