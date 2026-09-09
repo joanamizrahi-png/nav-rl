@@ -130,7 +130,13 @@ def main():
         model = PPO.load(args.checkpoint, device="cuda")
         sp = model.observation_space
         assert "rgb" in sp.spaces and "goal" in sp.spaces, f"unexpected obs space {sp}"
-        OBS_H, OBS_W = int(sp["rgb"].shape[0]), int(sp["rgb"].shape[1])
+        # SB3 stores the space channels-FIRST when training went through
+        # VecTransposeImage (ours does): (3, H, W). Older runs may be (H, W, 3).
+        # predict() accepts either layout at call time, but the SIZE must be
+        # read from the right axes or the camera frame gets resized to 3 px.
+        shp = tuple(int(v) for v in sp["rgb"].shape)
+        assert len(shp) == 3, f"unexpected rgb shape {shp}"
+        OBS_H, OBS_W = (shp[1], shp[2]) if shp[0] in (1, 3) else (shp[0], shp[1])
         assert tuple(sp["goal"].shape) == (3,), f"goal space is {sp['goal'].shape}, expected (3,)"
         cfg_path = os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(args.checkpoint))), "env_config.json")
