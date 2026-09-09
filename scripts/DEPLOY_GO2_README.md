@@ -94,6 +94,20 @@ ros2 topic hz /camera/camera/color/image_raw/compressed
 ros2 topic hz /Odometry
 ```
 
+**Check the camera topic**, always after a camera change. The node subscribes
+as `CompressedImage` and assumes the decode is BGR; a raw `Image` topic or an
+RGB stream produces no error, just silence or swapped colours:
+
+```bash
+~/nav_env/bin/python3 check_camera_topic.py --topic /your/camera/topic
+```
+
+It prints the encoding, resolution and aspect, and writes `/tmp/frame_check.png`
+interpreted exactly as the deploy node reads it. Grass green and sky blue means
+the decode is right. Topics are flags on the deploy node too
+(`--image_topic`, `--odom_topic`, `--cmd_topic`), so pass the new one rather
+than editing code.
+
 **Dry run.** Computes and prints commands, publishes nothing, robot cannot
 move:
 
