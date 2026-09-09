@@ -235,6 +235,33 @@ A ratio near 1.0 means the robot is tracking the commanded velocity. Much below
 1.0 means it is not reaching it, so lower `--rate` until it does. Go slower in
 tight spaces regardless; nothing about the policy requires 2 Hz.
 
+### Making the robot behave like it did in simulation
+
+Three settings, in order of how much they matter:
+
+1. **Do not clip.** Keep `--max_v >= step_size_m * rate` and
+   `--max_w >= yaw_step_rad * rate`, or a full-command action silently becomes
+   a partial step and the geometry stops matching. The node warns about this.
+2. **`--smooth 1.0`.** Simulation applies each action fully and instantly.
+   Smoothing spreads it over two or three decisions, which the policy never
+   experienced. If that is too abrupt, lower `--rate`, not `--smooth`.
+3. **Verify tracking** with the log check below. A ratio near 1.0 means each
+   decision covered the distance the policy assumed.
+
+Faithful configuration, for a 0.25 m / 0.3 rad policy at 2 Hz:
+
+```bash
+--rate 2 --smooth 1.0 --max_v 0.6 --max_w 0.8 \
+--timeout_s 60 --no_progress_s 15 --log policy_1.csv
+```
+
+**The one difference you cannot remove**, and do not need to: simulation turns
+first and then drives straight, while the robot gets forward and yaw at the
+same time and so drives an arc. For a full step (0.3 rad, 0.25 m) the arc has
+radius 0.83 m, a chord of 0.249 m against 0.25 m, and an identical final
+heading; the landing point is about 4 cm off to the side. Every decision
+re-observes and corrects, so this is not worth engineering around.
+
 `--smooth` is separate. Training applies each action fully and instantly, so
 `--smooth 1.0` is the faithful setting and anything lower adds a lag the policy
 never experienced. Against that, the real robot has inertia and raw commands at
