@@ -184,31 +184,62 @@ something, without relying on memory.
 
 ---
 
-## 7. Choosing the rate
+## 7. What the policy actually outputs, and how to choose the rate
 
-The policy was trained to move a fixed amount per decision: `step_size_m`
-forward and `yaw_step_rad` of turn at full command. The node converts that to a
-velocity as `v = action * step_size_m * rate`, so **`--rate` is a speed knob**.
-At 2 Hz with a 0.25 m step, full forward is 0.5 m/s.
+The action is **unitless**, two numbers in [-1, 1]. The code names them
+`(v_forward, omega_yaw)`, which reads like velocity, but the training
+environment applies them as a fixed **displacement** with no clock at all
+(`_advance_pose` in `src/env/scene_env.py`): turn by `action[1] * yaw_step_rad`,
+then move `action[0] * step_size_m`, instantly. One decision is one step, and a
+step has no duration.
 
-Distance travelled per decision is `action * step_size_m` whatever rate you
-choose, so a slower rate does **not** give the policy more decisions per metre.
-What it gives is more time for the robot to actually reach the commanded
-velocity, and fresher camera and odometry at each decision.
+So "1.0 forward" has no speed until you decide how long a decision lasts, and
+that is exactly what `--rate` sets:
 
-So choose it this way:
+    v = action * step_size_m * rate
 
-- Start at 2 Hz.
-- Afterwards check the log: the median distance between consecutive `(x, y)`
-  should be roughly `step_size_m` scaled by the typical `|v| / max_v`. If the
-  robot consistently moves less than commanded, it is not tracking the velocity;
-  lower `--rate` or `--max_v` until it does.
-- Go slower in tight spaces regardless. Nothing about the policy requires 2 Hz.
+At 2 Hz a decision lasts 0.5 s, so a 0.25 m step is 0.5 m/s. At 1 Hz the same
+action is 0.25 m/s. The policy is indifferent: in its world it ends up 0.25 m
+further along either way.
 
-`--smooth` is separate: it blends each command with the previous one, so 0.5
-means a sharp turn takes two or three decisions to reach full rate. Lower it
-toward 0 for gentler motion, raise it toward 1 for a more responsive but
-jerkier robot.
+Two consequences:
+
+- **Slow down with `--rate`, not `--max_v`.** A lower rate keeps every step at
+  0.25 m and just takes longer. Clipping the velocity makes the robot fall short
+  of the displacement the policy assumed, which is the one thing that breaks the
+  correspondence with training. The node warns if `max_v` would clip a
+  full-forward command.
+- A slower rate does **not** give the policy more decisions per metre. Decisions
+  per metre is fixed at `1 / (action * step_size_m)`. What it buys is more time
+  for the robot to reach the commanded velocity, and fresher camera and odometry
+  at each decision.
+
+Start at 2 Hz, then verify the robot is doing what it was told:
+
+```bash
+python3 - <<'PYEOF'
+import csv, numpy as np
+r  = list(csv.DictReader(open("policy_1.csv")))
+t  = np.array([float(a["t"]) for a in r])
+xy = np.array([[float(a["x"]), float(a["y"])] for a in r])
+v  = np.array([float(a["v"]) for a in r])
+dt = np.diff(t)
+commanded = v[:-1] * dt
+actual    = np.linalg.norm(np.diff(xy, axis=0), axis=1)
+print("per decision: commanded %.3f m, actual %.3f m, ratio %.2f"
+      % (commanded.mean(), actual.mean(), actual.mean() / max(commanded.mean(), 1e-6)))
+PYEOF
+```
+
+A ratio near 1.0 means the robot is tracking the commanded velocity. Much below
+1.0 means it is not reaching it, so lower `--rate` until it does. Go slower in
+tight spaces regardless; nothing about the policy requires 2 Hz.
+
+`--smooth` is separate. Training applies each action fully and instantly, so
+`--smooth 1.0` is the faithful setting and anything lower adds a lag the policy
+never experienced. Against that, the real robot has inertia and raw commands at
+2 Hz look abrupt. 0.7 is a reasonable compromise; use 1.0 with `--rate 1.5` if
+the motion looks violent.
 
 ---
 
