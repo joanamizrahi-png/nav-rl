@@ -90,6 +90,9 @@ def main():
                          "(1-smooth)*previous. 1.0 = raw policy output; lower "
                          "= gentler transitions (soar-go2's RL rate-limits "
                          "velocity changes the same way in training)")
+    ap.add_argument("--swap_rb", action="store_true",
+                    help="flip red and blue, if check_camera_topic.py showed an "
+                         "orange sky (stream is RGB where BGR was assumed)")
     ap.add_argument("--timeout_s", type=float, default=60.0,
                     help="abort and stop the robot after this long (0 disables)")
     ap.add_argument("--no_progress_s", type=float, default=15.0,
@@ -111,7 +114,7 @@ def main():
     import rclpy
     from rclpy.node import Node
     from rclpy.qos import QoSProfile, ReliabilityPolicy
-    from sensor_msgs.msg import CompressedImage
+    from sensor_msgs.msg import CompressedImage, Image
     from nav_msgs.msg import Odometry
     from geometry_msgs.msg import Twist
     from stable_baselines3 import PPO
@@ -165,7 +168,13 @@ def main():
         def __init__(self):
             super().__init__("nav_policy")
             qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
-            self.create_subscription(CompressedImage, args.image_topic, self.on_img, qos)
+            # Accept either transport: a raw Image topic with a CompressedImage
+            # subscription never fires a callback and never errors, so the node
+            # would just wait forever. Rule matches check_camera_topic.py.
+            self._compressed = args.image_topic.endswith("/compressed")
+            img_type = CompressedImage if self._compressed else Image
+            print(f"[deploy] image topic {args.image_topic} as {img_type.__name__}")
+            self.create_subscription(img_type, args.image_topic, self.on_img, qos)
             self.create_subscription(Odometry, args.odom_topic, self.on_odom, 10)
             self.pub = self.create_publisher(Twist, args.cmd_topic, 10)
             self.img = None
@@ -184,7 +193,15 @@ def main():
             self.create_timer(0.05, self.keepalive)
 
         def on_img(self, msg):
-            self.img = cv2.imdecode(np.frombuffer(msg.data, np.uint8), cv2.IMREAD_COLOR)
+            # Always store BGR, because preprocess() flips BGR -> RGB.
+            if self._compressed:
+                img = cv2.imdecode(np.frombuffer(msg.data, np.uint8), cv2.IMREAD_COLOR)
+            else:
+                img = np.frombuffer(msg.data, np.uint8).reshape(
+                    msg.height, msg.width, -1)[:, :, :3]
+                if str(msg.encoding).lower().startswith("rgb"):
+                    img = img[:, :, ::-1]
+            self.img = img[:, :, ::-1] if args.swap_rb else img
 
         def on_odom(self, msg):
             p, q = msg.pose.pose.position, msg.pose.pose.orientation
