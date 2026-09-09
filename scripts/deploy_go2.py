@@ -35,6 +35,8 @@ Usage on the Jetson:
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import time
 
 import numpy as np
@@ -86,6 +88,10 @@ def main():
                          "(1-smooth)*previous. 1.0 = raw policy output; lower "
                          "= gentler transitions (soar-go2's RL rate-limits "
                          "velocity changes the same way in training)")
+    ap.add_argument("--step_m", type=float, default=0.25,
+                    help="metres per decision at |a0|=1; overridden by the run's env_config.json")
+    ap.add_argument("--yaw_rad", type=float, default=0.30,
+                    help="radians per decision at |a1|=1; overridden by the run's env_config.json")
     ap.add_argument("--dry_run", action="store_true")
     args = ap.parse_args()
 
@@ -98,13 +104,35 @@ def main():
     from geometry_msgs.msg import Twist
     from stable_baselines3 import PPO
 
+    # The observation size and the action scaling MUST match training. Both are
+    # recorded by the run itself, so read them rather than hardcoding: the
+    # render size (560x336) and the observation size (336x224) are different
+    # numbers and confusing them silently feeds the policy the wrong picture.
+    OBS_W, OBS_H = 560, 336
+    step_m, yaw_rad = args.step_m, args.yaw_rad
     if args.baseline:
         model = None
         print("[deploy] BASELINE mode: goal-bearing servo, camera ignored")
     else:
         assert args.checkpoint, "--checkpoint required unless --baseline"
         model = PPO.load(args.checkpoint, device="cuda")
+        sp = model.observation_space
+        assert "rgb" in sp.spaces and "goal" in sp.spaces, f"unexpected obs space {sp}"
+        OBS_H, OBS_W = int(sp["rgb"].shape[0]), int(sp["rgb"].shape[1])
+        assert tuple(sp["goal"].shape) == (3,), f"goal space is {sp['goal'].shape}, expected (3,)"
+        cfg_path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(args.checkpoint))), "env_config.json")
+        src = "CLI default"
+        if os.path.exists(cfg_path):
+            with open(cfg_path) as fh:
+                envc = json.load(fh)
+            if "step_size_m" in envc:  step_m = float(envc["step_size_m"]); src = cfg_path
+            if "yaw_step_rad" in envc: yaw_rad = float(envc["yaw_step_rad"])
         print(f"[deploy] loaded {args.checkpoint}")
+        print(f"[deploy] observation from checkpoint: {OBS_W}x{OBS_H} (WxH)")
+        print(f"[deploy] step {step_m} m, yaw {yaw_rad} rad per decision  [{src}]")
+        print(f"[deploy] at {args.rate} Hz -> max v {step_m * args.rate:.2f} m/s, "
+              f"max w {yaw_rad * args.rate:.2f} rad/s (clipped to {args.max_v}/{args.max_w})")
 
     class PolicyNode(Node):
         def __init__(self):
@@ -156,11 +184,11 @@ def main():
                 v = float(np.clip(0.5 * dist, 0.0, args.max_v))
                 w = float(np.clip(1.5 * bearing, -args.max_w, args.max_w))
             else:
-                obs = {"rgb": preprocess(self.img),
+                obs = {"rgb": preprocess(self.img, OBS_W, OBS_H),
                        "goal": np.array([dx, dy, bearing], dtype=np.float32)}
                 action, _ = model.predict(obs, deterministic=True)
-                v = float(np.clip(action[0] * 0.25 * args.rate, -args.max_v, args.max_v))
-                w = float(np.clip(action[1] * 0.30 * args.rate, -args.max_w, args.max_w))
+                v = float(np.clip(action[0] * step_m * args.rate, -args.max_v, args.max_v))
+                w = float(np.clip(action[1] * yaw_rad * args.rate, -args.max_w, args.max_w))
             ms = (time.perf_counter() - t0) * 1e3
             self.lat.append(ms)
             a = float(np.clip(args.smooth, 0.0, 1.0))

@@ -53,6 +53,23 @@ export PYTHONPATH=$(echo "$PYTHONPATH" | sed 's#:/home/soar/miniconda3/lib/pytho
    ros2 topic pub /estop std_msgs/msg/Bool "data: true" --once
    ```
 
+## Observation size and action scaling (2026-09-08)
+
+The node no longer hardcodes them. It reads the image size from the
+checkpoint's own observation space, and `step_size_m` / `yaw_step_rad` from the
+run's `env_config.json` (one directory above `checkpoints/`). It prints all of
+it at startup:
+
+    [deploy] observation from checkpoint: 336x224 (WxH)
+    [deploy] step 0.25 m, yaw 0.3 rad per decision  [.../env_config.json]
+    [deploy] at 2.0 Hz -> max v 0.50 m/s, max w 0.60 rad/s
+
+**Read those three lines before letting the robot move.** 560x336 is the
+RENDER size and 336x224 is the OBSERVATION size; the old node hardcoded the
+former, which fed recent policies a differently-framed picture than they
+trained on. If `env_config.json` is missing it falls back to `--step_m` /
+`--yaw_rad` and says so.
+
 ## Run
 
 Goal = (`--goal_dx` m forward, `--goal_dy` m left) of the robot's pose WHEN THE
