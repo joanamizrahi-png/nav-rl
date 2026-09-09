@@ -284,3 +284,63 @@ the motion looks violent.
   checkpoint.
 - Node stuck on "waiting for camera/odom" — one of the two topics is not
   publishing; check with `ros2 topic hz`.
+
+---
+
+## 9. Worked example: ppo_322704 (robot test 2026-09-09)
+
+Verified by loading the checkpoint and running the node end to end with ROS
+stubbed: it loads with stock stable-baselines3 (no custom classes), a 640x480
+camera frame preprocesses to exactly the 336x224 it expects, and inference is
+about 6 ms.
+
+Facts from the checkpoint and its config:
+
+| | |
+|---|---|
+| observation | `rgb (3, 224, 336)` channels-first, `goal (3,)` |
+| action | `Box(-1, 1, (2,))` |
+| step_size_m | 0.25 |
+| yaw_step_rad | 0.3 |
+| goal_radius | 1.0 |
+| static_scene | True (trained on fused-static renders) |
+| label_remap | 12:0 (person ignored in the reward) |
+
+Copy to Thor:
+
+```bash
+ssh soar@<thor> 'mkdir -p ~/nav_policy/ppo322704/checkpoints'
+scp ~/Downloads/ppo_322704_steps.zip soar@<thor>:~/nav_policy/ppo322704/checkpoints/
+scp ~/Downloads/env_config.json      soar@<thor>:~/nav_policy/ppo322704/
+scp scripts/deploy_go2.py            soar@<thor>:~/nav_policy/
+```
+
+Run:
+
+```bash
+~/nav_env/bin/python3 deploy_go2.py \
+    --checkpoint ppo322704/checkpoints/ppo_322704_steps.zip \
+    --goal_dx 4.0 --goal_dy 0.0 \
+    --rate 2 --smooth 1.0 --max_v 0.6 --max_w 0.8 \
+    --timeout_s 60 --no_progress_s 15 --log policy_1.csv
+```
+
+The startup lines must read exactly:
+
+```
+[deploy] observation from checkpoint: 336x224 (WxH)
+[deploy] step 0.25 m, yaw 0.3 rad per decision  [.../env_config.json]
+[deploy] at 2.0 Hz -> max v 0.50 m/s, max w 0.60 rad/s (clipped to 0.6/0.8)
+[deploy] stop radius 1.00 m
+```
+
+Anything different means something did not travel with the checkpoint. In
+particular `[CLI default]` means `env_config.json` is not beside it.
+
+**What is known and unknown going in.** The policy was trained on generated
+imagery that is measurably softer than a real camera feed, so its response to
+sharp RealSense frames is untested. Its simulated corner failures were caused
+by phantom obstacles in generated frames, which cannot occur on a real camera,
+so those specific loops should not reappear; the corner behaviour is genuinely
+unmeasured rather than known-bad. The simulated corner evaluation was
+effectively three distinct trajectories, not ten.
