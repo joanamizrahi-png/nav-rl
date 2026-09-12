@@ -104,6 +104,23 @@ if [ "${LIVE:-0}" = "1" ]; then
         BC_ARGS="$BC_ARGS --live_batch $LIVEBATCH"
         OUT=${OUT}_x${LIVEBATCH}
     fi
+    # LIVEGPUS: K worker processes, one GPU + one pipe each, LIVEBATCH robots
+    # per worker, one PPO over all of them (2026-09-12). Throughput ~K x.
+    # The sbatch header asks for ONE gpu, so submit with
+    #   sbatch --gres=gpu:$K --mem=$((48*K))G --cpus-per-task=$((4*K)) ...
+    # The check below refuses to start if the job did not actually get K.
+    if [ -n "${LIVEGPUS:-}" ] && [ "${LIVEGPUS}" != "1" ]; then
+        NGPU=$(nvidia-smi -L 2>/dev/null | wc -l | tr -d ' ')
+        if [ "${NGPU:-0}" -lt "${LIVEGPUS}" ]; then
+            echo "REFUSED: LIVEGPUS=${LIVEGPUS} but this job has ${NGPU} GPU(s)." \
+                 "Submit with: sbatch --gres=gpu:${LIVEGPUS} --mem=$((48*LIVEGPUS))G" \
+                 "--cpus-per-task=$((4*LIVEGPUS)) ..."
+            exit 3
+        fi
+        echo "==> LIVEGPUS=${LIVEGPUS}: $(nvidia-smi -L | tr '\n' ';')"
+        BC_ARGS="$BC_ARGS --live_gpus $LIVEGPUS"
+        OUT=${OUT}_g${LIVEGPUS}
+    fi
     # LIVE_DEMOS: BC-prime the live run on LIVE-rendered demos (B-prime rescue
     # for the cold-start dream-marination). NEVER pass raster/cached demo files
     # here — observation source must match training.

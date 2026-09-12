@@ -1006,6 +1006,48 @@ def make_live_vec_env(args):
                                  rotate_every=getattr(args, "scene_rotate", 0)))
 
 
+def _live_worker_args(args, worker_idx: int, n_workers: int):
+    """The args one GPU worker trains with. With exactly n_workers scenes,
+    worker i gets scene i and no rotation; otherwise every worker gets the
+    full list and rotates on its own clock."""
+    import copy
+    a = copy.copy(args)
+    scenes = list(args.scenes) if getattr(args, "scenes", None) else None
+    if scenes and len(scenes) == n_workers:
+        a.scenes = [scenes[worker_idx]]
+        a.scene_rotate = 0
+    return a
+
+
+def make_multi_gpu_live_env(args):
+    """K live vec-envs, one per GPU, behind one VecEnv (--live_gpus K).
+
+    Each worker process pins itself to one GPU of the job, then builds the
+    same VecMonitor(LiveVecEnv) as make_live_vec_env, with --live_batch
+    robots. Throughput scales ~K x because the diffusion calls run on K
+    cards at once; PPO's rollout is n_steps x (K x live_batch) env steps.
+    """
+    from src.env.multi_gpu_vec_env import MultiGPUVecEnv
+    K = int(args.live_gpus)
+    B = int(getattr(args, "live_batch", 1))
+    scenes = list(args.scenes) if getattr(args, "scenes", None) else [args.scene]
+    if len(scenes) not in (1, K) and getattr(args, "scene_rotate", 0) <= 0:
+        raise SystemExit(f"--live_gpus {K} with {len(scenes)} scenes needs either "
+                         f"exactly {K} scenes (one per GPU) or --scene_rotate > 0")
+
+    def _factory(i: int):
+        return make_live_vec_env(_live_worker_args(args, i, K))
+
+    env = MultiGPUVecEnv(_factory, n_workers=K)
+    per_worker = ([scenes[i] for i in range(K)] if len(scenes) == K
+                  else [scenes] * K)
+    print(f"[live_gpus] {K} GPUs x {B} robots = {env.num_envs} envs; "
+          f"scene per worker: {per_worker}; rollout = 128 x {env.num_envs} = "
+          f"{128 * env.num_envs} env steps; checkpoint every "
+          f"{int(args.ckpt_every_calls) * env.num_envs} env steps", flush=True)
+    return env
+
+
 def save_rollout_video(model, env, out_path: Path, max_frames=120,
                        seed: "int | None" = None,
                        sem_palette: int = 4):
@@ -1735,6 +1777,11 @@ def main():
     ap.add_argument("--live_batch", type=int, default=1,
                     help="N robots sharing one pipe via batched generation "
                          "(live mode only; 1 = the classic single-robot path)")
+    ap.add_argument("--live_gpus", type=int, default=1,
+                    help="live mode: K worker processes, one GPU + one pipe each, "
+                         "each running --live_batch robots; PPO sees K x live_batch "
+                         "envs. With exactly K --scenes, worker i trains on scene i. "
+                         "Submit with --gres=gpu:K. 1 = today's single-GPU path")
     ap.add_argument("--output_dir", type=Path, default=Path("outputs/ppo_real"))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--run_label", default="",
@@ -1766,7 +1813,9 @@ def main():
 
     # ONE env: each env holds a reconstructed scene on the GPU. Parallel envs
     # would multiply VRAM; not worth it for the smoke.
-    if getattr(args, "live", False) and getattr(args, "live_batch", 1) > 1:
+    if getattr(args, "live", False) and getattr(args, "live_gpus", 1) > 1:
+        env = make_multi_gpu_live_env(args)
+    elif getattr(args, "live", False) and getattr(args, "live_batch", 1) > 1:
         env = make_live_vec_env(args)
         if args.bc_demos:
             print("[live_batch] BC pretrain on the policy before batched training (2026-09-06)", flush=True)
@@ -1891,7 +1940,7 @@ def main():
     model.save(str(args.output_dir / "ppo_final.zip"))
 
     print("[train_ppo_real] eval rollout ...")
-    if getattr(args, "live_batch", 1) > 1:
+    if getattr(args, "live_batch", 1) > 1 or getattr(args, "live_gpus", 1) > 1:
         print("[live_batch] end-of-training rollout video skipped (vec env)")
     else:
         save_rollout_video(model, env, args.output_dir / "rollout.mp4")
