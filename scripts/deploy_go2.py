@@ -92,6 +92,10 @@ def main():
                          "(1-smooth)*previous. 1.0 = raw policy output; lower "
                          "= gentler transitions (soar-go2's RL rate-limits "
                          "velocity changes the same way in training)")
+    ap.add_argument("--fixed_goal", default=None,
+                    help='DIAGNOSTIC, dry-run only: "dx,dy" held CONSTANT in the '
+                         "robot frame regardless of odometry, so any variation in "
+                         "the action comes from the image alone")
     ap.add_argument("--swap_rb", action="store_true",
                     help="flip red and blue: use when check_camera_topic.py shows "
                          "an orange sky (stream is RGB where BGR was assumed)")
@@ -108,6 +112,9 @@ def main():
                     help="radians per decision at |a1|=1; overridden by the run's env_config.json")
     ap.add_argument("--dry_run", action="store_true")
     args = ap.parse_args()
+    if args.fixed_goal is not None and not args.dry_run:
+        ap.error("--fixed_goal is a diagnostic and requires --dry_run: the goal "
+                 "would not correspond to anywhere real.")
     args.goal_radius_set = args.goal_radius is not None
     if args.goal_radius is None:
         args.goal_radius = 0.75
@@ -233,6 +240,10 @@ def main():
             dist = float(np.hypot(dxw, dyw))
             c, s = np.cos(-yaw), np.sin(-yaw)
             dx, dy = c * dxw - s * dyw, s * dxw + c * dyw   # goal in robot frame
+            if args.fixed_goal is not None:
+                # Hold the goal input constant so only the image varies.
+                dx, dy = (float(q) for q in args.fixed_goal.split(","))
+                dist = float(np.hypot(dx, dy))
             bearing = float(np.arctan2(dy, dx))
             if dist < args.goal_radius:
                 self.done = True
@@ -304,7 +315,10 @@ def main():
                 wtr.writerow(["t", "x", "y", "yaw", "dist", "bearing", "v", "w", "ms"])
                 wtr.writerows(node.rows)
             print(f"[deploy] wrote {len(node.rows)} decisions to {args.log}")
-        rclpy.shutdown()
+        try:
+            rclpy.shutdown()          # Ctrl-C already shut the context down
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

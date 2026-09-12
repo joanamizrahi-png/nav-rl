@@ -78,6 +78,7 @@ hf download Wan-AI/Wan2.1-T2V-14B \
   --include "diffusion_pytorch_model*" \
   --include "models_t5_umt5-xxl-enc-bf16.pth" \
   --include "Wan2.1_VAE.pth" \
+  --include "google/*" \
   --local-dir "$ROOT/NeoVerse/models/NeoVerse"
 
 echo "=== 4/5 our private bundle"
@@ -98,12 +99,13 @@ try:
 except Exception as e:
     print("gsplat MISSING:", e)
 PY
-for f in NeoVerse/models/NeoVerse/reconstructor.ckpt \
+for f in NeoVerse/models/NeoVerse/google \
+         NeoVerse/models/NeoVerse/reconstructor.ckpt \
          NeoVerse/models/NeoVerse/Wan2.1_VAE.pth \
          NeoVerse/models/NeoVerse/models_t5_umt5-xxl-enc-bf16.pth \
          runs/train_semantic_v26_campus/checkpoint-epoch-10.safetensors \
          outputs/scene_clouds/clouds/gnd_AUw360_cloud.npz; do
-  [ -f "$ROOT/$f" ] && echo "ok      $f" || echo "MISSING $f"
+  [ -e "$ROOT/$f" ] && echo "ok      $f" || echo "MISSING $f"
 done
 # The DiT is sharded, so check the count and the total size, not one filename.
 python - <<'PY2'

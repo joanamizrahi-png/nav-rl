@@ -100,7 +100,13 @@ def run(npz_path: Path):
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
 
-        if COLOR_MODE == "semantic":
+        if COLOR_MODE == "trav":
+            # The reward's actual question: may the robot step here or not.
+            # Warm = traversable, cool = not, matching the slide palette.
+            nontrav = {0, 1, 3, 5, 10, 11, 12, 13}
+            cvals = ["rgb(70,110,165)" if int(l) in nontrav else "rgb(232,150,45)"
+                     for l in klab[sub]]
+        elif COLOR_MODE == "semantic":
             pal = CLASS_COLORS_255
             cvals = [f"rgb({pal[l][0]},{pal[l][1]},{pal[l][2]})" if l >= 0
                      else "rgb(80,80,80)" for l in klab[sub]]
