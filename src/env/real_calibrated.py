@@ -235,6 +235,14 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # Every Nth pano side-view frame joins the reconstruction (243 full views
     # OOM the gs_head; 3 -> 81+27+27=135). Raise to 4-5 if OOM persists.
     pano_view_stride: int = 3
+    # FUSION WINDOW (2026-09-13, see src/env/window.py). render_window > 0:
+    # RGB/depth/labels are rasterized from the w recorded frames nearest the
+    # query only (static-21 = the middle ground between static and dynamic).
+    # coverage_window > 0: the coverage statistic the coherence gate reads is
+    # computed from that window (one extra opacity-only raster per step); the
+    # image may still come from the full fusion. 0 = today's behaviour.
+    render_window: int = 0
+    coverage_window: int = 0
     # Spawn validity (her check): only spawn on frames whose ground patch is
     # labeled with one of these class ids (e.g. (6, 8) = sidewalk/pavement).
     # None = no filtering (all runs before this).
@@ -742,11 +750,30 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         t_idx = int(np.clip(t_idx, 0, len(scene["timestamps"]) - 1))
         return w2c, scene["K"][0:1], scene["timestamps"][t_idx:t_idx + 1]
 
+    def _render_gaussians(self, scene: dict, t_idx: int):
+        """The Gaussian groups a render at query time t_idx may use: the whole
+        scene, or the fusion window around t_idx when cfg.render_window > 0."""
+        w = int(getattr(self.cfg, "render_window", 0) or 0)
+        if w <= 0:
+            return scene["gaussians"]
+        from .window import window_gaussians
+        return [window_gaussians(scene["gaussians"][0], int(t_idx), w)]
+
+    def _window_coverage(self, scene: dict, w2c, K1, ts1, t_idx: int):
+        """Coverage from the coverage window (None when the knob is off)."""
+        w = int(getattr(self.cfg, "coverage_window", 0) or 0)
+        if w <= 0:
+            return None
+        from .window import windowed_coverage
+        return windowed_coverage(self._reconstructor.gs_renderer.rasterizer,
+                                 scene["gaussians"][0], w2c, K1, ts1, int(t_idx), w,
+                                 self.W, self.H)
+
     def _rasterize_single(self, scene: dict, pose_recon: np.ndarray, t_idx: int = 0):
         import torch
         w2c, K1, ts1 = self._single_frame_inputs(scene, pose_recon, t_idx)
         rgb, _, _ = self._reconstructor.gs_renderer.rasterizer.forward(
-            scene["gaussians"], render_viewmats=[w2c], render_Ks=[K1],
+            self._render_gaussians(scene, t_idx), render_viewmats=[w2c], render_Ks=[K1],
             render_timestamps=[ts1], sh_degree=0, width=self.W, height=self.H,
         )
         rgb_np = (rgb[0, 0].detach().clamp(0, 1).float().cpu().numpy() * 255).astype(np.uint8)
@@ -756,7 +783,7 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         import torch
         w2c, K1, ts1 = self._single_frame_inputs(scene, pose_recon, t_idx)
         sem_probs, _, _ = self._reconstructor.gs_renderer.rasterizer.forward(
-            scene["gaussians"], render_viewmats=[w2c], render_Ks=[K1],
+            self._render_gaussians(scene, t_idx), render_viewmats=[w2c], render_Ks=[K1],
             render_timestamps=[ts1], sh_degree=0, width=self.W, height=self.H,
             feature="labels",
         )

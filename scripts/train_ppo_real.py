@@ -433,6 +433,52 @@ from src.env.real_calibrated import (
 from src.eval.reward_2d import RewardWeights
 
 
+class WandbImagePanel(BaseCallback):
+    """Every N rollouts, log what the policy sees and what it is scored on:
+    the first env's current observation, its injected generated labels
+    (colorized), and the coverage the gate read. Images to wandb so a run can
+    be judged by eye without pulling rollout videos."""
+
+    V14 = np.array([
+        (0, 0, 0), (200, 225, 245), (150, 100, 55), (75, 190, 80), (95, 65, 35),
+        (50, 120, 200), (210, 210, 210), (70, 70, 85), (235, 205, 150),
+        (220, 140, 80), (185, 55, 50), (170, 200, 55), (205, 70, 145), (110, 130, 220),
+    ], np.uint8)
+
+    def __init__(self, every: int):
+        super().__init__()
+        self.every = max(int(every), 1)
+        self._n = 0
+
+    def _on_step(self) -> bool:
+        return True
+
+    def _on_rollout_end(self) -> None:
+        self._n += 1
+        if self._n % self.every:
+            return
+        try:
+            import wandb
+            env = self.training_env
+            rgb = env.get_attr("_last_rgb", indices=[0])[0]
+            lab = env.get_attr("_injected_labels", indices=[0])[0]
+            cov = env.get_attr("_last_coverage", indices=[0])[0] if hasattr(env, "get_attr") else None
+            if rgb is None:
+                return
+            panel = [np.asarray(rgb)[..., :3]]
+            if lab is not None:
+                col = self.V14[np.clip(np.asarray(lab).astype(np.int64), 0, 13)]
+                if col.shape[:2] != panel[0].shape[:2]:
+                    import cv2
+                    col = cv2.resize(col, (panel[0].shape[1], panel[0].shape[0]), interpolation=cv2.INTER_NEAREST)
+                panel.append((0.55 * col + 0.45 * panel[0]).astype(np.uint8))
+            img = np.concatenate(panel, axis=1)
+            cap = f"rollout {self._n}" + (f"  coverage {float(cov):.2f}" if cov is not None else "")
+            wandb.log({"panels/obs_labels": wandb.Image(img, caption=cap)}, step=self.num_timesteps)
+        except Exception as e:  # never let logging kill a run
+            print(f"[WandbImagePanel] skipped: {type(e).__name__}: {e}", flush=True)
+
+
 def make_env(args):
     # rung 7: --scenes trains one policy over several scenes (round-robin per
     # episode in SceneEnv). Single --scene remains the default path.
@@ -460,6 +506,8 @@ def make_env(args):
         spawn_frames_by_scene=str(getattr(args, "spawn_frames", "") or ""),
         sem_palette_version=getattr(args, "sem_palette", 1), static_scene=bool(getattr(args, "static_scene", False)),
         static_movers=str(getattr(args, "static_movers", "") or ""),
+        render_window=int(getattr(args, "render_window", 0) or 0),
+        coverage_window=int(getattr(args, "coverage_window", 0) or 0),
         render_mode="rasterizer_only",       # cheap per-step; diffusion later
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -939,6 +987,8 @@ def make_live_vec_env(args):
         spawn_frames_by_scene=str(getattr(args, "spawn_frames", "") or ""),
         sem_palette_version=getattr(args, "sem_palette", 1), static_scene=bool(getattr(args, "static_scene", False)),
         static_movers=str(getattr(args, "static_movers", "") or ""),
+        render_window=int(getattr(args, "render_window", 0) or 0),
+        coverage_window=int(getattr(args, "coverage_window", 0) or 0),
         render_mode="rasterizer_only",
         model_path=args.model_path,
         reconstructor_path=args.reconstructor_path,
@@ -1725,6 +1775,12 @@ def main():
                     help="spawn facing the walk's direction of travel instead of the recorded camera yaw")
     ap.add_argument("--static_scene", action="store_true",
                     help="reconstruct as a STATIC scene: every source frame's Gaussians render from any pose")
+    ap.add_argument("--render_window", type=int, default=0,
+                    help="fusion window: rasterize from the w recorded frames nearest the "
+                         "query (0 = whole scene; 21 = the static/dynamic middle ground)")
+    ap.add_argument("--coverage_window", type=int, default=0,
+                    help="coverage statistic for the coherence gate from the w nearest "
+                         "frames' Gaussians (0 = full-scene alpha, which saturates in static mode)")
     ap.add_argument("--static_movers", type=str, default="",
                     help='with --static_scene: classes kept per-frame, e.g. "12,13" (person, vehicle); must match the label head (v31+)')
     ap.add_argument("--sem_palette", type=int, default=1,
@@ -1792,6 +1848,9 @@ def main():
                          "wrong. Paths keep the long name so existing globs "
                          "still work; only the display name changes.")
     ap.add_argument("--use_wandb", action="store_true")
+    ap.add_argument("--wandb_images_every", type=int, default=10,
+                    help="log an obs | generated-labels panel for the first env every N "
+                         "rollouts (0 = off). Images to wandb, Joana 2026-09-13")
     ap.add_argument("--bc_demos", type=Path, default=None,
                     help="npz from make_demo_dataset.py; if set, behavior-clone the "
                          "policy on real-trajectory demonstrations before PPO")
@@ -1927,6 +1986,8 @@ def main():
                        config=vars(args) | {"total_steps": args.total_steps},
                        sync_tensorboard=True, dir=str(args.output_dir))
             callbacks.append(WandbCallback())
+            if int(getattr(args, "wandb_images_every", 0)) > 0:
+                callbacks.append(WandbImagePanel(int(args.wandb_images_every)))
         except Exception as e:
             print(f"[train_ppo_real] wandb unavailable ({e}); continuing without")
 

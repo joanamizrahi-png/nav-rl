@@ -238,14 +238,19 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         target_ts = scene["timestamps"][t_idx]
 
         raster = recon.gs_renderer.rasterizer
+        t_last = int(t_idx[-1])
+        gs_render = self._render_gaussians(scene, t_last)      # fusion window (or all)
         target_rgb, target_depth, target_alpha = raster.forward(
-            scene["gaussians"], render_viewmats=[w2c], render_Ks=[K_rep],
+            gs_render, render_viewmats=[w2c], render_Ks=[K_rep],
             render_timestamps=[target_ts], sh_degree=0,
             width=self.W, height=self.H)
         sem_probs, _, _ = raster.forward(
-            scene["gaussians"], render_viewmats=[w2c], render_Ks=[K_rep],
+            gs_render, render_viewmats=[w2c], render_Ks=[K_rep],
             render_timestamps=[target_ts], sh_degree=0,
             width=self.W, height=self.H, feature="labels")
+        # coverage the gate reads: from the coverage window when set, else the
+        # render's own alpha (full-scene alpha saturates in static mode)
+        cov_win = self._window_coverage(scene, w2c[-1], K_rep[-1], target_ts[-1], t_last)
         target_semantic = sem_probs.argmax(dim=-1).to(torch.long)
         target_mask = (target_alpha > 1.0).float()   # conditioning threshold (cache-gen parity)
         t["raster"] = time.perf_counter() - t0
@@ -264,7 +269,8 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
                 self._pending_labels = lab_last
             self._last_semantic_raw = lab_last
             self._live_alpha = alpha_last
-            self.last_coverage = float(target_alpha[0, -1].detach().float().mean().item())
+            self.last_coverage = (cov_win if cov_win is not None else
+                                  float(target_alpha[0, -1].detach().float().mean().item()))
             t["diffusion"] = 0.0
             t["decode"] = 0.0
             t["total"] = time.perf_counter() - t0
@@ -320,7 +326,8 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         # the single-env path -- every eval -- reported nothing, so the
         # coherence cost and the incoherent terminal were INERT in evals
         # while live in training (the env printed a WARNING nobody grepped).
-        self.last_coverage = float(target_alpha[0, -1].detach().float().mean().item())
+        self.last_coverage = (cov_win if cov_win is not None else
+                              float(target_alpha[0, -1].detach().float().mean().item()))
         t["decode"] = time.perf_counter() - t2
         t["total"] = time.perf_counter() - t0
         self.last_timings = t

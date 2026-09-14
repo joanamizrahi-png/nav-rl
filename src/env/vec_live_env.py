@@ -128,10 +128,35 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
             self.last_t_idx = None
 
         raster = recon.gs_renderer.rasterizer
+        t_last = t_idx.reshape(B, k)[:, -1].tolist()
+        _rw = int(getattr(self.cfg, "render_window", 0) or 0)
+        if _rw > 0:
+            # one Gaussian window per robot -> B batches of k views each
+            from .window import window_gaussians
+            _gs = [window_gaussians(scene["gaussians"][0], int(t_last[b]), _rw) for b in range(B)]
+            _vm = [w2c.reshape(B, k, 4, 4)[b] for b in range(B)]
+            _ks = [K_rep.reshape(B, k, 3, 3)[b] for b in range(B)]
+            _ts = [target_ts.reshape(B, k)[b] for b in range(B)]
+        else:
+            _gs, _vm, _ks, _ts = scene["gaussians"], [w2c], [K_rep], [target_ts]
         rgb_t, depth_t, alpha_t = raster.forward(
-            scene["gaussians"], render_viewmats=[w2c], render_Ks=[K_rep],
-            render_timestamps=[target_ts], sh_degree=0,
+            _gs, render_viewmats=_vm, render_Ks=_ks,
+            render_timestamps=_ts, sh_degree=0,
             width=self.W, height=self.H)
+        # coverage window: opacity of the w nearest frames' Gaussians at each
+        # robot's LAST view; consumed by _render_and_inject instead of last_alpha
+        _cw = int(getattr(self.cfg, "coverage_window", 0) or 0)
+        self.last_alpha_window = None
+        if _cw > 0:
+            from .window import windowed_alpha
+            _aw = []
+            for b in range(B):
+                a = windowed_alpha(raster, scene["gaussians"][0],
+                                   w2c.reshape(B, k, 4, 4)[b, -1], K_rep.reshape(B, k, 3, 3)[b, -1],
+                                   target_ts.reshape(B, k)[b, -1], int(t_last[b]), _cw,
+                                   self.W, self.H)
+                _aw.append(None if a is None else a.detach().float().cpu().numpy().reshape(self.H, self.W))
+            self.last_alpha_window = _aw
         # Coverage telemetry (2026-08-31, her spawn-certification ask): mean
         # reconstruction alpha of the LAST frame per item = how much of the
         # view is backed by real Gaussians vs inpainted. Read-only attr;
@@ -147,8 +172,8 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
                   f"{tuple(alpha_t.shape)}: {e}", flush=True)
             self.last_coverage = float("nan")
         sem_t, _, _ = raster.forward(
-            scene["gaussians"], render_viewmats=[w2c], render_Ks=[K_rep],
-            render_timestamps=[target_ts], sh_degree=0,
+            _gs, render_viewmats=_vm, render_Ks=_ks,
+            render_timestamps=_ts, sh_degree=0,
             width=self.W, height=self.H, feature="labels")
 
         def bshape(x):
@@ -330,9 +355,12 @@ class LiveVecEnv(VecEnv):
         # last_alpha is indexed by POSITION IN THE BATCH, not by env id — the
         # two coincide only when every env renders. Zip over both together.
         alphas = getattr(self.backend, "last_alpha", None)
+        alphas_w = getattr(self.backend, "last_alpha_window", None)   # coverage window
         for j, (i, (rgb, K, w2c, lab)) in enumerate(zip(idxs, results)):
             cov = None
-            if alphas is not None and j < len(alphas):
+            if alphas_w is not None and j < len(alphas_w) and alphas_w[j] is not None:
+                cov = float(np.asarray(alphas_w[j]).mean())
+            elif alphas is not None and j < len(alphas):
                 cov = float(np.asarray(alphas[j]).mean())
             self.envs[i].inject_render(rgb, K, w2c, labels=lab, coverage=cov)
 

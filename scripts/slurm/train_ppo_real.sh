@@ -104,6 +104,17 @@ if [ "${LIVE:-0}" = "1" ]; then
         BC_ARGS="$BC_ARGS --live_batch $LIVEBATCH"
         OUT=${OUT}_x${LIVEBATCH}
     fi
+    # RENDWIN / COVWIN (2026-09-13): fusion window for the rasters, and the
+    # window the coherence gate's coverage is computed from (see
+    # src/env/window.py). Unset = today's full-scene behaviour.
+    if [ -n "${RENDWIN:-}" ] && [ "${RENDWIN}" != "0" ]; then
+        BC_ARGS="$BC_ARGS --render_window $RENDWIN"
+        OUT=${OUT}_rw${RENDWIN}
+    fi
+    if [ -n "${COVWIN:-}" ] && [ "${COVWIN}" != "0" ]; then
+        BC_ARGS="$BC_ARGS --coverage_window $COVWIN"
+        OUT=${OUT}_cw${COVWIN}
+    fi
     # LIVEGPUS: K worker processes, one GPU + one pipe each, LIVEBATCH robots
     # per worker, one PPO over all of them (2026-09-12). Throughput ~K x.
     # The sbatch header asks for ONE gpu, so submit with
