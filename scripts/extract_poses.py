@@ -339,8 +339,12 @@ def main():
     ap.add_argument("--num_frames", type=int, default=81)
     ap.add_argument("--width", type=int, default=560)
     ap.add_argument("--height", type=int, default=336)
-    ap.add_argument("--scale_from", choices=["height", "symmetric", "umeyama", "pathlen"], default="height",
-                    help="metric scale: tape-measured camera height (default, noise-immune) or an odometry fit")
+    ap.add_argument("--scale_from", choices=["symmetric", "umeyama", "height", "pathlen"], default="symmetric",
+                    help="metric scale. 2026-09-15: the reconstruction's vertical and horizontal scales differ "
+                         "(tape-height vs odometry scale ratio 0.5-1.2 across campus scenes, worst on long open "
+                         "sightlines); the robot's steps, goals and footprint are HORIZONTAL, so the odometry "
+                         "similarity fit (symmetric) is the scale of record when odometry exists; tape height is "
+                         "the diagnostic. Falls back to height without odometry.")
     ap.add_argument("--camera_height_m", type=float, default=0.25,
                     help="physical camera mount height used ONLY for metric scale "
                          "(RUGD paper Sec III-A: viewpoint <25 cm off ground -> 0.25). "
@@ -386,7 +390,13 @@ def main():
         out["K"] = K_all[0].astype(np.float32)
         out["K_all"] = K_all.astype(np.float32)
         out["video"] = str(video)
-        out["camera_height_m"] = np.float32(args.camera_height_m)
+        # The render camera is lifted above the robot's ground pose by
+        # camera_height_m. It must be the RECONSTRUCTION's own camera height in
+        # the chosen metres (h_median x scale), not the tape value: with a
+        # vertically squashed reconstruction the tape height would put every
+        # render too high. The tape value is kept for the diagnostic ratio.
+        out["camera_height_m"] = np.float32(float(out["camera_height_units_median"]) * float(out["scale_m_per_unit"]))
+        out["camera_height_tape_m"] = np.float32(args.camera_height_m)
 
         # Sanity numbers for eyeballing before trusting the npz downstream.
         steps = out["step_sizes_m"]
@@ -396,9 +406,12 @@ def main():
               f"umeyama {float(out['scale_umeyama']):.4f} path-length {float(out['scale_pathlen']):.4f} "
               f"(median cam height {float(out['camera_height_units_median']):.4f} units)", flush=True)
         _sh, _ss = float(out['scale_height']), float(out['scale_symmetric'])
-        if np.isfinite(_ss) and abs(_ss / _sh - 1.0) > 0.30:
-            print(f"[extract_poses] WARNING: symmetric odometry scale and tape-height scale disagree by "
-                  f"{abs(_ss / _sh - 1.0) * 100:.0f}% -- check the plane fit (std below), the tape, or this clip's odometry", flush=True)
+        if np.isfinite(_ss):
+            print(f"[extract_poses] vertical/horizontal ratio (odometry scale / tape-height scale) = {_ss / _sh:.2f}; "
+                  f"render camera height = {float(out['camera_height_m']):.2f} m (tape {args.camera_height_m:.2f} m)", flush=True)
+            if abs(_ss / _sh - 1.0) > 0.50:
+                print(f"[extract_poses] WARNING: reconstruction vertical scale off by {abs(_ss / _sh - 1.0) * 100:.0f}% "
+                      f"vs horizontal -- long sightlines? check this scene's renders before training on it", flush=True)
         print(f"[extract_poses] trajectory: {length_m:.1f} m total, "
               f"step {steps.mean():.3f} m/frame (min {steps.min():.3f}, max {steps.max():.3f})", flush=True)
         cam_z = out["cam_positions"][:, 2]
