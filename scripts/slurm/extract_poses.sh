@@ -36,8 +36,15 @@ hash -r
 cd "$NAVRL_ROOT"
 mkdir -p "$OUT_DIR"
 
+# SCENES env (2026-09-15): space-separated scene names -> only those clips;
+# unset = every mp4 in CLIPS_DIR (the old behaviour).
+if [ -n "${SCENES:-}" ]; then
+    VIDEOS=(); for s in $SCENES; do VIDEOS+=("$CLIPS_DIR/$s.mp4"); done
+else
+    VIDEOS=("$CLIPS_DIR"/*.mp4)
+fi
 python scripts/extract_poses.py \
-    --videos "$CLIPS_DIR"/*.mp4 \
+    --videos "${VIDEOS[@]}" \
     --output_dir "$OUT_DIR" \
     --reconstructor_path /scratch/m000204-pm06b/joana/NeoVerse/models/NeoVerse/reconstructor.ckpt \
     --num_frames 81 --width 560 --height 336 \

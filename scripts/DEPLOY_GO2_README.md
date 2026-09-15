@@ -22,6 +22,8 @@ where the node looks for it to recover the step size and yaw step.
 
 ---
 
+> **Topic names on the Go2W as recorded 2026-09-14:** camera `/odin1/image/undistorted` (raw Image, ~13 Hz) or `/camera/camera/color/image_raw/compressed` (RealSense, ~30 Hz); odometry `/odin1/odometry` (the only nav_msgs/Odometry topic; pass `--odom_topic /odin1/odometry`, the script default is `/Odometry`). Camera heights: Odin 0.69 m, RealSense 0.50 m.
+
 ## 1. Before you leave the lab
 
 **Copy the current code.** `deploy_go2.py` changes; an old copy on Thor will

@@ -95,6 +95,7 @@ def poses_from_c2w_recon(
     gaussian_means_recon: np.ndarray,   # (N, 3) recon frame, recon units
     camera_height_m: float,
     path_length_m: "float | None" = None,   # GT path length (from odometry)
+    odom_xy_m: "np.ndarray | None" = None,   # (T,2) odometry position at each frame, metres
 ) -> dict:
     """Recon-frame camera poses -> z-up, ground-at-z0, metric-scale robot poses.
 
@@ -137,10 +138,49 @@ def poses_from_c2w_recon(
     # from an assumed mount height drifted 2-4x on the GND ZED clips (odom
     # 33 m vs "extracted 119 m"), and the error varies per clip.
     L_units = float(np.linalg.norm(np.diff(c2w[:, :2, 3], axis=0), axis=1).sum())
-    if path_length_m is not None and L_units > 1e-6:
-        scale = path_length_m / L_units
+    scale_height = camera_height_m / h_median
+    scale_pathlen = (path_length_m / L_units) if (path_length_m is not None and L_units > 1e-6) else None
+    # 2026-09-15: the path-length ratio is NOT robust -- one jump in the
+    # reconstructed camera path (campus clips: max step 2 m in a 0.37 m/frame
+    # walk) inflates L_units and shrinks the scale for the whole scene; the
+    # estimated camera heights spread 0.28-1.69 m for a 0.69 m camera. A
+    # similarity fit over all T frame positions (Umeyama) is barely moved by
+    # one outlier, so it is the scale of record when odometry is available.
+    scale_umeyama = None
+    if odom_xy_m is not None and len(odom_xy_m) == T:
+        src_all, dst_all = c2w[:, :2, 3], np.asarray(odom_xy_m, float)
+
+        def _fit(src, dst):
+            n = len(src)
+            mu_s, mu_d = src.mean(0), dst.mean(0)
+            S_, D_ = src - mu_s, dst - mu_d
+            U, sig, Vt = np.linalg.svd(D_.T @ S_ / n)
+            dsign = np.sign(np.linalg.det(U @ Vt))
+            Dm = np.diag([1.0, dsign])
+            R2 = U @ Dm @ Vt
+            var_s = (S_ ** 2).sum() / n
+            if var_s <= 1e-12:
+                return None, None
+            sc = float(np.trace(np.diag(sig) @ Dm) / var_s)
+            resid = np.linalg.norm(dst - ((sc * (R2 @ src.T)).T + (mu_d - sc * R2 @ mu_s)), axis=1)
+            return sc, resid
+
+        # two passes: fit, drop frames whose residual is > 3x the median (the
+        # reconstruction's jump frames), refit on the rest
+        sc0, res0 = _fit(src_all, dst_all)
+        if sc0 is not None:
+            keep = res0 <= 3.0 * max(np.median(res0), 1e-6)
+            if keep.sum() >= 8 and keep.sum() < T:
+                sc1, _ = _fit(src_all[keep], dst_all[keep])
+                scale_umeyama = sc1 if sc1 is not None else sc0
+            else:
+                scale_umeyama = sc0
+    if scale_umeyama is not None and scale_umeyama > 0:
+        scale, scale_source = scale_umeyama, "umeyama(odometry)"
+    elif scale_pathlen is not None:
+        scale, scale_source = scale_pathlen, "path-length(odometry)"
     else:
-        scale = camera_height_m / h_median
+        scale, scale_source = scale_height, "mount-height"
     c2w[:, :3, 3] *= scale
     means *= scale
 
@@ -171,6 +211,10 @@ def poses_from_c2w_recon(
         "c2w": c2w.astype(np.float32),
         "cam_positions": cam_pos.astype(np.float32),
         "scale_m_per_unit": np.float32(scale),
+        "scale_source": scale_source,
+        "scale_umeyama": np.float32(scale_umeyama if scale_umeyama is not None else np.nan),
+        "scale_pathlen": np.float32(scale_pathlen if scale_pathlen is not None else np.nan),
+        "scale_height": np.float32(scale_height),
         "camera_height_units_median": np.float32(h_median),
         "plane_normal_scene": plane.normal.astype(np.float32),
         "plane_offset_scene": np.float32(plane.offset),
@@ -302,17 +346,23 @@ def main():
         # GT scale from the recorder's own odometry when the clip has it
         # (<stem>_odom.npz written by prepare_rosbag_clips next to the mp4).
         path_length_m = None
+        odom_xy = None
         odom_path = video.parent / f"{video.stem}_odom.npz"
         if odom_path.exists():
             od = np.load(odom_path)
             path_length_m = float(np.linalg.norm(
                 np.diff(od["xyz"][:, :2], axis=0), axis=1).sum())
-            print(f"[extract_poses] odometry found: scaling to GT path length "
-                  f"{path_length_m:.1f} m (mount-height scale ignored)", flush=True)
+            T_ = len(c2w_recon)
+            t_od = np.asarray(od["t"], float)
+            fs = np.asarray(od["frame_stamps"], float) if "frame_stamps" in od and len(od["frame_stamps"]) == T_ \
+                else np.linspace(t_od[0], t_od[-1], T_)
+            odom_xy = np.stack([np.interp(fs, t_od, od["xyz"][:, 0]), np.interp(fs, t_od, od["xyz"][:, 1])], 1)
+            print(f"[extract_poses] odometry found: {len(t_od)} samples, path {path_length_m:.1f} m, "
+                  f"{'per-frame stamps' if 'frame_stamps' in od else 'stamps assumed uniform'}", flush=True)
 
         out = poses_from_c2w_recon(c2w_recon, means,
                                    camera_height_m=args.camera_height_m,
-                                   path_length_m=path_length_m)
+                                   path_length_m=path_length_m, odom_xy_m=odom_xy)
         out["K"] = K_all[0].astype(np.float32)
         out["K_all"] = K_all.astype(np.float32)
         out["video"] = str(video)
@@ -321,8 +371,13 @@ def main():
         # Sanity numbers for eyeballing before trusting the npz downstream.
         steps = out["step_sizes_m"]
         length_m = float(steps.sum())
-        print(f"[extract_poses] scale = {float(out['scale_m_per_unit']):.4f} m/unit "
-              f"(median cam height {float(out['camera_height_units_median']):.4f} units)", flush=True)
+        print(f"[extract_poses] scale = {float(out['scale_m_per_unit']):.4f} m/unit from {out['scale_source']} "
+              f"| umeyama {float(out['scale_umeyama']):.4f} path-length {float(out['scale_pathlen']):.4f} "
+              f"mount-height {float(out['scale_height']):.4f} (median cam height {float(out['camera_height_units_median']):.4f} units)", flush=True)
+        _sh, _su = float(out['scale_height']), float(out['scale_umeyama'])
+        if np.isfinite(_su) and abs(_su / _sh - 1.0) > 0.25:
+            print(f"[extract_poses] WARNING: odometry scale and mount-height scale disagree by "
+                  f"{abs(_su / _sh - 1.0) * 100:.0f}% -- check the tape measure, the plane fit, or this clip's odometry", flush=True)
         print(f"[extract_poses] trajectory: {length_m:.1f} m total, "
               f"step {steps.mean():.3f} m/frame (min {steps.min():.3f}, max {steps.max():.3f})", flush=True)
         cam_z = out["cam_positions"][:, 2]
