@@ -149,7 +149,12 @@ def poses_from_c2w_recon(
     # one outlier, so it is the scale of record when odometry is available.
     scale_umeyama = None
     if odom_xy_m is not None and len(odom_xy_m) == T:
-        src_all, dst_all = c2w[:, :2, 3], np.asarray(odom_xy_m, float)
+        # The scene frame's y axis is mirrored relative to the robot's (ROS: y
+        # left); NavCalibration applies diag(1,-1,1) on load. Apply the same
+        # flip here or a curved path fits its mirror image and the scale is
+        # biased low (2026-09-15).
+        src_all = c2w[:, :2, 3] * np.array([1.0, -1.0])
+        dst_all = np.asarray(odom_xy_m, float)
 
         def _fit(src, dst):
             n = len(src)

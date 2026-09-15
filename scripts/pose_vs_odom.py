@@ -84,8 +84,11 @@ def main():
     args = ap.parse_args()
 
     P = np.load(args.poses)
-    pos = np.asarray(P["positions"], dtype=np.float64)[:, :2]
-    hd = np.asarray(P["headings"], dtype=np.float64)
+    # poses.npz is in the reconstruction's scene frame (y mirrored w.r.t. ROS);
+    # NavCalibration applies diag(1,-1,1) on load -- do the same here
+    F = np.array([1.0, -1.0, 1.0])
+    pos = (np.asarray(P["positions"], dtype=np.float64) * F)[:, :2]
+    hd = np.asarray(P["headings"], dtype=np.float64) * F
     yaw_rec = np.unwrap(np.arctan2(hd[:, 1], hd[:, 0]))
     T = len(pos)
     od = np.load(args.odom)
@@ -157,7 +160,7 @@ def main():
     except Exception as ex_:
         print(f"[pose_vs_odom] no plot ({ex_})")
 
-    print(f"[pose_vs_odom] {T} frames | scale {s:.3f} rot {math.degrees(rot):.1f} deg | "
+    print(f"[pose_vs_odom] {args.poses.stem.replace('_poses', ''):<16} {T} frames | scale {s:.3f} rot {math.degrees(rot):.1f} deg | "
           f"pos err mean {e_pos.mean():.2f} m max {e_pos.max():.2f} m | "
           f"yaw err mean {np.abs(e_yaw).mean():.1f} deg max {np.abs(e_yaw).max():.1f} deg | "
           f"scales along {ex.std():.2f} m lateral {ey.std():.2f} m yaw {e_yaw.std():.1f} deg | "
