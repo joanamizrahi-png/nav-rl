@@ -445,6 +445,15 @@ def render_episodes(args):
     world.num_inference_steps = args.num_steps
     world.load_scene(args.scene)
     cal = world._calib[args.scene]
+    # 2026-09-15: the blind-zone prediction must use the height the RENDER
+    # camera actually sits at, which is per scene (poses npz camera_height_m,
+    # the reconstruction's own height x scale), not the --camera_height
+    # default. With the default the pilot printed 0.60 m for every scene of
+    # both cameras and the certification would have compared nothing.
+    if getattr(cal, "camera_height_m", None):
+        print(f"[check_rewards] camera height for the geometry block: {float(cal.camera_height_m):.2f} m "
+              f"from {args.scene}_poses.npz (--camera_height {args.camera_height:.2f} ignored)", flush=True)
+        args.camera_height = float(cal.camera_height_m)
 
     goal_xy = None
     if args.goal_xy:

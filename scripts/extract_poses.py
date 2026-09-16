@@ -51,6 +51,7 @@ Then (on Mac, after scp):
 from __future__ import annotations
 
 import argparse
+import zlib
 from pathlib import Path
 import sys
 
@@ -116,7 +117,8 @@ def poses_from_c2w_recon(
     # so make it scale-relative: 1% of the scene's vertical extent.
     extent = float(np.percentile(means[:, 2], 98) - np.percentile(means[:, 2], 2))
     plane: GroundPlane = fit_ground_plane_ransac(
-        means, inlier_thresh=max(1e-6, 0.01 * extent))
+        means, inlier_thresh=max(1e-6, 0.01 * extent),
+        cameras_above=c2w[:, :3, 3])
     R_up = rotation_aligning_to_z(plane.normal)
     c2w[:, :3, :3] = R_up @ c2w[:, :3, :3]
     c2w[:, :3, 3] = c2w[:, :3, 3] @ R_up.T
@@ -375,9 +377,12 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     reconstructor = load_reconstructor(args.reconstructor_path)
 
-    rng = np.random.default_rng(0)
     for video in args.videos:
         print(f"\n[extract_poses] === {video.name} ===", flush=True)
+        # Subsample seeded by the clip's NAME, not by a generator that advances
+        # through the batch (2026-09-15): the plane fit's outcome depended on
+        # a clip's position in the job. Now a rerun of one clip is repeatable.
+        rng = np.random.default_rng(zlib.crc32(video.stem.encode()))
         c2w_recon, K_all, means = reconstruct_clip(
             reconstructor, video, args.num_frames, args.width, args.height)
         print(f"[extract_poses] {len(c2w_recon)} poses, {len(means)} gaussians", flush=True)

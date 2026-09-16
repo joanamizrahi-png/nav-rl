@@ -45,6 +45,7 @@ def fit_ground_plane_ransac(
     ransac_iters: int = 200,
     inlier_thresh: float = 0.05,   # meters — a point is "on" the plane if within 5cm
     rng: Optional[np.random.Generator] = None,
+    cameras_above: Optional[np.ndarray] = None,   # (T,3) camera positions that must sit ABOVE the plane
 ) -> GroundPlane:
     """Fit a plane to the lowest `lowest_frac` of gaussians by naive z.
 
@@ -59,6 +60,12 @@ def fit_ground_plane_ransac(
         lowest_frac: fraction of lowest-z gaussians to use as candidate ground.
         ransac_iters: number of random 3-point plane trials.
         inlier_thresh: meters; distance under which a point counts as on-plane.
+
+        cameras_above: optional camera positions. A candidate plane whose
+            median camera height (after orienting the normal) is not positive
+            is rejected: a camera cannot be under the ground. Added 2026-09-15
+            after two campus clips picked a plane through the camera path,
+            depending on which random subsample of gaussians the fit saw.
 
     Returns:
         GroundPlane with normal oriented so the majority of gaussians are ABOVE.
@@ -93,8 +100,17 @@ def fit_ground_plane_ransac(
 
         # Count inliers over the full population (not just candidates) — the plane
         # should agree with most gaussians in the scene, not just the ones we picked.
-        distances = np.abs(positions @ normal + offset)
+        signed_all = positions @ normal + offset
+        distances = np.abs(signed_all)
         n_inliers = int((distances < inlier_thresh).sum())
+
+        if cameras_above is not None:
+            # orient this candidate the way the final plane will be oriented
+            # (majority of gaussians above), then require the cameras above it
+            if (signed_all < 0).sum() > (signed_all > 0).sum():
+                normal, offset = -normal, -offset
+            if float(np.median(cameras_above @ normal + offset)) <= 0.0:
+                continue
 
         if n_inliers > best_inliers:
             best_inliers = n_inliers
