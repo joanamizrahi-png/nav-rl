@@ -123,11 +123,12 @@ def main():
         world = LiveDiffusedBackend(cfg, checkpoint=args.live_ckpt, live_frames=5, alpha_gate=False)
     else:
         world = CalibratedRealWorldBackend(cfg)
-    raster = world._reconstructor.gs_renderer.rasterizer
-
+    # the backend loads the reconstructor lazily, on the first load_scene
+    # (2026-09-15: reading it before that crashed the first campus sweep)
     for scene in args.scenes:
         print(f"\n=== {scene} ===", flush=True)
         world.load_scene(scene)
+        raster = world._reconstructor.gs_renderer.rasterizer
         sc = world._cache[scene]
         cal = world._calib[scene]
         sam3 = np.load(f"{args.labels_dir}/{scene}.npz")["labels"]      # [T,H,W] walkthrough labels
