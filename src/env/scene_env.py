@@ -135,6 +135,10 @@ class SceneEnvConfig:
     # and eats the timeout. Those episodes are pure noise in the return.
     # > 0 = resample until the goal has ground points within this radius.
     goal_support_radius_m: float = 0.0
+    # 2026-09-16 (Joana): goals must not land on mulch beds. Walkable for GOAL
+    # sampling = traversability score >= this; 0 = the crash threshold as before
+    # (trail at 0.35 would count). 0.5 keeps goals on sidewalk / pavement / road.
+    goal_min_score: float = 0.0
     goal_support_tries: int = 12
     # "Enough reconstruction" cannot be "at least one point" -- a single stray
     # gaussian passes that and the goal is still in a void. Calibrate against
@@ -822,7 +826,11 @@ class SceneEnv(gym.Env if gym is not None else object):
         _known = _lab >= 0
         if _known.mean() < 0.5:
             return float("nan")
-        _nt = self._non_trav[np.clip(_lab[_known], 0, len(self._non_trav) - 1)]
+        _cl = np.clip(_lab[_known], 0, len(self._non_trav) - 1)
+        if float(getattr(self.cfg, "goal_min_score", 0.0)) > 0.0:
+            _nt = self._trav_scores[_cl] < float(self.cfg.goal_min_score)
+        else:
+            _nt = self._non_trav[_cl]
         return float(1.0 - _nt.mean())
 
     # ---------------- gym API ----------------
