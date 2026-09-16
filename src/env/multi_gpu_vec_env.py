@@ -107,6 +107,7 @@ class MultiGPUVecEnv(VecEnv):
                  start_method: str = "spawn"):
         if n_workers < 1:
             raise ValueError("n_workers must be >= 1")
+        self.n_workers = int(n_workers)     # read by the wandb panel: one row per worker
         ctx = mp.get_context(start_method)
         self.remotes, self.work_remotes = zip(*[ctx.Pipe() for _ in range(n_workers)])
         self.processes = []

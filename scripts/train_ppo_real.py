@@ -435,8 +435,8 @@ from src.eval.reward_2d import RewardWeights
 
 class WandbImagePanel(BaseCallback):
     """Every N rollouts, log what the policy sees and what it is scored on:
-    the first env's current observation, its injected generated labels
-    (colorized), and the coverage the gate read. Images to wandb so a run can
+    the first robot of every GPU worker: its current observation, its injected
+    generated labels (colorized), and the coverage the gate read. Images to wandb so a run can
     be judged by eye without pulling rollout videos."""
 
     V14 = np.array([
@@ -460,20 +460,42 @@ class WandbImagePanel(BaseCallback):
         try:
             import wandb
             env = self.training_env
-            rgb = env.get_attr("_last_rgb", indices=[0])[0]
-            lab = env.get_attr("_injected_labels", indices=[0])[0]
-            cov = env.get_attr("_last_coverage", indices=[0])[0] if hasattr(env, "get_attr") else None
-            if rgb is None:
+            # One row per GPU worker (2026-09-16): each worker holds its own
+            # scene, so the first robot of every worker shows every scene in
+            # play. Single-GPU envs have one worker -> one row, as before.
+            n_workers = int(getattr(env, "n_workers", 1) or 1)
+            stride = max(int(env.num_envs) // n_workers, 1)
+            idx = [k * stride for k in range(n_workers)]
+            rows, scenes, covs = [], [], []
+            for i in idx:
+                rgb = env.get_attr("_last_rgb", indices=[i])[0]
+                lab = env.get_attr("_injected_labels", indices=[i])[0]
+                try:
+                    cov = env.get_attr("_last_coverage", indices=[i])[0]
+                except Exception:
+                    cov = None
+                try:
+                    scenes.append(str(env.get_attr("_current_scene_id", indices=[i])[0]))
+                except Exception:
+                    scenes.append("?")
+                if rgb is None:
+                    continue
+                panel = [np.asarray(rgb)[..., :3]]
+                if lab is not None:
+                    col = self.V14[np.clip(np.asarray(lab).astype(np.int64), 0, 13)]
+                    if col.shape[:2] != panel[0].shape[:2]:
+                        import cv2
+                        col = cv2.resize(col, (panel[0].shape[1], panel[0].shape[0]), interpolation=cv2.INTER_NEAREST)
+                    panel.append((0.55 * col + 0.45 * panel[0]).astype(np.uint8))
+                rows.append(np.concatenate(panel, axis=1))
+                covs.append(cov)
+            if not rows:
                 return
-            panel = [np.asarray(rgb)[..., :3]]
-            if lab is not None:
-                col = self.V14[np.clip(np.asarray(lab).astype(np.int64), 0, 13)]
-                if col.shape[:2] != panel[0].shape[:2]:
-                    import cv2
-                    col = cv2.resize(col, (panel[0].shape[1], panel[0].shape[0]), interpolation=cv2.INTER_NEAREST)
-                panel.append((0.55 * col + 0.45 * panel[0]).astype(np.uint8))
-            img = np.concatenate(panel, axis=1)
-            cap = f"rollout {self._n}" + (f"  coverage {float(cov):.2f}" if cov is not None else "")
+            w = max(r.shape[1] for r in rows)
+            rows = [r if r.shape[1] == w else np.pad(r, ((0, 0), (0, w - r.shape[1]), (0, 0))) for r in rows]
+            img = np.concatenate(rows, axis=0)
+            cap = f"rollout {self._n} | rows = GPU workers: " + ", ".join(
+                f"{s}" + (f" cov {float(c):.2f}" if c is not None else "") for s, c in zip(scenes, covs))
             wandb.log({"panels/obs_labels": wandb.Image(img, caption=cap)}, step=self.num_timesteps)
         except Exception as e:  # never let logging kill a run
             print(f"[WandbImagePanel] skipped: {type(e).__name__}: {e}", flush=True)
