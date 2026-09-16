@@ -317,7 +317,12 @@ def load_reconstructor(reconstructor_path: str):
     return mm.fetch_model("reconstructor")
 
 
-def reconstruct_clip(reconstructor, video_path: Path, num_frames: int, width: int, height: int):
+def reconstruct_clip(reconstructor, video_path: Path, num_frames: int, width: int, height: int,
+                     K_prior: "np.ndarray | None" = None):
+    """K_prior (3x3, pixels at width x height): the camera's intrinsics given
+    to the reconstructor as its rays prior (2026-09-15). Without it every clip
+    guesses its own focal length, and on long open sightlines (Packard) the
+    guess came out 25-70% above the same camera's other clips."""
     import torch
     from torchvision.transforms import functional as F
     from diffsynth.utils.auxiliary import load_video
@@ -336,10 +341,18 @@ def reconstruct_clip(reconstructor, video_path: Path, num_frames: int, width: in
         "is_static": torch.zeros((1, len(images)), dtype=torch.bool, device=device),
         "timestamp": torch.arange(0, len(images), dtype=torch.int64, device=device).unsqueeze(0),
     }
+    # The transformer reads the flags as [pose, depth, rays]
+    # (visual_transformer._process_conditioning), whatever the docstring in
+    # worldmirror.py says; rays = intrinsics normalised by the image size.
+    cond_flags = [0, 0, 0]
+    if K_prior is not None:
+        Kt = torch.as_tensor(np.asarray(K_prior, dtype=np.float32), device=device)
+        views["camera_intrs"] = Kt[None, None].repeat(1, len(images), 1, 1)
+        cond_flags = [0, 0, 1]
     # no_grad is CRITICAL — see real_backend._reconstruct_scene (activation
     # memory otherwise blows past VRAM before anything can be reclaimed).
     with torch.no_grad(), torch.amp.autocast("cuda", dtype=dtype):
-        pred = reconstructor(views, is_inference=True, use_motion=False)
+        pred = reconstructor(views, cond_flags=cond_flags, is_inference=True, use_motion=False)
 
     c2w = pred["rendered_extrinsics"][0].detach().float().cpu().numpy()   # (T,4,4)
     K_all = pred["rendered_intrinsics"][0].detach().float().cpu().numpy()  # (T,3,3)
@@ -372,10 +385,19 @@ def main():
                          "Getting this off by 20%% "
                          "scales the footprint/look-ahead by 20%% — mild, not fatal.")
     ap.add_argument("--max_gaussians_for_plane", type=int, default=200_000)
+    ap.add_argument("--intrinsics_prior", default="",
+                    help="fx,fy,cx,cy in pixels at --width x --height, given to the reconstructor "
+                         "as its rays prior for every clip (one camera, one calibration). Take it "
+                         "from the median K of the clips the reconstructor already agrees on.")
     args = ap.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     reconstructor = load_reconstructor(args.reconstructor_path)
+    K_prior = None
+    if args.intrinsics_prior:
+        fx, fy, cx, cy = [float(v) for v in args.intrinsics_prior.split(",")]
+        K_prior = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=np.float32)
+        print(f"[extract_poses] intrinsics prior for every clip: fx {fx:.1f} fy {fy:.1f} cx {cx:.1f} cy {cy:.1f}", flush=True)
 
     for video in args.videos:
         print(f"\n[extract_poses] === {video.name} ===", flush=True)
@@ -384,8 +406,10 @@ def main():
         # a clip's position in the job. Now a rerun of one clip is repeatable.
         rng = np.random.default_rng(zlib.crc32(video.stem.encode()))
         c2w_recon, K_all, means = reconstruct_clip(
-            reconstructor, video, args.num_frames, args.width, args.height)
-        print(f"[extract_poses] {len(c2w_recon)} poses, {len(means)} gaussians", flush=True)
+            reconstructor, video, args.num_frames, args.width, args.height, K_prior=K_prior)
+        print(f"[extract_poses] {len(c2w_recon)} poses, {len(means)} gaussians"
+              f" | fy {float(K_all[0][1, 1]):.1f} cy {float(K_all[0][1, 2]):.1f}"
+              + (f" (prior fy {float(K_prior[1, 1]):.1f})" if K_prior is not None else ""), flush=True)
 
         if len(means) > args.max_gaussians_for_plane:
             means = means[rng.choice(len(means), args.max_gaussians_for_plane, replace=False)]
@@ -434,6 +458,7 @@ def main():
         # render too high. The tape value is kept for the diagnostic ratio.
         out["camera_height_m"] = np.float32(float(out["camera_height_units_median"]) * float(out["scale_m_per_unit"]))
         out["camera_height_tape_m"] = np.float32(args.camera_height_m)
+        out["intrinsics_prior"] = (K_prior if K_prior is not None else np.zeros((3, 3), np.float32))
 
         # Sanity numbers for eyeballing before trusting the npz downstream.
         steps = out["step_sizes_m"]

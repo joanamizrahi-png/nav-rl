@@ -25,6 +25,8 @@ NAVRL_ROOT=/scratch/m000204-pm06b/joana/nav-rl
 CLIPS_DIR=${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}
 OUT_DIR=/scratch/m000204-pm06b/joana/outputs/poses
 # CAM_H env: camera mount height in meters (RUGD 0.6; Jackal ZED ~0.5)
+# KPRIOR env (2026-09-15): "fx,fy,cx,cy" at the render size -> intrinsics prior
+# for every clip (the camera's calibration); unset = the reconstructor guesses.
 CAM_H=${CAM_H:-0.6}
 
 module load conda/24.3.0-0
@@ -48,6 +50,7 @@ python scripts/extract_poses.py \
     --output_dir "$OUT_DIR" \
     --reconstructor_path /scratch/m000204-pm06b/joana/NeoVerse/models/NeoVerse/reconstructor.ckpt \
     --num_frames 81 --width 560 --height 336 \
-    --camera_height_m "$CAM_H"
+    --camera_height_m "$CAM_H" \
+    ${KPRIOR:+--intrinsics_prior "$KPRIOR"}
 
 echo "==> done. poses in $OUT_DIR — check the printed step-size / camera-height sanity lines in this log."
