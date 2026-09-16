@@ -34,6 +34,10 @@ from pathlib import Path
 
 SCENE = re.compile(r"(gnd_AU[A-Za-z0-9_]*|sitex_[A-Za-z0-9_]*|gtown\d*c\d*_[A-Za-z0-9_]*"
                    r"|go2w_[A-Za-z0-9_]*|rugd_[A-Za-z0-9_]*)")
+# check_rewards_many.sh (2026-09-15) runs several scenes in ONE log and
+# separates them with "=== SCENE <name> ===": split on that and read one
+# geometry block per section. Single-scene logs have no marker -> one section.
+SECTION = re.compile(r"^=== SCENE (\S+) ===\s*$", re.M)
 FY = re.compile(r"fy\s+([\d.]+)\s+cy\s+([\d.]+)")
 VFOV = re.compile(r"implied vertical FOV\s+([\d.]+)")
 BLIND = re.compile(r"ground closer than\s+([\d.]+)\s*m")
@@ -45,6 +49,10 @@ def dataset_of(scene: str) -> str:
     for pre in ("gnd_AU", "sitex", "gtown", "go2w", "rugd"):
         if scene.startswith(pre):
             return pre
+    # campus scenes (quad1_03, packard1_08_rs, ...): the rig is the camera,
+    # Odin (no suffix) or RealSense (_rs), not the place
+    if scene.startswith(("quad", "packard", "sequoia")):
+        return "realsense" if scene.endswith("_rs") else "odin"
     return scene.split("_")[0]
 
 
@@ -70,14 +78,24 @@ def main():
             continue
         if "CAMERA GEOMETRY" not in txt:
             continue
-        m_s, m_f, m_b = SCENE.search(txt), FY.search(txt), BLIND.search(txt)
-        if not (m_s and m_f and m_b):
-            continue
-        m_v = VFOV.search(txt)
-        rows[m_s.group(1)] = dict(
-            scene=m_s.group(1), fy=float(m_f.group(1)), cy=float(m_f.group(2)),
-            vfov=float(m_v.group(1)) if m_v else float("nan"),
-            blind=float(m_b.group(1)), log=Path(p).name)
+        marks = list(SECTION.finditer(txt))
+        if marks:
+            sections = [(m.group(1), txt[m.end():(marks[i + 1].start() if i + 1 < len(marks) else len(txt))])
+                        for i, m in enumerate(marks)]
+        else:
+            m_s = SCENE.search(txt)
+            sections = [(m_s.group(1) if m_s else None, txt)]
+        for name, sec in sections:
+            if "CAMERA GEOMETRY" not in sec:
+                continue          # the scene failed before the geometry print
+            m_f, m_b = FY.search(sec), BLIND.search(sec)
+            if not (name and m_f and m_b):
+                continue
+            m_v = VFOV.search(sec)
+            rows[name] = dict(
+                scene=name, fy=float(m_f.group(1)), cy=float(m_f.group(2)),
+                vfov=float(m_v.group(1)) if m_v else float("nan"),
+                blind=float(m_b.group(1)), log=Path(p).name)
     if not rows:
         raise SystemExit("no CAMERA GEOMETRY blocks found — run check_rewards "
                          "with the geometry print first")
