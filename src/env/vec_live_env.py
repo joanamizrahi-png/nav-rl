@@ -110,6 +110,19 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
         for robot_id, pose_nav in items:
             pose_recon, _ = self._pose_nav_to_recon(pose_nav)
             hists.append(self._robot_hist(robot_id, pose_recon.astype(np.float32)))
+        # HISTORY SPACING (2026-09-16): the 09-07 note claimed the chunked arm's
+        # generator clip had poses 2.5 m apart. Print the median spacing of the
+        # first robot's clip every 200 renders so the claim is settled by a number
+        # (sub-step spacing ~0.25 m = no gap).
+        self._hist_print_n = int(getattr(self, "_hist_print_n", 0)) + 1
+        if self._hist_print_n % 200 == 1 and len(hists[0]) >= 2:
+            _cal = self._calib.get(self._current_scene_id)
+            _mpu = float(getattr(_cal, "scale", 1.0) or 1.0)
+            _p = np.stack([h[:3, 3] for h in hists[0]])
+            _d = np.linalg.norm(np.diff(_p, axis=0), axis=1) * _mpu
+            print(f"[VecLiveEnv] generator clip of robot {items[0][0]}: {len(hists[0])} poses, "
+                  f"spacing median {float(np.median(_d)):.2f} m (min {float(_d.min()):.2f}, max {float(_d.max()):.2f}) "
+                  f"[render {self._hist_print_n}]", flush=True)
 
         c2w = torch.from_numpy(np.stack([np.stack(h) for h in hists])).to(
             device=device, dtype=scene["cam2world"].dtype)        # [B,k,4,4]

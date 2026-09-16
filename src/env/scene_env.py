@@ -1009,6 +1009,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         # spawn frame's footprint with the LAST episode's final heading (09-04).
         self._last_fp_heading = None
         self._frame_memory = []
+        self._pos_trail = []
         self._entered_nontrav_goal = False
         self._halt_at_verge = False
         self._still_run = 0
@@ -1585,6 +1586,12 @@ class SceneEnv(gym.Env if gym is not None else object):
                 smooth_term = -self.cfg.action_smooth_cost * float(
                     np.abs(action - prev).mean())
             self._last_action = action.copy()
+        # position trail for the wandb panel (last 8 poses, 2026-09-16)
+        _tr = getattr(self, "_pos_trail", None)
+        if _tr is None:
+            _tr = self._pos_trail = []
+        _tr.append(np.asarray(self._robot_pose_world[:3, 3], dtype=np.float64).copy())
+        del _tr[:-8]
         bonus = self.cfg.goal_bonus if terminated else 0.0
 
         # Crash termination (2026-08-20). Measured on the tree test: a whole

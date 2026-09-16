@@ -481,13 +481,80 @@ class WandbImagePanel(BaseCallback):
                     scenes.append("?")
                 if rgb is None:
                     continue
-                panel = [np.asarray(rgb)[..., :3]]
+                base = np.ascontiguousarray(np.asarray(rgb)[..., :3]).copy()
+                # PLAN + TRAIL on the observation (2026-09-16, Joana): orange = the
+                # current action chunk integrated from the pose (chunked policies;
+                # known at decision time), blue = the last 8 executed positions.
+                try:
+                    import cv2
+                    from src.eval.reward_2d import _project_points, _footprint_corners_world
+                    _K = env.get_attr("_last_K", indices=[i])[0]; _w2c = env.get_attr("_last_w2c", indices=[i])[0]
+                    _pose = env.get_attr("_robot_pose_world", indices=[i])[0]
+                    _cfg = env.get_attr("cfg", indices=[i])[0]
+                    if _K is not None and _w2c is not None and _pose is not None:
+                        _trail = env.get_attr("_pos_trail", indices=[i])[0] or []
+                        if len(_trail) >= 2:
+                            _uv, _fr = _project_points(np.array(_trail), np.asarray(_K), np.asarray(_w2c))
+                            _pts = [tuple(int(v) for v in np.round(_uv[j])) for j in range(len(_trail)) if _fr[j]]
+                            for _a, _b in zip(_pts[:-1], _pts[1:]):
+                                cv2.line(base, _a, _b, (60, 120, 255), 2, cv2.LINE_AA)
+                        _act = env.get_attr("_last_action", indices=[i])[0]
+                        _act = None if _act is None else np.asarray(_act, dtype=np.float64).ravel()
+                        if _act is not None and _act.size >= 4 and _act.size % 2 == 0:
+                            _x, _y = float(_pose[0, 3]), float(_pose[1, 3]); _yaw = float(np.arctan2(_pose[1, 0], _pose[0, 0]))
+                            _plan = []
+                            for _kk in range(_act.size // 2):
+                                _yaw += float(_act[2 * _kk + 1]) * float(_cfg.yaw_step_rad)
+                                _v = float(_act[2 * _kk]) * float(_cfg.step_size_m)
+                                _x += _v * np.cos(_yaw); _y += _v * np.sin(_yaw); _plan.append([_x, _y, 0.0])
+                            _uv, _fr = _project_points(np.array(_plan), np.asarray(_K), np.asarray(_w2c))
+                            _pts = [tuple(int(v) for v in np.round(_uv[j])) for j in range(len(_plan)) if _fr[j]]
+                            for _a, _b in zip(_pts[:-1], _pts[1:]):
+                                cv2.line(base, _a, _b, (255, 160, 0), 2, cv2.LINE_AA)
+                            for _q in _pts:
+                                cv2.circle(base, _q, 3, (255, 160, 0), -1, cv2.LINE_AA)
+                except Exception as _e:
+                    print(f"[WandbImagePanel] plan/trail skipped: {type(_e).__name__}: {_e}", flush=True)
+                panel = [base]
                 if lab is not None:
                     col = self.V14[np.clip(np.asarray(lab).astype(np.int64), 0, 13)]
                     if col.shape[:2] != panel[0].shape[:2]:
                         import cv2
                         col = cv2.resize(col, (panel[0].shape[1], panel[0].shape[0]), interpolation=cv2.INTER_NEAREST)
                     panel.append((0.55 * col + 0.45 * panel[0]).astype(np.uint8))
+                # MEMORY STRIP (2026-09-16, Joana): the stored frames with the near
+                # box projected into each, dimmed where the box is not inside
+                try:
+                    _fm = env.get_attr("_frame_memory", indices=[i])[0]
+                    if _fm:
+                        import cv2
+                        from src.eval.reward_2d import _project_points, _footprint_corners_world, _fill_polygon
+                        _pose = env.get_attr("_robot_pose_world", indices=[i])[0]; _cfg = env.get_attr("cfg", indices=[i])[0]
+                        _hd = np.asarray(_pose[:3, :3]) @ np.array([1.0, 0.0, 0.0])
+                        _la = float(getattr(_cfg, "collision_look_ahead_m", 0.0) or 0.0) or float(_cfg.look_ahead_dist)
+                        from src.eval.reward_2d import GO2_BODY_LENGTH, GO2_BODY_WIDTH
+                        _cw = _footprint_corners_world(np.asarray(_pose[:3, 3], float), _hd, look_ahead_dist=_la,
+                                                       length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
+                        _H0 = panel[0].shape[0]; _tw = max(panel[0].shape[1] // max(len(_fm), 1), 64)
+                        _tiles = []
+                        for _age, (_sem, _mK, _mw) in enumerate(reversed(list(_fm)), start=1):
+                            _t = self.V14[np.clip(np.asarray(_sem).astype(np.int64), 0, 13)].copy()
+                            _uv, _fr = _project_points(_cw, np.asarray(_mK), np.asarray(_mw))
+                            _in = False
+                            if _fr.all():
+                                _mk = _fill_polygon(_t.shape[0], _t.shape[1], _uv); _x, _y = _uv[:, 0], _uv[:, 1]
+                                _ar = 0.5 * abs(float(np.dot(_x, np.roll(_y, -1)) - np.dot(_y, np.roll(_x, -1))))
+                                _in = _ar > 0 and int(_mk.sum()) >= 0.5 * _ar
+                                cv2.polylines(_t, [np.round(_uv).astype(np.int32).reshape(-1, 1, 2)], True,
+                                              (255, 0, 255) if _in else (120, 120, 120), 2, cv2.LINE_AA)
+                            if not _in:
+                                _t = (_t * 0.45).astype(np.uint8)
+                            _t = cv2.resize(_t, (_tw, _H0), interpolation=cv2.INTER_AREA)
+                            cv2.putText(_t, f"t-{_age} {'IN' if _in else 'out'}", (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
+                            _tiles.append(_t)
+                        panel.append(np.concatenate(_tiles, axis=1))
+                except Exception as _e:
+                    print(f"[WandbImagePanel] memory strip skipped: {type(_e).__name__}: {_e}", flush=True)
                 rows.append(np.concatenate(panel, axis=1))
                 covs.append(cov)
             if not rows:
