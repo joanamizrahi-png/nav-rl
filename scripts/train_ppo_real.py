@@ -18,6 +18,7 @@ Outputs: ppo_final.zip, checkpoints/, tensorboard/, rollout.mp4 (eval episode).
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -591,6 +592,7 @@ def _dump_env_config(args, cfg):
             "look_ahead_dist": cfg.look_ahead_dist,
             "collision_look_ahead_m": cfg.collision_look_ahead_m,
             "collision_box_memory": getattr(cfg, "collision_box_memory", 0),
+            "collision_box_memory_agg": getattr(cfg, "collision_box_memory_agg", "newest"),
             "collision_at_next_pose": bool(getattr(cfg, "collision_at_next_pose", False)),
             "look_ahead_auto": bool(getattr(cfg, "look_ahead_auto", False)),
             "footprint_next_heading": bool(getattr(cfg, "footprint_next_heading", False)),
@@ -896,6 +898,7 @@ def _scene_env_cfg(args):
         # the practical floor, not the 0.4 m the geometry alone would suggest.
         collision_look_ahead_m=getattr(args, "collision_look_ahead", 0.0),
         collision_box_memory=int(getattr(args, "collision_box_memory", 0)),
+        collision_box_memory_agg=str(getattr(args, "collision_box_memory_agg", "newest") or "newest"),
         collision_at_next_pose=bool(getattr(args, "collision_at_next_pose", False)),
         look_ahead_auto=bool(getattr(args, "look_ahead_auto", False)),
         footprint_next_heading=bool(getattr(args, "footprint_next_heading", False)),
@@ -1376,7 +1379,12 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
                     _cv.line(_fr, _a, _b, (0, 230, 0), 2, _cv.LINE_AA)
                 for _q in _pts:
                     _cv.circle(_fr, _q, 3, (0, 230, 0), -1, _cv.LINE_AA)
-            # planned chunk: integrate the actions from pose t
+            # planned chunk: integrate the actions from pose t. NAVRL_FAKE_CHUNK=N
+            # (2026-09-16) draws the current per-step action repeated N times as
+            # a fake plan, to verify the projection before any chunked policy exists.
+            _fake = int(os.environ.get("NAVRL_FAKE_CHUNK", "0") or 0)
+            if _fake > 0 and _act.size == 2:
+                _act = np.tile(_act, _fake)
             if _act.size >= 4 and _act.size % 2 == 0:
                 _x, _y = float(_pose[0, 3]), float(_pose[1, 3])
                 _yaw = float(np.arctan2(_pose[1, 0], _pose[0, 0]))
@@ -1697,6 +1705,9 @@ def main():
                     help="the box can only crash while the robot moves (throttle >= 0.15)")
     ap.add_argument("--look_ahead_auto", action="store_true",
                     help="graded box at each scene's nearest visible ground (camera height and focal length)")
+    ap.add_argument("--collision_box_memory_agg", type=str, default="newest", choices=("newest", "mean"),
+                    help="how the near box is read from the frame memory: the newest frame containing it, "
+                         "or the MEAN over every stored frame containing it (2026-09-16, Joana)")
     ap.add_argument("--collision_box_memory", type=int, default=0,
                     help="read the near box from the newest of the last N generated frames that contains it (0 = off)")
     ap.add_argument("--collision_look_ahead", type=float, default=0.0,

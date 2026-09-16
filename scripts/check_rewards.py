@@ -815,9 +815,11 @@ def score(recs, tau, trav, non_trav, weights, args):
             previous_position=r["prev"], look_ahead_dist=args.look_ahead,
             collision_look_ahead_dist=(args.collision_look_ahead if n_mem > 0 and args.collision_look_ahead > 0 else None),
             frame_memory=fm,
+            memory_aggregate=str(getattr(args, "collision_box_memory_agg", "newest") or "newest"),
             body_length=GO2_BODY_LENGTH, body_width=GO2_BODY_WIDTH,
             weights=weights)
         r["box_memory_age"] = float(getattr(b, "box_memory_age", 0.0))
+        r["memory_hits"] = int(getattr(b, "memory_hits", 0))
         cls, cnt = np.unique(lab, return_counts=True)
         # TWO different "void" numbers, never to be conflated:
         #   sem_void = the DIFFUSED semantics' own class-0 share (what the world
@@ -921,6 +923,15 @@ def main():
                          "degrees from the path tangent, position held fixed")
     ap.add_argument("--ladder_dists", default="0.6,0.8,1.0,1.2,1.5,1.8",
                     help="collision look-ahead distances to test for visibility")
+    ap.add_argument("--anchor_box_every", type=int, default=0,
+                    help="2026-09-16 (Joana): every N steps, FIX the near box in the world and keep drawing that same "
+                         "ground patch in the following frames (magenta, with its age) as the robot walks up to it "
+                         "and it slides out of the frame -- the picture of what the frame memory reads")
+    ap.add_argument("--path_overlay", action="store_true",
+                    help="2026-09-16: draw the walk's NEXT 8 recorded poses on each frame (green = executed path) and a "
+                         "fake 10-step straight plan (orange) -- verifies the rollout-video overlay without a policy")
+    ap.add_argument("--collision_box_memory_agg", type=str, default="newest", choices=("newest", "mean"),
+                    help="newest stored frame containing the near box, or the MEAN over all stored frames containing it")
     ap.add_argument("--collision_box_memory", type=int, default=0,
                     help="2026-09-16: score the near box from the previous N frames when the camera "
                          "cannot see it (the env's collision_box_memory); adds a MEMORY column to the survey")
@@ -1293,7 +1304,7 @@ def main():
                 # regions good" is the question the survey exists to answer.
                 # Bright = geometry backs this pixel, dark = the model made it
                 # up.
-                cols = [rgb, pu, psr, heat]
+                cols = [np.ascontiguousarray(rgb).copy(), np.ascontiguousarray(pu).copy(), psr, heat]
                 names = ["RGB diffused (policy sees)",
                          "SEM diffused (reward reads)",
                          "SEM raster / SAM3 splats (spawns + goals)",
@@ -1305,27 +1316,93 @@ def main():
                 # frame contained the box, show the newest stored frame and say so.
                 _nmem = int(getattr(args, "collision_box_memory", 0) or 0)
                 if _nmem > 0:
-                    _age = int(round(float(r.get("box_memory_age", 0.0))))
-                    _q = None
-                    if _age > 0:
-                        _q = next((q for q in recs if q["ep"] == r["ep"] and q["step"] == r["step"] - _age), None)
-                    elif r["step"] > 0:
-                        _q = next((q for q in recs if q["ep"] == r["ep"] and q["step"] == r["step"] - 1), None)
-                    if _q is not None:
-                        mem = np.ascontiguousarray(pal[np.clip(_q["lab"], 0, 13)]).copy()
-                        _cw = _footprint_corners_world(r["pos"], r["head"],
-                                                       look_ahead_dist=(args.collision_look_ahead if args.collision_look_ahead > 0 else args.look_ahead),
-                                                       length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
+                    # STRIP (Joana, 2026-09-16): every stored frame, oldest at the
+                    # top, with the near box projected into it and the share of
+                    # non-walkable pixels inside the box on that frame; frames that
+                    # do not contain the box are dimmed. Stacked vertically into one
+                    # column of the survey's height.
+                    _stored = [q for q in recs if q["ep"] == r["ep"] and 0 < r["step"] - q["step"] <= _nmem]
+                    _cw = _footprint_corners_world(r["pos"], r["head"],
+                                                   look_ahead_dist=(args.collision_look_ahead if args.collision_look_ahead > 0 else args.look_ahead),
+                                                   length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
+                    _Hs, _Ws = rgb.shape[:2]
+                    _th = max(_Hs // max(_nmem, 1), 24)
+                    _tiles = []
+                    for _q in _stored:
+                        _t = np.ascontiguousarray(pal[np.clip(_q["lab"], 0, 13)]).copy()
                         _uvm, _frm = _project_points(_cw, _q["K"], _q["w2c"])
+                        _share = float("nan"); _in = False
                         if _frm.all():
+                            _mk = _fill_polygon(_q["lab"].shape[0], _q["lab"].shape[1], _uvm)
+                            _x, _y = _uvm[:, 0], _uvm[:, 1]
+                            _ar = 0.5 * abs(float(np.dot(_x, np.roll(_y, -1)) - np.dot(_y, np.roll(_x, -1))))
+                            _in = _ar > 0 and int(_mk.sum()) >= 0.5 * _ar
+                            if int(_mk.sum()) > 0:
+                                _cls = _q["lab"][_mk]
+                                _share = float((non_trav[np.clip(_cls, 0, len(non_trav) - 1)] & (_cls != 0)).mean())
                             _pm = np.round(_uvm).astype(np.int32).reshape(-1, 1, 2)
-                            cv2.polylines(mem, [_pm], True, (255, 0, 255), 2, cv2.LINE_AA)
-                        _tag = (f"MEMORY t-{_age}: near box read here" if _age > 0
-                                else (f"MEMORY t-1: box NOT in any stored frame" if r.get("box_memory_age", 0.0) < 0
-                                      else "MEMORY t-1: near box seen in the current frame"))
+                            cv2.polylines(_t, [_pm], True, (255, 0, 255) if _in else (120, 120, 120), 2, cv2.LINE_AA)
+                        if not _in:
+                            _t = (_t * 0.45).astype(np.uint8)
+                        _t = cv2.resize(_t, (_Ws, _th), interpolation=cv2.INTER_AREA)
+                        cv2.putText(_t, f"t-{r['step'] - _q['step']}  box {'IN' if _in else 'out'}"
+                                        + (f"  non-walk {_share:.2f}" if _share == _share else ""),
+                                    (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+                        _tiles.append(_t)
+                    if _tiles:
+                        mem = np.concatenate(_tiles, axis=0)
+                        if mem.shape[0] < _Hs:
+                            mem = np.concatenate([mem, np.zeros((_Hs - mem.shape[0], _Ws, 3), np.uint8)], axis=0)
+                        mem = mem[:_Hs]
+                        _nh = int(r.get("memory_hits", 0)); _ag = str(getattr(args, "collision_box_memory_agg", "newest"))
+                        _tag = (f"MEMORY {_ag}: {_nh} frame(s) contain the box" if _nh > 0
+                                else ("MEMORY: box NOT in any stored frame" if r.get("box_memory_age", 0.0) < 0
+                                      else "MEMORY: box seen in the current frame"))
                     else:
                         mem = np.zeros_like(rgb); _tag = "MEMORY: none yet (episode start)"
                     cols.append(mem); names.append(_tag)
+                # ANCHORED BOXES (Joana): the near box fixed in the world every N steps,
+                # drawn in every later frame of the same episode while it is still in view
+                _anc = int(getattr(args, "anchor_box_every", 0) or 0)
+                if _anc > 0:
+                    _la = (args.collision_look_ahead if args.collision_look_ahead > 0 else args.look_ahead)
+                    for _q in recs:
+                        if _q["ep"] != r["ep"] or _q["step"] > r["step"] or _q["step"] % _anc:
+                            continue
+                        _cwq = _footprint_corners_world(_q["pos"], _q["head"], look_ahead_dist=_la,
+                                                        length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
+                        _uvq, _frq = _project_points(_cwq, r["K"], r["w2c"])
+                        if not _frq.all():
+                            continue
+                        _pq = np.round(_uvq).astype(np.int32).reshape(-1, 1, 2)
+                        _ageq = r["step"] - _q["step"]
+                        _colq = (255, 0, 255) if _ageq > 0 else (255, 255, 0)
+                        for _c in (0, 1):
+                            cv2.polylines(cols[_c], [_pq], True, _colq, 2, cv2.LINE_AA)
+                            cv2.putText(cols[_c], f"box@{_q['step']} age {_ageq}", tuple(int(v) for v in _uvq[0]),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, _colq, 1, cv2.LINE_AA)
+                # PATH OVERLAY check: green = the next 8 recorded poses of this walk projected
+                # into this frame (what the rollout video draws as the executed path), orange =
+                # a fake 10-step straight plan from this pose (the planned-chunk drawing)
+                if bool(getattr(args, "path_overlay", False)):
+                    _nxt = [q for q in recs if q["ep"] == r["ep"] and 0 < q["step"] - r["step"] <= 8]
+                    if _nxt:
+                        _uvn, _frn = _project_points(np.array([q["pos"] for q in _nxt]), r["K"], r["w2c"])
+                        _ptsn = [tuple(int(v) for v in np.round(_uvn[i])) for i in range(len(_nxt)) if _frn[i]]
+                        for _a, _b in zip(_ptsn[:-1], _ptsn[1:]):
+                            cv2.line(cols[0], _a, _b, (0, 230, 0), 2, cv2.LINE_AA)
+                        for _pt in _ptsn:
+                            cv2.circle(cols[0], _pt, 3, (0, 230, 0), -1, cv2.LINE_AA)
+                    _hd = np.asarray(r["head"], float); _hd = _hd / (np.linalg.norm(_hd) + 1e-9)
+                    _plan = np.array([r["pos"] + _hd * 0.25 * (i + 1) for i in range(10)])
+                    _uvp, _frp = _project_points(_plan, r["K"], r["w2c"])
+                    _ptsp = [tuple(int(v) for v in np.round(_uvp[i])) for i in range(10) if _frp[i]]
+                    for _a, _b in zip(_ptsp[:-1], _ptsp[1:]):
+                        cv2.line(cols[0], _a, _b, (255, 160, 0), 2, cv2.LINE_AA)
+                    for _pt in _ptsp:
+                        cv2.circle(cols[0], _pt, 3, (255, 160, 0), -1, cv2.LINE_AA)
+                    cv2.putText(cols[0], "green = next 8 recorded poses   orange = fake straight 10-step plan", (8, 70),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
                 trio = np.hstack(cols)[:, :, ::-1]
                 trio = np.ascontiguousarray(trio)
                 for k, name in enumerate(names):

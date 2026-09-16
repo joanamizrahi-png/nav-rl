@@ -58,6 +58,9 @@ for s in $SCENES; do
         ${SPAWNFRAME:+--spawn_frame "$SPAWNFRAME"} \
         ${RENDWIN:+--render_window "$RENDWIN"} \
         ${BOXMEM:+--collision_box_memory "$BOXMEM"} \
+        ${BOXMEMAGG:+--collision_box_memory_agg "$BOXMEMAGG"} \
+        ${ANCHOR:+--anchor_box_every "$ANCHOR"} \
+        ${PATHOVERLAY:+--path_overlay} \
         ${COVWIN:+--coverage_window "$COVWIN"} \
         --live_ckpt "$LIVECKPT" \
         --out_dir "$OUTROOT/$s" --out "$OUTROOT/$s" \

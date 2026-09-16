@@ -127,6 +127,7 @@ class SceneEnvConfig:
     # throttle >= ~0.3 at 0.3 m/step (the box needs ~0.9 m of travel to enter
     # an old view). Image path only; the map reads the near box directly.
     collision_box_memory: int = 0
+    collision_box_memory_agg: str = "newest"   # newest | mean (2026-09-16: average the box over all stored frames that contain it)
     # 2026-09-02, measured: 14.5% of sampled goals have NO reconstruction under
     # them at all (scripts/goal_audit.py, 2000 episodes x 6 scenes). The goal
     # sampler is pure geometry -- spawn + d*(cos th, sin th) -- and never
@@ -1451,6 +1452,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             semantic_image=semantic_image,
             frame_memory=(getattr(self, "_frame_memory", None)
                           if int(self.cfg.collision_box_memory) > 0 else None),
+            memory_aggregate=str(getattr(self.cfg, "collision_box_memory_agg", "newest") or "newest"),
             K=self._last_K,
             w2c=self._last_w2c,
             robot_position=robot_position,

@@ -69,6 +69,7 @@ class RewardBreakdown:
                                     # (alpha-gated to class 0) — the world model's
                                     # own uncertainty signal; drives void-termination
     box_memory_age: float = 0.0     # near box read from the frame this many steps
+    memory_hits: int = 0            # stored frames that contained the near box (mean mode averages them)
                                     # back (0 = current view, -1 = no stored frame
                                     # contained it -> far-box fallback). Joana's
                                     # t-2 idea, 2026-09-04.
@@ -160,6 +161,9 @@ def compute_reward(
     body_width: float = GO2_BODY_WIDTH,
     frame_memory=None,                 # previous frames, oldest first: (semantic_image, K, w2c)
     memory_min_visible: float = 0.5,   # share of the box's projected area that must be inside a stored frame
+    memory_aggregate: str = "newest",  # "newest": first stored frame that contains the box decides;
+                                       # "mean" (2026-09-16, Joana): the box is read in EVERY stored frame
+                                       # that contains it and the non-walkable shares are averaged
     weights: RewardWeights = RewardWeights(),
 ) -> RewardBreakdown:
     """Compute the reward at one timestep. All world-frame inputs align with the
@@ -269,6 +273,7 @@ def compute_reward(
     # logged. If that rate is not near zero, the near distance is too close.
     collision_off_frame = 0.0
     box_memory_age = 0.0
+    memory_hits = 0
     if (collision_look_ahead_dist is not None
             and abs(collision_look_ahead_dist - look_ahead_dist) > 1e-6):
         c_corners = _footprint_corners_world(
@@ -297,6 +302,7 @@ def compute_reward(
             # Turning is handled by the projection; if the box left the old
             # view, or the robot has not moved ~0.9 m within the buffer, no
             # frame qualifies and the far-box fallback stands (counted).
+            _hits = []       # (age, non-walkable share) for every stored frame that contains the box
             for _age, (m_sem, m_K, m_w2c) in enumerate(reversed(frame_memory), start=1):
                 m_uv, m_front = _project_points(c_corners, m_K, m_w2c)
                 if not m_front.all():
@@ -317,12 +323,21 @@ def compute_reward(
                 m_classes = m_sem[m_mask]
                 if weights.void_cost > 0:
                     m_void = m_classes == 0
-                    collision_frac = float((non_traversable_mask[m_classes] & ~m_void).mean())
+                    _frac = float((non_traversable_mask[m_classes] & ~m_void).mean())
                 else:
-                    collision_frac = float(non_traversable_mask[m_classes].mean())
+                    _frac = float(non_traversable_mask[m_classes].mean())
+                _hits.append((_age, _frac))
+                if memory_aggregate != "mean":
+                    break
+            if _hits:
+                # newest frame's age is reported either way; "mean" averages the
+                # shares over every frame that contained the box, so one frame's
+                # label noise cannot decide a crash on its own
+                box_memory_age = float(_hits[0][0])
+                collision_frac = (float(np.mean([f for _, f in _hits])) if memory_aggregate == "mean"
+                                  else float(_hits[0][1]))
                 c_ok = True
-                box_memory_age = float(_age)
-                break
+                memory_hits = len(_hits)
         if not c_ok:
             collision_off_frame = 1.0
             if frame_memory:
@@ -357,6 +372,7 @@ def compute_reward(
         mean_class_score=mean_class_score,
         collision_off_frame=float(collision_off_frame),
         box_memory_age=float(box_memory_age),
+        memory_hits=int(memory_hits),
         dominant_class_id=dominant_class_id,
         off_frame_frac=off_frame_frac,
         void_frac=float(void_frac),
