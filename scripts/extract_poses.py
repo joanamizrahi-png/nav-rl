@@ -131,10 +131,24 @@ def poses_from_c2w_recon(
     cam_heights = c2w[:, 2, 3]
     h_median = float(np.median(cam_heights))
     if h_median <= 0:
-        raise RuntimeError(
+        # 2026-09-15: two RealSense campus clips (quad2_09_rs, quad2_10_rs)
+        # failed here with the same value (-0.035 units), i.e. the winning
+        # RANSAC plane passes almost through the camera path. Hand the state
+        # after the plane step to the caller so it can be saved and looked at
+        # (a side view of the gaussians vs the cameras) instead of guessed at.
+        err = RuntimeError(
             f"median camera height above fitted ground is {h_median:.4f} <= 0; "
             "the plane fit or the recon->scene rotation is wrong for this clip. "
             "Inspect the saved diagnostics before trusting anything.")
+        inl = float((np.abs(means[:, 2]) < max(1e-6, 0.01 * extent)).mean())
+        err.diag = {
+            "cam_positions_after_plane": c2w[:, :3, 3].copy(),
+            "means_after_plane": means.astype(np.float32),
+            "plane_normal_scene": plane.normal, "plane_offset": float(plane.offset),
+            "inlier_frac": inl, "inlier_thresh_units": float(max(1e-6, 0.01 * extent)),
+            "h_median_units": h_median, "extent_units": extent,
+        }
+        raise err
     # Prefer GT odometry path length when the clip has it: monocular scale
     # from an assumed mount height drifted 2-4x on the GND ZED clips (odom
     # 33 m vs "extracted 119 m"), and the error varies per clip.
@@ -388,10 +402,23 @@ def main():
             print(f"[extract_poses] odometry found: {len(t_od)} samples, path {path_length_m:.1f} m, "
                   f"{'per-frame stamps' if 'frame_stamps' in od else 'stamps assumed uniform'}", flush=True)
 
-        out = poses_from_c2w_recon(c2w_recon, means,
-                                   camera_height_m=args.camera_height_m,
-                                   path_length_m=path_length_m, odom_xy_m=odom_xy,
-                                   scale_from=args.scale_from)
+        try:
+            out = poses_from_c2w_recon(c2w_recon, means,
+                                       camera_height_m=args.camera_height_m,
+                                       path_length_m=path_length_m, odom_xy_m=odom_xy,
+                                       scale_from=args.scale_from)
+        except RuntimeError as e:
+            # One bad clip must not kill the batch (2026-09-15: quad2_09_rs took
+            # eight scenes down with it). Save what the plane step produced and
+            # a side-view picture, print FAILED, go on to the next clip.
+            print(f"[extract_poses] FAILED {video.stem}: {e}", flush=True)
+            diag = getattr(e, "diag", None)
+            if diag is not None:
+                dpath = args.output_dir / f"{video.stem}_plane_fail.npz"
+                np.savez_compressed(dpath, **diag)
+                print(f"[extract_poses] diagnostics -> {dpath}", flush=True)
+                _plane_fail_figure(diag, args.output_dir / f"{video.stem}_plane_fail.png", video.stem)
+            continue
         out["K"] = K_all[0].astype(np.float32)
         out["K_all"] = K_all.astype(np.float32)
         out["video"] = str(video)
@@ -427,6 +454,35 @@ def main():
         out_path = args.output_dir / f"{video.stem}_poses.npz"
         np.savez_compressed(out_path, **out)
         print(f"[extract_poses] wrote {out_path}", flush=True)
+
+
+def _plane_fail_figure(diag: dict, path, name: str) -> None:
+    """Side views of the gaussians (sample) and the camera path after the plane
+    step: the fitted plane is z=0. Shows whether the cameras sit on the plane
+    (plane through the path) or the ground mass lies elsewhere."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        m = diag["means_after_plane"]; c = diag["cam_positions_after_plane"]
+        rng = np.random.default_rng(0)
+        if len(m) > 200000:
+            m = m[rng.choice(len(m), 200000, replace=False)]
+        lim = np.percentile(np.abs(m), 98)
+        fig, ax = plt.subplots(1, 3, figsize=(16, 5))
+        for k, (a, b, lab) in enumerate([(0, 2, "x-z (side)"), (1, 2, "y-z (side)"), (0, 1, "x-y (top)")]):
+            ax[k].scatter(m[:, a], m[:, b], s=0.2, c="0.6", alpha=0.4)
+            ax[k].plot(c[:, a], c[:, b], "r.-", ms=3, label="cameras")
+            if b == 2:
+                ax[k].axhline(0.0, color="b", lw=1, label="fitted plane (z=0)")
+            ax[k].set_xlim(-lim, lim); ax[k].set_ylim(-lim, lim); ax[k].set_aspect("equal")
+            ax[k].set_title(lab); ax[k].grid(alpha=0.3); ax[k].legend(loc="upper right")
+        fig.suptitle(f"{name}: plane fit failed, median camera height {diag['h_median_units']:.4f} units, "
+                     f"inliers {100 * diag['inlier_frac']:.1f}% within {diag['inlier_thresh_units']:.4f}")
+        fig.savefig(path, dpi=130, bbox_inches="tight"); plt.close(fig)
+        print(f"[extract_poses] figure -> {path}", flush=True)
+    except Exception as ex:
+        print(f"[extract_poses] no figure ({ex})", flush=True)
 
 
 if __name__ == "__main__":
