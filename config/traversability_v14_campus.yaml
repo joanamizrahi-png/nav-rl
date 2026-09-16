@@ -1,0 +1,48 @@
+# CAMPUS traversability (2026-09-16, Joana): the walkway table with TRAIL at 0.35.
+# On campus SAM3's trail is mostly MULCH PLANTING BEDS beside the walkways, which the
+# robot must not drive on (like grass), but sometimes a real dirt path (sequoia1_17
+# f65-f80). 0.35 = costly, never a crash: mulch is avoided whenever pavement exists,
+# a dirt path stays crossable. Everything else as in v14_walkway.
+
+0:
+  name: void
+  score: 0.0
+1:
+  name: sky
+  score: 0.0
+2:
+  name: trail
+  score: 0.35
+3:
+  name: grass
+  score: 0.0
+4:
+  name: rough
+  score: 0.35
+5:
+  name: water
+  score: 0.0
+6:
+  name: sidewalk
+  score: 1.0
+7:
+  name: road
+  score: 0.85
+8:
+  name: pavement
+  score: 1.0
+9:
+  name: stairs
+  score: 0.3
+10:
+  name: obstacle
+  score: 0.0
+11:
+  name: vegetation
+  score: 0.0
+12:
+  name: person
+  score: 0.0
+13:
+  name: vehicle
+  score: 0.0
