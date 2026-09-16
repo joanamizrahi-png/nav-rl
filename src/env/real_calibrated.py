@@ -535,6 +535,28 @@ class CalibratedRealWorldBackend(RealWorldBackend):
 
     # ---------- label attachment (SAM3 -> Gaussians) ----------
 
+    def _intrinsics_prior_for(self, scene_id: str):
+        """3x3 K the extractor gave the reconstructor for this scene, from the
+        poses npz key `intrinsics_prior` (zeros = none). None if absent."""
+        poses_path = self.cfg.scene_poses_paths.get(scene_id)
+        if not poses_path:
+            return None
+        try:
+            d = np.load(poses_path)
+        except (OSError, ValueError):
+            return None
+        if "intrinsics_prior" not in d:
+            return None
+        K = np.asarray(d["intrinsics_prior"], dtype=np.float32)
+        if K.shape != (3, 3) or float(K[1, 1]) <= 0:
+            return None
+        if (float(self.cfg.W), float(self.cfg.H)) != (2 * float(K[0, 2]), 2 * float(K[1, 2])) and \
+           abs(2 * float(K[0, 2]) - float(self.cfg.W)) > 4:
+            # prior was recorded at another render size: rescale (K scales with pixels)
+            sx, sy = float(self.cfg.W) / (2 * float(K[0, 2])), float(self.cfg.H) / (2 * float(K[1, 2]))
+            K = K.copy(); K[0, :] *= sx; K[1, :] *= sy
+        return K
+
     def _reconstruct_scene(self, video_path: str) -> dict:
         """Same as the parent, plus: attach the scene's SAM3 labels to the views
         BEFORE reconstruction so the Gaussians carry class ids and the labels
@@ -657,8 +679,25 @@ class CalibratedRealWorldBackend(RealWorldBackend):
             _rast.dynamic_label_ids = _mv
         if _mv:
             print(f"[RealWorldBackend] static movers: classes {_mv} stay per-frame", flush=True)
+        # INTRINSICS PRIOR (2026-09-16): the poses npz records the camera
+        # intrinsics the extractor gave the reconstructor (extract_poses
+        # --intrinsics_prior). The runtime reconstruction must use the same
+        # prior, or the Gaussians rendered here come from a different focal
+        # than the poses were fitted with (packard1_06: 548 here vs 320 in the
+        # poses -> box placed at the wrong depth, blind-zone test failed).
+        # Flags are read by the transformer as [pose, depth, rays].
+        cond_flags = [0, 0, 0]
+        _kp = self._intrinsics_prior_for(scene_id)
+        if _kp is not None:
+            if views["img"].shape[1] == n:
+                views["camera_intrs"] = torch.as_tensor(_kp, dtype=torch.float32, device=device)[None, None].repeat(1, n, 1, 1)
+                cond_flags = [0, 0, 1]
+                print(f"[RealWorldBackend] intrinsics prior for {scene_id}: fx {_kp[0,0]:.1f} fy {_kp[1,1]:.1f} "
+                      f"cx {_kp[0,2]:.1f} cy {_kp[1,2]:.1f} (from its poses npz)", flush=True)
+            else:
+                print(f"[RealWorldBackend] intrinsics prior for {scene_id} SKIPPED: extra (pano) views present", flush=True)
         with torch.no_grad(), torch.amp.autocast("cuda", dtype=dtype):
-            predictions = reconstructor(views, is_inference=True, use_motion=False)
+            predictions = reconstructor(views, cond_flags=cond_flags, is_inference=True, use_motion=False)
         cache = {
             "gaussians": predictions["splats"],
             "K": predictions["rendered_intrinsics"][0],
