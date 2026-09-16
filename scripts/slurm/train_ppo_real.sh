@@ -83,6 +83,7 @@ if [ "${LIVE:-0}" = "1" ]; then
     # at 560x336 -> 50k steps ~19 h, 200k ~75 h. Submit with:
     #   sbatch --mem=96G --time=36:00:00 ... (fine-tune)  /  --time=96:00:00 (200k)
     # SMOKE=1 -> 500-step gate run (obs sanity + timing + VRAM before real runs).
+    # IMGEVERY=N (2026-09-16): obs / generated-labels panel to wandb every N rollouts (default 10; use 1 on a smoke).
     BC_ARGS="--live --goal_frame_range 15 70 --goal_min_sep 1.5 --trav_path config/traversability_v14.yaml --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14"
     OUT=/scratch/m000204-pm06b/joana/outputs/ppo_live_trail00
     # SCENE: live-train on another world (gnd_*, sitex_*); pair with CLIPS_DIR.
@@ -994,6 +995,7 @@ python scripts/train_ppo_real.py \
     --output_dir "$OUT" \
     $BC_ARGS \
     --run_label "$LABEL" \
+    ${IMGEVERY:+--wandb_images_every "$IMGEVERY"} \
     --use_wandb
 
 echo "==> done: $OUT (rollout.mp4 + curves)"
