@@ -186,6 +186,12 @@ def render_replay(args):
         render_mode="rasterizer_only", sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)), static_movers=str(getattr(args, "static_movers", "") or ""),
         model_path=args.model_path, reconstructor_path=args.reconstructor_path,
         H=args.height, W=args.width)
+    # fusion window knobs (2026-09-16): the same window as training, else the survey
+    # renders the full fused scene while the policy trains on 21 frames
+    if int(getattr(args, 'render_window', 0)) > 0:
+        cfg.render_window = int(args.render_window)
+    if int(getattr(args, 'coverage_window', 0)) > 0:
+        cfg.coverage_window = int(args.coverage_window)
     world = BatchedLiveDiffusedBackend(cfg, checkpoint=args.live_ckpt, alpha_gate=False)
     world.num_inference_steps = args.num_steps
     world.load_scene(args.scene)
@@ -367,6 +373,12 @@ def sweep_coverage(args):
         render_mode="rasterizer_only", sem_palette_version=args.sem_palette, static_scene=bool(getattr(args, "static_scene", False)), static_movers=str(getattr(args, "static_movers", "") or ""),
         model_path=args.model_path, reconstructor_path=args.reconstructor_path,
         H=args.height, W=args.width)
+    # fusion window knobs (2026-09-16): the same window as training, else the survey
+    # renders the full fused scene while the policy trains on 21 frames
+    if int(getattr(args, 'render_window', 0)) > 0:
+        cfg.render_window = int(args.render_window)
+    if int(getattr(args, 'coverage_window', 0)) > 0:
+        cfg.coverage_window = int(args.coverage_window)
     # --cov_pictures: ALSO run the generator at each view and save a panel
     # raster | diffused RGB | generated semantics | alpha (Joana, 2026-09-07:
     # "I'd like to see the generated output too, not only the raster").
@@ -440,6 +452,12 @@ def render_episodes(args):
         reconstructor_path=args.reconstructor_path,
         H=args.height, W=args.width,
     )
+    # fusion window knobs (2026-09-16): the same window as training, else the survey
+    # renders the full fused scene while the policy trains on 21 frames
+    if int(getattr(args, 'render_window', 0)) > 0:
+        cfg.render_window = int(args.render_window)
+    if int(getattr(args, 'coverage_window', 0)) > 0:
+        cfg.coverage_window = int(args.coverage_window)
     world = BatchedLiveDiffusedBackend(cfg, checkpoint=args.live_ckpt,
                                        alpha_gate=False)
     world.num_inference_steps = args.num_steps
@@ -874,6 +892,11 @@ def main():
     ap.add_argument("--gate_tau_cov", type=float, default=0.4,
                     help="coverage threshold drawn on the survey HUD; matches "
                          "coherence_tau")
+    ap.add_argument("--render_window", type=int, default=0,
+                    help="fusion window (frames) for the rasters the generator is given; 0 = whole scene. "
+                         "2026-09-16: must match training (RENDWIN) so the survey shows what the policy sees")
+    ap.add_argument("--coverage_window", type=int, default=0,
+                    help="window for the coverage the gate reads; 0 = whole scene (match COVWIN)")
     ap.add_argument("--camera_height", type=float, default=0.6,
                     help="camera height above the footprint plane, for the "
                          "blind-zone prediction. NOTE this is the same number "
