@@ -23,7 +23,7 @@ set -euo pipefail
 NAVRL_ROOT=/scratch/m000204-pm06b/joana/nav-rl
 # CLIPS_DIR env: point at any clip folder (gnd_clips, scand_clips, ...)
 CLIPS_DIR=${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}
-OUT_DIR=/scratch/m000204-pm06b/joana/outputs/poses
+OUT_DIR=${OUT_DIR:-/scratch/m000204-pm06b/joana/outputs/poses}   # env-overridable (2026-09-15): write a trial into its own folder
 # CAM_H env: camera mount height in meters (RUGD 0.6; Jackal ZED ~0.5)
 # KPRIOR env (2026-09-15): "fx,fy,cx,cy" at the render size -> intrinsics prior
 # for every clip (the camera's calibration); unset = the reconstructor guesses.
