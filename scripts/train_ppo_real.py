@@ -1222,6 +1222,7 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
 
     base_env = env.unwrapped if hasattr(env, "unwrapped") else env
     frames, path_xy, rows = [], [], []
+    _cams = []
     # Seeded so the video is THE SAME EPISODE as the scored one, and so two
     # policies compared on the same seed get identical spawns and goals.
     # Unseeded, eval drew fresh spawns every run and no two evaluations
@@ -1314,6 +1315,16 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
         if sem is not None:
             frame = np.concatenate([frame, sem], axis=1)
         frames.append(frame)
+        # PATH OVERLAY bookkeeping (2026-09-16, Joana): the camera of this frame
+        # and the action taken from it, so the EXECUTED next poses (drawn after
+        # the episode) and, for chunked policies, the PLANNED chunk can be
+        # projected onto this very frame.
+        try:
+            _cams.append((np.asarray(base_env._last_K, dtype=np.float64).copy(),
+                          np.asarray(base_env._last_w2c, dtype=np.float64).copy(),
+                          pose.astype(np.float64).copy(), np.asarray(action, dtype=np.float64).ravel().copy()))
+        except Exception:
+            _cams.append(None)
 
         obs, r, terminated, truncated, info = env.step(action)
         traj.append(_xyyaw() +
@@ -1340,6 +1351,54 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
         except Exception:
             pass
         done = terminated or truncated
+
+    # PATH OVERLAY (2026-09-16, Joana's ask): on frame t draw where the robot
+    # actually went next (green: poses t+1 .. t+8 projected into frame t's
+    # camera, dots = steps) and, for a chunked policy, where it PLANNED to go
+    # (orange: the action chunk integrated from pose t with the env's step and
+    # yaw constants). The two agree by construction for a chunked policy that
+    # is executed open-loop; for a per-step policy only the green path exists.
+    try:
+        import cv2 as _cv
+        _all_pos = [np.array([p[0], p[1], 0.0]) for p in path_xy]
+        _sz = float(base_env.cfg.step_size_m); _yz = float(base_env.cfg.yaw_step_rad)
+        for _t, _cam in enumerate(_cams):
+            if _cam is None or _t >= len(frames):
+                continue
+            _K, _w2c, _pose, _act = _cam
+            _fr = frames[_t]
+            # executed path: the next 8 recorded positions
+            _fut = np.array(_all_pos[_t + 1:_t + 9]) if _t + 1 < len(_all_pos) else np.zeros((0, 3))
+            if len(_fut):
+                _uv, _front = _project_points(_fut, _K, _w2c)
+                _pts = [tuple(np.round(_uv[i]).astype(int)) for i in range(len(_fut)) if _front[i]]
+                for _a, _b in zip(_pts[:-1], _pts[1:]):
+                    _cv.line(_fr, _a, _b, (0, 230, 0), 2, _cv.LINE_AA)
+                for _q in _pts:
+                    _cv.circle(_fr, _q, 3, (0, 230, 0), -1, _cv.LINE_AA)
+            # planned chunk: integrate the actions from pose t
+            if _act.size >= 4 and _act.size % 2 == 0:
+                _x, _y = float(_pose[0, 3]), float(_pose[1, 3])
+                _yaw = float(np.arctan2(_pose[1, 0], _pose[0, 0]))
+                _plan = []
+                for _k in range(_act.size // 2):
+                    _v, _w = float(_act[2 * _k]) * _sz, float(_act[2 * _k + 1]) * _yz
+                    _yaw += _w
+                    _x += _v * np.cos(_yaw); _y += _v * np.sin(_yaw)
+                    _plan.append([_x, _y, 0.0])
+                _uv, _front = _project_points(np.array(_plan), _K, _w2c)
+                _pts = [tuple(np.round(_uv[i]).astype(int)) for i in range(len(_plan)) if _front[i]]
+                for _a, _b in zip(_pts[:-1], _pts[1:]):
+                    _cv.line(_fr, _a, _b, (255, 160, 0), 2, _cv.LINE_AA)
+                for _q in _pts:
+                    _cv.circle(_fr, _q, 3, (255, 160, 0), -1, _cv.LINE_AA)
+                _cv.putText(_fr, "orange = planned chunk   green = executed path", (4, 46),
+                            _cv.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, _cv.LINE_AA)
+            elif len(_fut):
+                _cv.putText(_fr, "green = executed path (next 8 steps)", (4, 46),
+                            _cv.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, _cv.LINE_AA)
+    except Exception as _e:
+        print(f"[rollout video] path overlay skipped: {type(_e).__name__}: {_e}", flush=True)
 
     # Arrival frame: the loop above draws BEFORE stepping, so the terminal pose
     # (entering the goal disc) was never rendered — append it.

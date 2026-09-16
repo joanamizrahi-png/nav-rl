@@ -794,17 +794,30 @@ def look_ahead_ladder(recs, non_trav, args):
 def score(recs, tau, trav, non_trav, weights, args):
     """Apply the gate at threshold tau and re-score every rendered step."""
     rows = []
+    n_mem = int(getattr(args, "collision_box_memory", 0) or 0)
     for r in recs:
         lab = r["lab"]
         if tau > 0.0 and r["alpha"] is not None:
             lab = np.where(r["alpha"] > tau, lab, 0)
+        # FRAME MEMORY (2026-09-16, Joana): the previous n_mem steps of the same
+        # episode, oldest first, exactly what the env hands compute_reward when
+        # --collision_box_memory > 0. The near box that sits below the camera now
+        # is read from the newest stored frame that still contains it.
+        fm = None
+        if n_mem > 0:
+            fm = [(q["lab"], q["K"], q["w2c"]) for q in recs
+                  if q["ep"] == r["ep"] and 0 <= r["step"] - q["step"] <= n_mem and q["step"] < r["step"]]
+            fm = fm[-n_mem:] or None
         b = compute_reward(
             semantic_image=lab, K=r["K"], w2c=r["w2c"],
             robot_position=r["pos"], robot_heading=r["head"], goal=r["goal"],
             traversability_scores=trav, non_traversable_mask=non_trav,
             previous_position=r["prev"], look_ahead_dist=args.look_ahead,
+            collision_look_ahead_dist=(args.collision_look_ahead if n_mem > 0 and args.collision_look_ahead > 0 else None),
+            frame_memory=fm,
             body_length=GO2_BODY_LENGTH, body_width=GO2_BODY_WIDTH,
             weights=weights)
+        r["box_memory_age"] = float(getattr(b, "box_memory_age", 0.0))
         cls, cnt = np.unique(lab, return_counts=True)
         # TWO different "void" numbers, never to be conflated:
         #   sem_void = the DIFFUSED semantics' own class-0 share (what the world
@@ -908,6 +921,9 @@ def main():
                          "degrees from the path tangent, position held fixed")
     ap.add_argument("--ladder_dists", default="0.6,0.8,1.0,1.2,1.5,1.8",
                     help="collision look-ahead distances to test for visibility")
+    ap.add_argument("--collision_box_memory", type=int, default=0,
+                    help="2026-09-16: score the near box from the previous N frames when the camera "
+                         "cannot see it (the env's collision_box_memory); adds a MEMORY column to the survey")
     ap.add_argument("--collision_look_ahead", type=float, default=1.0,
                     help="second footprint drawn on the panels in MAGENTA: the "
                          "proposed lethal box, next to the yellow shaping box")
@@ -1277,13 +1293,42 @@ def main():
                 # regions good" is the question the survey exists to answer.
                 # Bright = geometry backs this pixel, dark = the model made it
                 # up.
-                trio = np.hstack([rgb, pu, psr, heat])[:, :, ::-1]
+                cols = [rgb, pu, psr, heat]
+                names = ["RGB diffused (policy sees)",
+                         "SEM diffused (reward reads)",
+                         "SEM raster / SAM3 splats (spawns + goals)",
+                         "SUPPORT alpha (dark = invented)"]
+                # MEMORY column (2026-09-16, Joana): with --collision_box_memory
+                # the near box is read from an EARLIER frame when the camera
+                # cannot see it now. Show that frame's labels with the near box
+                # drawn where the reward read it, and its age; if no stored
+                # frame contained the box, show the newest stored frame and say so.
+                _nmem = int(getattr(args, "collision_box_memory", 0) or 0)
+                if _nmem > 0:
+                    _age = int(round(float(r.get("box_memory_age", 0.0))))
+                    _q = None
+                    if _age > 0:
+                        _q = next((q for q in recs if q["ep"] == r["ep"] and q["step"] == r["step"] - _age), None)
+                    elif r["step"] > 0:
+                        _q = next((q for q in recs if q["ep"] == r["ep"] and q["step"] == r["step"] - 1), None)
+                    if _q is not None:
+                        mem = np.ascontiguousarray(pal[np.clip(_q["lab"], 0, 13)]).copy()
+                        _cw = _footprint_corners_world(r["pos"], r["head"],
+                                                       look_ahead_dist=(args.collision_look_ahead if args.collision_look_ahead > 0 else args.look_ahead),
+                                                       length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
+                        _uvm, _frm = _project_points(_cw, _q["K"], _q["w2c"])
+                        if _frm.all():
+                            _pm = np.round(_uvm).astype(np.int32).reshape(-1, 1, 2)
+                            cv2.polylines(mem, [_pm], True, (255, 0, 255), 2, cv2.LINE_AA)
+                        _tag = (f"MEMORY t-{_age}: near box read here" if _age > 0
+                                else (f"MEMORY t-1: box NOT in any stored frame" if r.get("box_memory_age", 0.0) < 0
+                                      else "MEMORY t-1: near box seen in the current frame"))
+                    else:
+                        mem = np.zeros_like(rgb); _tag = "MEMORY: none yet (episode start)"
+                    cols.append(mem); names.append(_tag)
+                trio = np.hstack(cols)[:, :, ::-1]
                 trio = np.ascontiguousarray(trio)
-                for k, name in enumerate(["RGB diffused (policy sees)",
-                                          "SEM diffused (reward reads)",
-                                          "SEM raster / SAM3 splats "
-                                          "(spawns + goals)",
-                                          "SUPPORT alpha (dark = invented)"]):
+                for k, name in enumerate(names):
                     cv2.putText(trio, name, (k * args.width + 8,
                                              trio.shape[0] - 12),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3,
@@ -1299,7 +1344,7 @@ def main():
                 # while the reward is reading nothing at all.
                 if uv is not None:
                     poly = np.round(uv).astype(np.int32).reshape(-1, 1, 2)
-                    for k in range(4):
+                    for k in range(min(4, len(cols))):
                         cv2.polylines(trio,
                                       [poly + np.array([[k * args.width, 0]])],
                                       True, (0, 255, 255), 2, cv2.LINE_AA)

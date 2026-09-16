@@ -19,7 +19,8 @@
 # STATICSCENE (default 1), STATICMOVERS, OUTDIR, EPISODES, STEPS,
 # SPAWNFRAME (2026-09-16: start the path walk at this recorded frame; with
 # EPISODES=1 STEPS=80 SPAWNFRAME=1 the survey video is the whole recorded walk),
-# RENDWIN / COVWIN (fusion windows, set them to the training values, 21/21).
+# RENDWIN / COVWIN (fusion windows, set them to the training values, 21/21),
+# BOXMEM=N (frame memory for the near box; adds the MEMORY column to the survey).
 # Per-scene output (camera geometry block, ladder, survey mp4) is separated by
 # "=== SCENE <name> ===" lines so certify_scenes.py can read this log.
 set -uo pipefail
@@ -56,6 +57,7 @@ for s in $SCENES; do
         ${SURVEY:+--survey_video} \
         ${SPAWNFRAME:+--spawn_frame "$SPAWNFRAME"} \
         ${RENDWIN:+--render_window "$RENDWIN"} \
+        ${BOXMEM:+--collision_box_memory "$BOXMEM"} \
         ${COVWIN:+--coverage_window "$COVWIN"} \
         --live_ckpt "$LIVECKPT" \
         --out_dir "$OUTROOT/$s" --out "$OUTROOT/$s" \
