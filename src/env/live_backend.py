@@ -33,7 +33,7 @@ import numpy as np
 from .real_calibrated import CalibratedRealWorldBackend
 
 
-def cold_history(pose_recon: np.ndarray, scene: dict, k: int) -> list:
+def cold_history(pose_recon: np.ndarray, scene: dict, k: int, use_recorded: bool = True) -> list:
     """Synthesize a straight walk-in ending at pose_recon.
 
     Five IDENTICAL poses (the old cold start) are out-of-distribution for the
@@ -44,12 +44,39 @@ def cold_history(pose_recon: np.ndarray, scene: dict, k: int) -> list:
     along the camera's forward axis, stepped by the scene's own median
     inter-frame spacing, gives the model a coherent approach clip instead.
     """
-    src = scene["cam2world"][:, :3, 3].detach().cpu().numpy()
+    c2w_all = scene["cam2world"]
+    c2w_np = c2w_all.detach().cpu().numpy() if hasattr(c2w_all, "detach") else np.asarray(c2w_all)
+    src = c2w_np[:, :3, 3]
     steps = np.linalg.norm(np.diff(src, axis=0), axis=1)
     step = float(np.median(steps)) if len(steps) else 0.05
     fwd = pose_recon[:3, 2].astype(np.float64)
     n = np.linalg.norm(fwd)
     fwd = fwd / n if n > 1e-6 else np.array([0.0, 0.0, 1.0])
+
+    # 2026-09-16: the RECORDED frames behind the spawn are the true approach.
+    # Extrapolating straight back along the camera axis put the approach poses
+    # outside the reconstruction at the start of a walk (quad2_04: garbage
+    # first generations until real history existed) and off the path at bends.
+    # Take the k-1 recorded frames before the nearest frame, shifted by the
+    # spawn's offset from that frame so the clip ends exactly at pose_recon;
+    # fall back to extrapolation for the entries that do not exist (frame < k-1).
+    if bool(use_recorded) and len(src) >= 2:
+        d = np.linalg.norm(src - pose_recon[:3, 3][None, :], axis=1)
+        i_star = int(np.argmin(d))
+        offset = pose_recon[:3, 3].astype(np.float64) - src[i_star]
+        hist = []
+        for j in range(k - 1, 0, -1):
+            i = i_star - j
+            if i >= 0:
+                p = c2w_np[i].astype(np.float64).copy()
+                p[:3, 3] = src[i] + offset
+            else:
+                p = pose_recon.astype(np.float64).copy()
+                p[:3, 3] = pose_recon[:3, 3] - fwd * step * j
+            hist.append(p.astype(np.float32))
+        hist.append(pose_recon.astype(np.float32))
+        return hist
+
     hist = []
     for i in range(k - 1, 0, -1):
         p = pose_recon.copy()
