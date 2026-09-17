@@ -1320,50 +1320,25 @@ def main():
                 # frame contained the box, show the newest stored frame and say so.
                 _nmem = int(getattr(args, "collision_box_memory", 0) or 0)
                 if _nmem > 0:
-                    # STRIP (Joana, 2026-09-16): every stored frame, oldest at the
-                    # top, with the near box projected into it and the share of
-                    # non-walkable pixels inside the box on that frame; frames that
-                    # do not contain the box are dimmed. Stacked vertically into one
-                    # column of the survey's height.
+                    # STRIP, drawn by the SAME code as the training panel
+                    # (src/eval/panels.py): every stored frame with the near box,
+                    # its age, whether it contains the box, the non-walkable share
+                    # and the distance from the robot to that box.
+                    from src.eval.panels import memory_strip
                     _stored = [q for q in recs if q["ep"] == r["ep"] and 0 < r["step"] - q["step"] <= _nmem]
                     _cw = _footprint_corners_world(r["pos"], r["head"],
                                                    look_ahead_dist=(args.collision_look_ahead if args.collision_look_ahead > 0 else args.look_ahead),
                                                    length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
-                    _Hs, _Ws = rgb.shape[:2]
-                    _th = max(_Hs // max(_nmem, 1), 24)
-                    _tiles = []
-                    for _q in _stored:
-                        _t = np.ascontiguousarray(pal[np.clip(_q["lab"], 0, 13)]).copy()
-                        _uvm, _frm = _project_points(_cw, _q["K"], _q["w2c"])
-                        _share = float("nan"); _in = False
-                        if _frm.all():
-                            _mk = _fill_polygon(_q["lab"].shape[0], _q["lab"].shape[1], _uvm)
-                            _x, _y = _uvm[:, 0], _uvm[:, 1]
-                            _ar = 0.5 * abs(float(np.dot(_x, np.roll(_y, -1)) - np.dot(_y, np.roll(_x, -1))))
-                            _in = _ar > 0 and int(_mk.sum()) >= 0.5 * _ar
-                            if int(_mk.sum()) > 0:
-                                _cls = _q["lab"][_mk]
-                                _share = float((non_trav[np.clip(_cls, 0, len(non_trav) - 1)] & (_cls != 0)).mean())
-                            _pm = np.round(_uvm).astype(np.int32).reshape(-1, 1, 2)
-                            cv2.polylines(_t, [_pm], True, (255, 0, 255) if _in else (120, 120, 120), 2, cv2.LINE_AA)
-                        if not _in:
-                            _t = (_t * 0.45).astype(np.uint8)
-                        _t = cv2.resize(_t, (_Ws, _th), interpolation=cv2.INTER_AREA)
-                        cv2.putText(_t, f"t-{r['step'] - _q['step']}  box {'IN' if _in else 'out'}"
-                                        + (f"  non-walk {_share:.2f}" if _share == _share else ""),
-                                    (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
-                        _tiles.append(_t)
-                    if _tiles:
-                        mem = np.concatenate(_tiles, axis=0)
-                        if mem.shape[0] < _Hs:
-                            mem = np.concatenate([mem, np.zeros((_Hs - mem.shape[0], _Ws, 3), np.uint8)], axis=0)
-                        mem = mem[:_Hs]
+                    _fm = [(q["lab"], q["K"], q["w2c"]) for q in _stored]     # oldest first, as the env stores it
+                    mem = memory_strip(_fm, _cw, pal, non_trav, r["pos"],
+                                       out_h=rgb.shape[0], out_w=rgb.shape[1])
+                    if mem is None:
+                        mem = np.zeros_like(rgb); _tag = "MEMORY: none yet (episode start)"
+                    else:
                         _nh = int(r.get("memory_hits", 0)); _ag = str(getattr(args, "collision_box_memory_agg", "newest"))
                         _tag = (f"MEMORY {_ag}: {_nh} frame(s) contain the box" if _nh > 0
                                 else ("MEMORY: box NOT in any stored frame" if r.get("box_memory_age", 0.0) < 0
                                       else "MEMORY: box seen in the current frame"))
-                    else:
-                        mem = np.zeros_like(rgb); _tag = "MEMORY: none yet (episode start)"
                     cols.append(mem); names.append(_tag)
                 # ANCHORED BOXES (Joana): the near box fixed in the world every N steps,
                 # drawn in every later frame of the same episode while it is still in view
@@ -1402,16 +1377,17 @@ def main():
                             cv2.line(cols[0], _a, _b, (0, 230, 0), 2, cv2.LINE_AA)
                         for _pt in _ptsn:
                             cv2.circle(cols[0], _pt, 3, (0, 230, 0), -1, cv2.LINE_AA)
+                    # the fake 10-step plan, drawn by the training panel's own code
+                    from src.eval.panels import integrate_plan, draw_plan
+                    _pose4 = np.eye(4); _pose4[:3, 3] = r["pos"]
                     _hd = np.asarray(r["head"], float); _hd = _hd / (np.linalg.norm(_hd) + 1e-9)
-                    _plan = np.array([r["pos"] + _hd * 0.25 * (i + 1) for i in range(10)])
-                    _uvp, _frp = _project_points(_plan, r["K"], r["w2c"])
-                    _ptsp = [tuple(int(v) for v in np.round(_uvp[i])) for i in range(10) if _frp[i]]
-                    for _a, _b in zip(_ptsp[:-1], _ptsp[1:]):
-                        cv2.line(cols[0], _a, _b, (255, 160, 0), 2, cv2.LINE_AA)
-                    for _pt in _ptsp:
-                        cv2.circle(cols[0], _pt, 3, (255, 160, 0), -1, cv2.LINE_AA)
-                    cv2.putText(cols[0], "green = next 8 recorded poses   orange = fake straight 10-step plan", (8, 70),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+                    _pose4[:3, 0] = _hd
+                    _fake = np.tile(np.array([1.0, 0.0]), 10)      # straight ahead, full speed
+                    _plan = integrate_plan(_pose4, _fake, 0.25, 0.0)
+                    draw_plan(cols[0], _pose4, _plan, r["K"], r["w2c"],
+                              look_ahead_dist=float(args.look_ahead), label=False)
+                    cv2.putText(cols[0], "green = next 8 recorded poses   orange = fake 10-step plan (same code as training)",
+                                (8, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
                 trio = np.hstack(cols)[:, :, ::-1]
                 trio = np.ascontiguousarray(trio)
                 for k, name in enumerate(names):
