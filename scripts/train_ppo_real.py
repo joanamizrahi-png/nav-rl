@@ -475,16 +475,24 @@ class WandbImagePanel(BaseCallback):
                     cov = env.get_attr("_last_coverage", indices=[i])[0]
                 except Exception:
                     cov = None
-                try:
-                    scenes.append(str(env.get_attr("_current_scene_id", indices=[i])[0]))
-                except Exception:
-                    scenes.append("?")
+                _nm = "?"
+                for _attr in ("_scene_id", "_current_scene_id"):
+                    try:
+                        _v = env.get_attr(_attr, indices=[i])[0]
+                        if _v:
+                            _nm = str(_v); break
+                    except Exception:
+                        pass
+                scenes.append(_nm)
                 if rgb is None:
                     continue
                 base = np.ascontiguousarray(np.asarray(rgb)[..., :3]).copy()
-                # PLAN + TRAIL on the observation (2026-09-16, Joana): orange = the
-                # current action chunk integrated from the pose (chunked policies;
-                # known at decision time), blue = the last 8 executed positions.
+                # PLAN on the observation (2026-09-16, Joana): orange = where this
+                # decision takes the robot, integrated from the pose it was made at
+                # -- one step for a per-step policy, the whole chunk for a chunked
+                # one. (The executed PAST is behind the camera and cannot project
+                # into a forward view; the executed path is drawn offline, in the
+                # rollout videos, where the future is known.)
                 try:
                     import cv2
                     from src.eval.reward_2d import _project_points, _footprint_corners_world
@@ -492,27 +500,35 @@ class WandbImagePanel(BaseCallback):
                     _pose = env.get_attr("_robot_pose_world", indices=[i])[0]
                     _cfg = env.get_attr("cfg", indices=[i])[0]
                     if _K is not None and _w2c is not None and _pose is not None:
-                        _trail = env.get_attr("_pos_trail", indices=[i])[0] or []
-                        if len(_trail) >= 2:
-                            _uv, _fr = _project_points(np.array(_trail), np.asarray(_K), np.asarray(_w2c))
-                            _pts = [tuple(int(v) for v in np.round(_uv[j])) for j in range(len(_trail)) if _fr[j]]
-                            for _a, _b in zip(_pts[:-1], _pts[1:]):
-                                cv2.line(base, _a, _b, (60, 120, 255), 2, cv2.LINE_AA)
-                        _act = env.get_attr("_last_action", indices=[i])[0]
-                        _act = None if _act is None else np.asarray(_act, dtype=np.float64).ravel()
-                        if _act is not None and _act.size >= 4 and _act.size % 2 == 0:
-                            _x, _y = float(_pose[0, 3]), float(_pose[1, 3]); _yaw = float(np.arctan2(_pose[1, 0], _pose[0, 0]))
+                        _act = None
+                        for _attr in ("_last_decision", "_last_action"):
+                            try:
+                                _v = env.get_attr(_attr, indices=[i])[0]
+                            except Exception:
+                                _v = None
+                            if _v is not None and np.asarray(_v).size >= 4:
+                                _act = np.asarray(_v, dtype=np.float64).ravel(); break
+                        try:
+                            _dp = env.get_attr("_decision_pose", indices=[i])[0]
+                        except Exception:
+                            _dp = None
+                        _pose_plan = np.asarray(_dp) if _dp is not None else _pose
+                        if _act is not None and _act.size >= 2 and _act.size % 2 == 0:
+                            _x, _y = float(_pose_plan[0, 3]), float(_pose_plan[1, 3]); _yaw = float(np.arctan2(_pose_plan[1, 0], _pose_plan[0, 0]))
                             _plan = []
                             for _kk in range(_act.size // 2):
                                 _yaw += float(_act[2 * _kk + 1]) * float(_cfg.yaw_step_rad)
                                 _v = float(_act[2 * _kk]) * float(_cfg.step_size_m)
                                 _x += _v * np.cos(_yaw); _y += _v * np.sin(_yaw); _plan.append([_x, _y, 0.0])
+                            _plan = [[float(_pose_plan[0, 3]), float(_pose_plan[1, 3]), 0.0]] + _plan
                             _uv, _fr = _project_points(np.array(_plan), np.asarray(_K), np.asarray(_w2c))
                             _pts = [tuple(int(v) for v in np.round(_uv[j])) for j in range(len(_plan)) if _fr[j]]
                             for _a, _b in zip(_pts[:-1], _pts[1:]):
                                 cv2.line(base, _a, _b, (255, 160, 0), 2, cv2.LINE_AA)
-                            for _q in _pts:
+                            for _q in _pts[1:]:
                                 cv2.circle(base, _q, 3, (255, 160, 0), -1, cv2.LINE_AA)
+                            cv2.putText(base, f"orange = this decision ({_act.size // 2} step{'s' if _act.size > 2 else ''})",
+                                        (4, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
                 except Exception as _e:
                     print(f"[WandbImagePanel] plan/trail skipped: {type(_e).__name__}: {_e}", flush=True)
                 panel = [base]
@@ -1393,6 +1409,7 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
             _cams.append((np.asarray(base_env._last_K, dtype=np.float64).copy(),
                           np.asarray(base_env._last_w2c, dtype=np.float64).copy(),
                           pose.astype(np.float64).copy(), np.asarray(action, dtype=np.float64).ravel().copy()))
+            # (action here IS the whole decision: model.predict returns the chunk)
         except Exception:
             _cams.append(None)
 

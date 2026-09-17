@@ -1010,6 +1010,8 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._last_fp_heading = None
         self._frame_memory = []
         self._pos_trail = []
+        self._last_decision = None
+        self._decision_pose = None
         self._entered_nontrav_goal = False
         self._halt_at_verge = False
         self._still_run = 0
@@ -1366,6 +1368,11 @@ class SceneEnv(gym.Env if gym is not None else object):
         observation returned is the one AFTER the whole chunk."""
         k = max(1, self.cfg.action_chunk)
         action = np.asarray(action, dtype=np.float32).clip(-1.0, 1.0)
+        # the WHOLE decision, before it is split into sub-actions: the plan the
+        # policy committed to at this pose (2026-09-16, drawn in the wandb panel
+        # and the rollout video). _last_action holds only the sub-action.
+        self._last_decision = action.copy()
+        self._decision_pose = np.asarray(self._robot_pose_world, dtype=np.float64).copy()
         if getattr(self, "_mirrored", False):
             # the policy acted in the mirrored frame: reflect its yaw back
             action = action.copy()
