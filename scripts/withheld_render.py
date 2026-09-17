@@ -156,6 +156,43 @@ def main():
         for f in fr:
             vw.write(f[:, :, ::-1] if name == "rgb.mp4" else f)
         vw.release()
+
+    # COMPARISON PANEL (2026-09-16, Joana): one row per withheld frame --
+    #   real photo | generated | SAM3 on the real photo | generated labels | rasterized hint | coverage
+    # so "what did the model invent here, and was it right" is answerable by eye,
+    # with the coverage and the pose deviation of that frame written on the row.
+    try:
+        from src.eval.palette import display_palette
+        _pal = display_palette(int(args.sem_palette))
+        _h, _w = gens[0].shape[:2]
+        _rows = []
+        for _i, _w_meta in enumerate(meta["withheld"]):
+            _real = cv2.resize(reals[_i], (_w, _h))[:, :, ::-1]
+            _gen = np.asarray(gens[_i])
+            _ref = cv2.resize(_pal[np.clip(np.asarray(refs[_i]).astype(np.int64), 0, 13)], (_w, _h), interpolation=cv2.INTER_NEAREST)
+            _prd = cv2.resize(_pal[np.clip(np.asarray(preds[_i]).astype(np.int64), 0, 13)], (_w, _h), interpolation=cv2.INTER_NEAREST)
+            _hnt = cv2.resize(_pal[np.clip(np.asarray(hints[_i]).astype(np.int64), 0, 13)], (_w, _h), interpolation=cv2.INTER_NEAREST)
+            _a = np.asarray(alphas[_i], dtype=np.float32)
+            _cov = cv2.applyColorMap((np.clip(cv2.resize(_a, (_w, _h)), 0, 1) * 255).astype(np.uint8), cv2.COLORMAP_VIRIDIS)[:, :, ::-1]
+            _row = np.concatenate([_real, _gen, _ref, _prd, _hnt, _cov], axis=1).astype(np.uint8)
+            _row = np.ascontiguousarray(_row)
+            for _k, _nm in enumerate(["REAL withheld photo", "GENERATED (no frame here)", "SAM3 on the real photo",
+                                      "GENERATED labels", "rasterized hint", "coverage (dark = invented)"]):
+                cv2.putText(_row, _nm, (_k * _w + 8, _h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)
+                cv2.putText(_row, _nm, (_k * _w + 8, _h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+            cv2.putText(_row, f"frame {_w_meta['frame']}  coverage {float(_a.mean()):.2f}  deviation {devs[_i]:.2f}",
+                        (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
+            _rows.append(_row)
+        _vw = cv2.VideoWriter(str(args.out / "compare.mp4"), cv2.VideoWriter_fourcc(*"mp4v"), 2,
+                              (_rows[0].shape[1], _rows[0].shape[0]))
+        for _r in _rows:
+            _vw.write(_r[:, :, ::-1])
+        _vw.release()
+        _sel = _rows[:: max(1, len(_rows) // 6)][:6]
+        cv2.imwrite(str(args.out / "compare.png"), np.concatenate(_sel, axis=0)[:, :, ::-1])
+        print(f"[withheld] wrote {args.out}/compare.mp4 and compare.png ({len(_rows)} rows)", flush=True)
+    except Exception as _e:
+        print(f"[withheld] comparison panel skipped: {type(_e).__name__}: {_e}", flush=True)
     print(f"[withheld] wrote {args.out} ({len(preds)} withheld frames) -> run label_acc_vs_coverage.py")
 
 

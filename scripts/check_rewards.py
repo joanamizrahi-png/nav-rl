@@ -927,6 +927,10 @@ def main():
                     help="2026-09-16 (Joana): every N steps, FIX the near box in the world and keep drawing that same "
                          "ground patch in the following frames (magenta, with its age) as the robot walks up to it "
                          "and it slides out of the frame -- the picture of what the frame memory reads")
+    ap.add_argument("--anchor_dist", type=float, default=0.0,
+                    help="distance ahead at which an anchored box is placed (0 = the collision box distance). "
+                         "2.0 with --anchor_box_every 4 keeps one patch of ground in view for ~8 steps as the "
+                         "robot walks onto it: the projection check")
     ap.add_argument("--path_overlay", action="store_true",
                     help="2026-09-16: draw the walk's NEXT 8 recorded poses on each frame (green = executed path) and a "
                          "fake 10-step straight plan (orange) -- verifies the rollout-video overlay without a policy")
@@ -1365,7 +1369,8 @@ def main():
                 # drawn in every later frame of the same episode while it is still in view
                 _anc = int(getattr(args, "anchor_box_every", 0) or 0)
                 if _anc > 0:
-                    _la = (args.collision_look_ahead if args.collision_look_ahead > 0 else args.look_ahead)
+                    _la = (float(args.anchor_dist) if float(getattr(args, "anchor_dist", 0.0)) > 0
+                           else (args.collision_look_ahead if args.collision_look_ahead > 0 else args.look_ahead))
                     for _q in recs:
                         if _q["ep"] != r["ep"] or _q["step"] > r["step"] or _q["step"] % _anc:
                             continue
@@ -1377,9 +1382,13 @@ def main():
                         _pq = np.round(_uvq).astype(np.int32).reshape(-1, 1, 2)
                         _ageq = r["step"] - _q["step"]
                         _colq = (255, 0, 255) if _ageq > 0 else (255, 255, 0)
+                        # distance from the robot NOW to the anchored patch: it must
+                        # shrink by one step each frame if the projection is right
+                        _dq = float(np.linalg.norm(np.asarray(_cwq).mean(0)[:2] - np.asarray(r["pos"])[:2]))
                         for _c in (0, 1):
                             cv2.polylines(cols[_c], [_pq], True, _colq, 2, cv2.LINE_AA)
-                            cv2.putText(cols[_c], f"box@{_q['step']} age {_ageq}", tuple(int(v) for v in _uvq[0]),
+                            cv2.putText(cols[_c], f"box@{_q['step']} age {_ageq}  {_dq:.2f}m",
+                                        tuple(int(v) for v in _uvq[0]),
                                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, _colq, 1, cv2.LINE_AA)
                 # PATH OVERLAY check: green = the next 8 recorded poses of this walk projected
                 # into this frame (what the rollout video draws as the executed path), orange =
