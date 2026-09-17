@@ -90,6 +90,7 @@ for s in $SCENES; do
             echo "[3/4] ${s}_${p}: renders exist"
         else
             python scripts/withheld_render.py --scene "${s}_wh_${p}" --withheld "$wh" \
+                --clips_dir "$WHDIR" \
                 --poses_dir "$WHPOSES" --labels_dir "$WHDIR" --live_ckpt "$LIVECKPT" \
                 --sem_palette "$SEMPAL" --render_window "$RENDWIN" --coverage_window "$COVWIN" \
                 --static_scene --out "$out" || { echo "!!! stage3 FAILED: ${s}_${p}"; continue; }
