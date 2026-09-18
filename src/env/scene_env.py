@@ -140,6 +140,13 @@ class SceneEnvConfig:
     # sampling = traversability score >= this; 0 = the crash threshold as before
     # (trail at 0.35 would count). 0.5 keeps goals on sidewalk / pavement / road.
     goal_min_score: float = 0.0
+    # 2026-09-17 (Joana): path goals sit exactly on the walked line; this moves
+    # each goal sideways by up to this many metres, then checks the goal disc on
+    # the map (walkable share >= goal_lat_jitter_min_share) and retries, so the
+    # goal keeps the variety of the cone without leaving walkable ground.
+    goal_lat_jitter_m: float = 0.0
+    goal_lat_jitter_min_share: float = 0.6
+    goal_lat_jitter_tries: int = 8
     goal_support_tries: int = 12
     # "Enough reconstruction" cannot be "at least one point" -- a single stray
     # gaussian passes that and the goal is still in a void. Calibrate against
@@ -808,6 +815,31 @@ class SceneEnv(gym.Env if gym is not None else object):
                         break
                     goal = self.world_backend.sample_goal_position(
                         self._scene_id, self.np_random, self._robot_pose_world[:2, 3], cone_yaw=_yaw).copy()
+        # LATERAL JITTER with a map check (2026-09-17): offset perpendicular to
+        # the walk's direction at the goal; accept when the disc is walkable
+        # enough on the map; otherwise try again; fall back to the on-path goal.
+        _jl = float(getattr(self.cfg, "goal_lat_jitter_m", 0.0) or 0.0)
+        if _jl > 0.0 and getattr(self, "_label_grids", {}).get(self._scene_id) is not None:
+            base = goal.copy()
+            _cal = getattr(self.world_backend, "_calib", {}).get(self._scene_id)
+            if _cal is not None and len(_cal.positions) > 2:
+                _pos = np.asarray(_cal.positions)[:, :2]
+                _i = int(np.argmin(np.linalg.norm(_pos - base[:2], axis=1)))
+                _a, _b = max(_i - 1, 0), min(_i + 1, len(_pos) - 1)
+                _dir = _pos[_b] - _pos[_a]
+            else:
+                _dir = np.array([np.cos(_yaw), np.sin(_yaw)])
+            _n = np.linalg.norm(_dir); _dir = _dir / _n if _n > 1e-6 else np.array([1.0, 0.0])
+            _perp = np.array([-_dir[1], _dir[0]])
+            _min = float(getattr(self.cfg, "goal_lat_jitter_min_share", 0.6))
+            for _try in range(max(1, int(getattr(self.cfg, "goal_lat_jitter_tries", 8)))):
+                cand = base.copy()
+                cand[:2] = base[:2] + _perp * float(self.np_random.uniform(-_jl, _jl))
+                wf = self._goal_walkable_share(cand)
+                if wf == wf and wf >= _min:
+                    goal = cand
+                    break
+            self._goal_jitter_kept = getattr(self, "_goal_jitter_kept", 0) + int(goal is not base)
         return goal
 
     def _goal_walkable_share(self, goal_world, radius: "float | None" = None) -> float:

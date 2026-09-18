@@ -705,6 +705,7 @@ def _dump_env_config(args, cfg):
             "proximity_ground_margin": getattr(cfg, "proximity_ground_margin", 1.2),
             "proximity_ground_classes": getattr(cfg, "proximity_ground_classes", "3,4,5"),
             "goal_min_score": getattr(cfg, "goal_min_score", 0.0),
+            "goal_lat_jitter_m": getattr(cfg, "goal_lat_jitter_m", 0.0),
             "reward_scale": getattr(cfg, "reward_scale", 1.0),
             "coherence_cost_weight": getattr(cfg, "coherence_cost_weight", 0.0),
             "coherence_tau": getattr(cfg, "coherence_tau", 0.4),
@@ -991,6 +992,8 @@ def _scene_env_cfg(args):
         proximity_ground_margin=float(getattr(args, "proximity_ground_margin", 1.2)),
         proximity_ground_classes=str(getattr(args, "proximity_ground_classes", "3,4,5") or "3,4,5"),
         goal_min_score=float(getattr(args, "goal_min_score", 0.0) or 0.0),
+        goal_lat_jitter_m=float(getattr(args, "goal_lat_jitter_m", 0.0) or 0.0),
+        goal_lat_jitter_min_share=float(getattr(args, "goal_lat_jitter_min_share", 0.6) or 0.6),
         timeout_penalty=getattr(args, "timeout_penalty", 0.0),
         halt_terminate_steps=getattr(args, "halt_terminate_steps", 0),
         halt_throttle_eps=getattr(args, "halt_throttle_eps", 0.05),
@@ -1966,6 +1969,10 @@ def main():
                          "inside proximity_ground_margin (0 = off). Needs --clouds_dir.")
     ap.add_argument("--proximity_ground_margin", type=float, default=1.2)
     ap.add_argument("--proximity_ground_classes", type=str, default="3,4,5")
+    ap.add_argument("--goal_lat_jitter_m", type=float, default=0.0,
+                    help="2026-09-17: move path goals sideways by up to this (m), keeping only draws whose "
+                         "goal disc is walkable on the map (>= --goal_lat_jitter_min_share)")
+    ap.add_argument("--goal_lat_jitter_min_share", type=float, default=0.6)
     ap.add_argument("--goal_min_score", type=float, default=0.0,
                     help="goals only where the map's traversability score is >= this (0 = crash threshold); "
                          "0.5 keeps goals off mulch beds (trail 0.35) and on pavement classes")

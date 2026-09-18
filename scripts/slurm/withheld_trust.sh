@@ -61,22 +61,28 @@ for s in $SCENES; do
     fi
 done
 
-# ---- stage 2 (GPU): poses of every subset scene -------------------------
-VIDEOS=()
+# ---- stage 2 (GPU): poses of every subset scene, AT ITS OWN FRAME COUNT ---
+# (2026-09-17: posing a 61-frame subset at 81 frames gave 81 poses for 61
+# Gaussian source frames -> empty fusion windows -> "At least one Gaussian
+# must be present". The subset json carries num_frames; use it per clip, and
+# redo any poses file whose count does not match.)
 for s in $SCENES; do
     for p in $PATTERNS; do
-        v="$WHDIR/${s}_wh_${p}.mp4"
-        [ -f "$v" ] || { echo "[2/4] missing $v"; continue; }
-        [ -f "$WHPOSES/${s}_wh_${p}_poses.npz" ] && { echo "[2/4] ${s}_wh_${p}: poses exist"; continue; }
-        VIDEOS+=("$v")
+        v="$WHDIR/${s}_wh_${p}.mp4"; j="$WHDIR/${s}_wh_${p}_withheld.json"
+        [ -f "$v" ] && [ -f "$j" ] || { echo "[2/4] missing $v"; continue; }
+        nf=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['num_frames'])" "$j")
+        pz="$WHPOSES/${s}_wh_${p}_poses.npz"
+        if [ -f "$pz" ]; then
+            have=$(python -c "import numpy as np,sys; print(len(np.load(sys.argv[1])['positions']))" "$pz")
+            if [ "$have" = "$nf" ]; then echo "[2/4] ${s}_wh_${p}: poses exist ($nf frames)"; continue; fi
+            echo "[2/4] ${s}_wh_${p}: poses have $have frames, clip has $nf -> redo"; rm -f "$pz"
+        fi
+        python scripts/extract_poses.py --videos "$v" --output_dir "$WHPOSES" \
+            --reconstructor_path $S/NeoVerse/models/NeoVerse/reconstructor.ckpt \
+            --num_frames "$nf" --width 560 --height 336 --camera_height_m "$CAM_H" \
+            --intrinsics_prior "$KPRIOR" || echo "!!! stage2 FAILED: ${s}_wh_${p}"
     done
 done
-if [ ${#VIDEOS[@]} -gt 0 ]; then
-    python scripts/extract_poses.py --videos "${VIDEOS[@]}" --output_dir "$WHPOSES" \
-        --reconstructor_path $S/NeoVerse/models/NeoVerse/reconstructor.ckpt \
-        --num_frames 81 --width 560 --height 336 --camera_height_m "$CAM_H" \
-        --intrinsics_prior "$KPRIOR" || echo "!!! stage2 FAILED"
-fi
 
 # ---- stage 3 (GPU): render the withheld poses inside the subset scene ----
 # ---- stage 4 (CPU): grade -> A(c), A(d) ---------------------------------
