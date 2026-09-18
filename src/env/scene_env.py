@@ -1188,7 +1188,9 @@ class SceneEnv(gym.Env if gym is not None else object):
         if cfg is None:
             return None
         cfg.goal_dist_m = float(d)
-        if getattr(cfg, "goal_dir_360", False):
+        # 2026-09-17: the range is kept for BOTH goal modes now -- the
+        # recorded-path branch draws its target distance inside it too.
+        if True:
             lo, _hi = getattr(cfg, "goal_dist_range", None) or (3.0, float(d))
             lo = float(lo)
             # Remember where the near end STARTED -- it is a floor the window

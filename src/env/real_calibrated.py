@@ -516,10 +516,19 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         hi = min(hi, len(cal.positions) - 1)
         if self.cfg.goal_dist_m is not None:
             # fixed-distance mode: frame whose straight-line distance from the
-            # spawn best matches goal_dist_m (small jitter keeps episodes varied)
+            # spawn best matches goal_dist_m (small jitter keeps episodes varied).
+            # 2026-09-17 (Joana): path goals get the same RANGE curriculum the
+            # 360 branch had (2-4 m, then 2.5-4.5, 3-5 ... as wins come in):
+            # set_goal_dist keeps cfg.goal_dist_range = (near, far) and, with
+            # goal_dist_window_m set, the target distance is drawn uniformly in
+            # it instead of sitting at one value per level.
             pos = np.asarray(cal.positions[lo:hi + 1])
             d = np.linalg.norm(pos[:, :2] - np.asarray(spawn_xy), axis=1)
-            frame = lo + int(np.argmin(np.abs(d - self.cfg.goal_dist_m)))
+            target = float(self.cfg.goal_dist_m)
+            rng_lo_hi = getattr(self.cfg, "goal_dist_range", None)
+            if getattr(self.cfg, "goal_dist_window_m", None) and rng_lo_hi:
+                target = float(rng.uniform(float(rng_lo_hi[0]), float(rng_lo_hi[1])))
+            frame = lo + int(np.argmin(np.abs(d - target)))
             frame = int(np.clip(frame + rng.integers(-2, 3), lo, hi))
             goal = cal.positions[frame].copy()
             goal[2] = 0.0
