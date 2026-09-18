@@ -528,7 +528,19 @@ class CalibratedRealWorldBackend(RealWorldBackend):
             rng_lo_hi = getattr(self.cfg, "goal_dist_range", None)
             if getattr(self.cfg, "goal_dist_window_m", None) and rng_lo_hi:
                 target = float(rng.uniform(float(rng_lo_hi[0]), float(rng_lo_hi[1])))
-            frame = lo + int(np.argmin(np.abs(d - target)))
+            # 2026-09-18: the frame at distance `target` exists on BOTH sides of
+            # the spawn (the walk passed through it), and argmin took whichever
+            # came first -- 50.8% of the goals of runs 490807-810 were BEHIND a
+            # forward-only robot (startup probe). Keep only frames in front of
+            # the spawn heading (cone_yaw = the heading the robot spawns with);
+            # fall back to all frames when nothing ahead is within 1 m of target.
+            cost = np.abs(d - target)
+            if cone_yaw is not None:
+                fwd = np.array([np.cos(float(cone_yaw)), np.sin(float(cone_yaw))])
+                ahead = ((pos[:, :2] - np.asarray(spawn_xy)) @ fwd) > 0.0
+                if bool(np.any(ahead & (cost < 1.0))):
+                    cost = np.where(ahead, cost, np.inf)
+            frame = lo + int(np.argmin(cost))
             frame = int(np.clip(frame + rng.integers(-2, 3), lo, hi))
             goal = cal.positions[frame].copy()
             goal[2] = 0.0
