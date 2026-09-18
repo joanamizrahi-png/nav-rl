@@ -66,6 +66,8 @@ def main():
     ap.add_argument("--coverage_window", type=int, default=0)
     ap.add_argument("--sem_palette", type=int, default=4)
     ap.add_argument("--static_scene", action="store_true", default=True)
+    ap.add_argument("--static_movers", default="",
+                    help="classes kept per-frame under static fusion, e.g. 12,13 (as in training)")
     ap.add_argument("--width", type=int, default=560); ap.add_argument("--height", type=int, default=336)
     args = ap.parse_args()
     import cv2, torch
@@ -78,6 +80,7 @@ def main():
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
         render_mode="rasterizer_only", model_path=args.model_path,
         reconstructor_path=args.reconstructor_path, static_scene=bool(args.static_scene),
+        static_movers=str(args.static_movers or ""),
         H=args.height, W=args.width, num_frames=int(meta.get("num_frames", 81)),
         render_window=int(args.render_window),
         coverage_window=int(args.coverage_window), sem_palette_version=int(args.sem_palette))

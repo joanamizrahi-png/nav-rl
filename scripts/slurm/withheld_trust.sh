@@ -38,6 +38,10 @@ LABELS=${LABELS_DIR:-$S/NeoVerse/outputs/sam3_labels_v14}
 WHDIR=${WHDIR:-$S/data/campus_withheld}
 WHPOSES=${WHPOSES:-$S/outputs/poses_withheld}
 OUTROOT=${OUTROOT:-$S/outputs/trust}
+# STATICMOVERS=12,13 (2026-09-18): person/vehicle Gaussians stay per-frame in
+# the withheld render, as in training and the walk test. Without it a walking
+# person's splats fuse into a trail that paints PERSON over the ground in the
+# hint, and the generator copies it (quad1_07 win10/win20, first trust run).
 PATTERNS=${PATTERNS:-every4 win10 win20}   # every4 = still surrounded by kept frames (high coverage);
 # win10 = ~2 m from the nearest kept frame; win20 = ~4 m, genuinely invented (low coverage end)
 LIVECKPT=${LIVECKPT:-$S/runs/train_semantic_v26_campus/checkpoint-epoch-10.safetensors}
@@ -99,7 +103,7 @@ for s in $SCENES; do
                 --clips_dir "$WHDIR" \
                 --poses_dir "$WHPOSES" --labels_dir "$WHDIR" --live_ckpt "$LIVECKPT" \
                 --sem_palette "$SEMPAL" --render_window "$RENDWIN" --coverage_window "$COVWIN" \
-                --static_scene --out "$out" || { echo "!!! stage3 FAILED: ${s}_${p}"; continue; }
+                --static_scene ${STATICMOVERS:+--static_movers "$STATICMOVERS"} --out "$out" || { echo "!!! stage3 FAILED: ${s}_${p}"; continue; }
         fi
         python scripts/label_acc_vs_coverage.py --pred "$out/semantic_labels.npz" \
             --alpha "$out/alpha.npz" --ref "$out/ref_labels.npz" --hint "$out/hint_labels.npz" \
