@@ -78,7 +78,14 @@ def main():
     fp = footprint_mask(hw[0], hw[1], args.footprint)
 
     agree_pix = np.full(N, np.nan); agree_fp = np.full(N, np.nan); hint_pix = np.full(N, np.nan); fill = np.full(N, np.nan)
+    align = np.full(N, np.nan)          # mean |generated - rasterized| colour on observed pixels, in [0,1]
+    import cv2
     for t in range(N):
+        _g = cv2.imread(str(args.sweep / "frames" / f"q_{t:04d}.png")); _r = cv2.imread(str(args.sweep / "raster" / f"q_{t:04d}.png"))
+        if _g is not None and _r is not None:
+            _obs = cv2.resize(alpha[t], (_g.shape[1], _g.shape[0])) > 0.5
+            if _obs.sum() > 20:
+                align[t] = float(np.abs(_g.astype(np.float32) - cv2.resize(_r, (_g.shape[1], _g.shape[0])).astype(np.float32)).mean(-1)[_obs].mean() / 255.0)
         v = sam[t] != 0
         if v.any():
             agree_pix[t] = float((pred[t][v] == sam[t][v]).mean())
@@ -92,10 +99,10 @@ def main():
 
     out = args.sweep / "grade"; out.mkdir(exist_ok=True)
     with open(out / "queries_graded.csv", "w") as fh:
-        fh.write("idx,base_frame,kind,offset,sign,coverage,fill,agree_pix,agree_fp,hint_pix\n")
+        fh.write("idx,base_frame,kind,offset,sign,coverage,fill,agree_pix,agree_fp,hint_pix,align\n")
         for t in range(N):
             fh.write(f"{t},{base[t]},{kind[t]},{off[t]},{sgn[t]},{cov[t]:.4f},{fill[t]:.4f},"
-                     f"{agree_pix[t]:.4f},{agree_fp[t]:.4f},{hint_pix[t]:.4f}\n")
+                     f"{agree_pix[t]:.4f},{agree_fp[t]:.4f},{hint_pix[t]:.4f},{align[t]:.4f}\n")
 
     def _bin(mask_rows, label):
         rows = []
@@ -105,7 +112,8 @@ def main():
                          float(np.nanmean(agree_fp[m])) if m.any() else np.nan,
                          float(np.nanmean(agree_pix[m])) if m.any() else np.nan,
                          float(np.nanmean(hint_pix[m])) if m.any() else np.nan,
-                         float(np.nanmean(cov[m])) if m.any() else np.nan))
+                         float(np.nanmean(cov[m])) if m.any() else np.nan,
+                         float(np.nanmean(align[m])) if m.any() and np.isfinite(align[m]).any() else np.nan))
         return rows
     lat_vals = sorted(set(off[kind == "lat"])); yaw_vals = [0.0] + sorted(set(off[kind == "yaw"]))
     rows = _bin([(f"{o:.1f}", (kind == "lat") & (off == o)) for o in lat_vals], "lat")
@@ -114,11 +122,12 @@ def main():
     edges = [float(v) for v in args.cov_bins.split(",")]
     rows += _bin([(f"{lo:.1f}-{min(hi, 1.0):.1f}", (cov >= lo) & (cov < hi)) for lo, hi in zip(edges[:-1], edges[1:])], "cov")
     with open(out / "bins.csv", "w") as fh:
-        fh.write("axis,bin,n,agree_fp,agree_pix,hint_pix,coverage\n")
+        fh.write("axis,bin,n,agree_fp,agree_pix,hint_pix,coverage,align\n")
         for r in rows:
             fh.write(",".join(str(v) if not isinstance(v, float) else f"{v:.4f}" for v in r) + "\n")
 
     summary = {"queries": int(N), "agree_fp_mean": float(np.nanmean(agree_fp)),
+               "align_mean": float(np.nanmean(align)) if np.isfinite(align).any() else None,
                "agree_pix_mean": float(np.nanmean(agree_pix)), "hint_pix_mean": float(np.nanmean(hint_pix)),
                "coverage_range": [float(cov.min()), float(cov.max())]}
     json.dump(summary, open(out / "summary.json", "w"), indent=2)
@@ -134,6 +143,7 @@ def main():
             ax[k].plot(x, [r[3] for r in rr], "o-", label="footprint walkable-vs-not (gen vs SAM3 on gen)")
             ax[k].plot(x, [r[4] for r in rr], "s--", label="pixel agreement (gen vs SAM3 on gen)")
             ax[k].plot(x, [r[5] for r in rr], "^:", label="gen vs hint, covered pixels")
+            ax[k].plot(x, [1.0 - r[7] if np.isfinite(r[7]) else np.nan for r in rr], "d-.", label="1 - colour alignment error (gen vs raster)")
             ax[k].set_ylim(0, 1); ax[k].grid(alpha=0.3)
             ax[k].set_xlabel({"lat": "lateral offset [m]", "yaw": "turn [deg]", "cov": "coverage"}[axis])
             if axis == "cov":
@@ -155,12 +165,14 @@ def main():
             g = cv2.resize(g, (W, H))
             s_ = pal[np.clip(sam[t], 0, 13)]; p_ = pal[np.clip(pred[t], 0, 13)]; h_ = pal[np.clip(hint[t], 0, 13)]
             c_ = cv2.applyColorMap((np.clip(alpha[t], 0, 1) * 255).astype(np.uint8), cv2.COLORMAP_VIRIDIS)[:, :, ::-1]
-            r = np.ascontiguousarray(np.concatenate([g, s_, p_, h_, c_], axis=1).astype(np.uint8))
-            for k, nm in enumerate(["GENERATED image", "SAM3 on the generated image", "GENERATED labels",
-                                    "rasterized hint", "coverage (dark = invented)"]):
+            _rr = cv2.imread(str(args.sweep / "raster" / f"q_{t:04d}.png"))
+            _rr = cv2.resize(_rr, (W, H))[:, :, ::-1] if _rr is not None else np.zeros_like(g)
+            r = np.ascontiguousarray(np.concatenate([g, _rr, s_, p_, h_, c_], axis=1).astype(np.uint8))
+            for k, nm in enumerate(["GENERATED image", "rasterized colour (hint)", "SAM3 on the generated image",
+                                    "GENERATED labels", "rasterized hint labels", "coverage (dark = invented)"]):
                 cv2.putText(r, nm, (k * W + 8, H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)
                 cv2.putText(r, nm, (k * W + 8, H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-            cv2.putText(r, f"{tag}  coverage {cov[t]:.2f}  footprint agree {agree_fp[t]:.2f}  pixel agree {agree_pix[t]:.2f}",
+            cv2.putText(r, f"{tag}  coverage {cov[t]:.2f}  footprint agree {agree_fp[t]:.2f}  pixel agree {agree_pix[t]:.2f}  align err {align[t]:.2f}",
                         (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
             return r
         bases = sorted(set(base)); b0 = bases[len(bases) // 2]
@@ -180,9 +192,9 @@ def main():
     print(f"[grade_offsets] {args.sweep.name}: {N} queries | footprint agree {summary['agree_fp_mean']:.3f} | "
           f"pixel agree {summary['agree_pix_mean']:.3f} | gen-vs-hint {summary['hint_pix_mean']:.3f} | "
           f"coverage {cov.min():.2f}-{cov.max():.2f}")
-    print("axis  bin     n   fp_agree  pix_agree  hint_agree  coverage")
+    print("axis  bin     n   fp_agree  pix_agree  hint_agree  coverage  align_err")
     for r in rows:
-        print(f"{r[0]:<5} {r[1]:<7} {r[2]:3d}   {r[3]:.3f}     {r[4]:.3f}      {r[5]:.3f}      {r[6]:.2f}")
+        print(f"{r[0]:<5} {r[1]:<7} {r[2]:3d}   {r[3]:.3f}     {r[4]:.3f}      {r[5]:.3f}      {r[6]:.2f}      {r[7]:.3f}")
 
 
 if __name__ == "__main__":

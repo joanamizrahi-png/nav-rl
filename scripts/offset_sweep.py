@@ -17,6 +17,7 @@ Writes to --out:
   alpha.npz            alpha  [N,H,W] float32
   frames/q_%04d.png    generated RGB, one per query (lossless, SAM3 reads this
                        directory with --static_scene = every file, in order)
+  raster/q_%04d.png    rasterized colour at the same pose (alignment input)
   rgb.mp4              the same frames as a video, for the eye
 Then:  SAM3 on frames/ -> grade_offsets.py
 
@@ -97,7 +98,7 @@ def main():
     print(f"[offsets] {args.scene}: {len(bases)} base poses x ({len(lats)} lateral + {len(yaws) - 1} yaw) "
           f"= {len(queries)} renders", flush=True)
 
-    args.out.mkdir(parents=True, exist_ok=True); (args.out / "frames").mkdir(exist_ok=True)
+    args.out.mkdir(parents=True, exist_ok=True); (args.out / "frames").mkdir(exist_ok=True); (args.out / "raster").mkdir(exist_ok=True)
     preds, alphas, hints, gens, covs = [], [], [], [], []
     for qi, (b, kind, o, sgn) in enumerate(queries):
         yaw0 = float(yaw_rec[b]); x0, y0 = float(pos[b, 0]), float(pos[b, 1])
@@ -115,9 +116,22 @@ def main():
             _, _, a = raster.forward(world._render_gaussians(sc, t_idx), render_viewmats=[w2c_r], render_Ks=[K1],
                                      render_timestamps=[ts1], sh_degree=0, width=args.width, height=args.height)
         alpha = a[0, 0].float().cpu().numpy().squeeze(-1) if a.ndim == 5 else a[0, 0].float().cpu().numpy()
+        # 2026-09-18 (Joana caught it): LiveDiffusedBackend._rasterize_labels
+        # returns the GENERATED labels right after a render (that is how the
+        # reward reads what the policy saw), so calling it here gave a copy of
+        # `pred` and the "hint" column was the generated labels. Clear the
+        # pending labels first so the parent's raster pass runs.
+        _pend = world._pending_labels; world._pending_labels = None
         hint = world._rasterize_labels(sc, pose_recon, t_idx)
+        world._pending_labels = _pend
         g = np.asarray(gen_rgb)[..., :3].astype(np.uint8)
         cv2.imwrite(str(args.out / "frames" / f"q_{qi:04d}.png"), g[:, :, ::-1])
+        # ALIGNMENT input (2026-09-18): the rasterized colour at the same pose,
+        # so the grader can measure |generated - rasterized| on observed pixels.
+        r_rgb, _, _ = world._rasterize_single(sc, pose_recon, t_idx)
+        r8 = np.asarray(r_rgb)[..., :3]
+        r8 = (r8 * 255.0).astype(np.uint8) if r8.dtype != np.uint8 and float(np.max(r8)) <= 1.0 else r8.astype(np.uint8)
+        cv2.imwrite(str(args.out / "raster" / f"q_{qi:04d}.png"), r8[:, :, ::-1])
         preds.append(pred.astype(np.int8)); alphas.append(alpha.astype(np.float32))
         hints.append(np.asarray(hint).astype(np.int8)); gens.append(g); covs.append(float(world.last_coverage))
         print(f"  q{qi:04d} base {b:2d} {kind} {sgn * o:+6.2f}  cov {covs[-1]:.2f}", flush=True)

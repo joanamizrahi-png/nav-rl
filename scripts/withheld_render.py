@@ -136,7 +136,14 @@ def main():
             _, _, a = raster.forward(world._render_gaussians(sc, t_idx), render_viewmats=[w2c_r], render_Ks=[K1],
                                      render_timestamps=[ts1], sh_degree=0, width=args.width, height=args.height)
         alpha = a[0, 0].float().cpu().numpy().squeeze(-1) if a.ndim == 5 else a[0, 0].float().cpu().numpy()
+        # 2026-09-18 (Joana caught it): LiveDiffusedBackend._rasterize_labels
+        # returns the GENERATED labels right after a render (that is how the
+        # reward reads what the policy saw), so calling it here gave a copy of
+        # `pred` and the "hint" column was the generated labels. Clear the
+        # pending labels first so the parent's raster pass runs.
+        _pend = world._pending_labels; world._pending_labels = None
         hint = world._rasterize_labels(sc, pose_recon, t_idx)
+        world._pending_labels = _pend
         ref = full_labels[w["frame"]]
         if ref.shape != pred.shape:
             ref = cv2.resize(ref.astype(np.uint8), (pred.shape[1], pred.shape[0]), interpolation=cv2.INTER_NEAREST)
