@@ -446,10 +446,21 @@ class WandbImagePanel(BaseCallback):
         (220, 140, 80), (185, 55, 50), (170, 200, 55), (205, 70, 145), (110, 130, 220),
     ], np.uint8)
 
-    def __init__(self, every: int):
+    def __init__(self, every: int, sem_palette: int = 0):
         super().__init__()
         self.every = max(int(every), 1)
         self._n = 0
+        # 2026-09-17 (Joana): colour the labels and the memory strip with the
+        # palette the run decodes with (SEMPAL), the same table the surveys and
+        # the rollout videos use, so a colour means the same class in every
+        # picture of the pipeline. The class-level V14 table above is the
+        # fallback when the taxonomy module is not importable.
+        if int(sem_palette) > 0:
+            try:
+                from diffsynth.utils.class_taxonomy import v14_palette
+                self.V14 = (v14_palette(int(sem_palette)).numpy() * 255).astype(np.uint8)
+            except Exception as e:
+                print(f"[WandbImagePanel] palette {sem_palette} unavailable ({e}); display table", flush=True)
 
     def _on_step(self) -> bool:
         return True
@@ -1831,6 +1842,8 @@ def main():
                          "distance. Pays the same distance-scaled timeout it "
                          "would have received anyway. 0 = off.")
     ap.add_argument("--halt_throttle_eps", type=float, default=0.05)
+    ap.add_argument("--n_steps", type=int, default=128,
+                    help="PPO rollout length per robot (update batch = n_steps x robots)")
     ap.add_argument("--ckpt_every_calls", type=int, default=2000,
                     help="checkpoint every N env calls (x n_envs = steps); 2000 x 4 = 8000 steps")
     ap.add_argument("--reward_source", default="generated",
@@ -2078,7 +2091,11 @@ def main():
         policy_kwargs=policy_kwargs,
         verbose=1, seed=args.seed,
         tensorboard_log=str(args.output_dir / "tensorboard"),
-        n_steps=128, batch_size=64,
+        # NSTEPS (2026-09-17): rollout length per robot. PPO updates on
+        # n_steps x robots env steps, so a 2-GPU arm (8 robots) with 128 updates
+        # on 1024 steps while the 4-GPU run (16 robots) updates on 2048. Set
+        # n_steps=256 on 2-GPU arms so every run updates on the same 2048.
+        n_steps=int(getattr(args, "n_steps", 128)), batch_size=64,
         # v6c: constant lr again. v6b's linear decay produced a NEVER-learned
         # policy (0% at 200k/306k/400k, goal-blind) — the random-goal task needs
         # full-rate learning throughout (v6 only found its peak at 306k). The KL
@@ -2148,7 +2165,8 @@ def main():
                        sync_tensorboard=True, dir=str(args.output_dir))
             callbacks.append(WandbCallback())
             if int(getattr(args, "wandb_images_every", 0)) > 0:
-                callbacks.append(WandbImagePanel(int(args.wandb_images_every)))
+                callbacks.append(WandbImagePanel(int(args.wandb_images_every),
+                                                 sem_palette=int(getattr(args, "sem_palette", 0) or 0)))
         except Exception as e:
             print(f"[train_ppo_real] wandb unavailable ({e}); continuing without")
 
