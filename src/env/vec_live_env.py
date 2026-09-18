@@ -303,7 +303,18 @@ class BatchedLiveDiffusedBackend(LiveDiffusedBackend):
                     for i in range(B):
                         lab, _ = _sem_video_to_labels_and_colorized(sv[i], head=head)
                         labels_per_robot.append(lab[-1].astype(np.int8))
-            if not labels_per_robot:                       # degrade to raster hint
+            if not labels_per_robot:
+                # 2026-09-18 (Joana): was a SILENT degrade to the raster hint;
+                # the single-frame path's version of this fed the whole trust
+                # pipeline hint labels as "generated". Fail loudly unless the
+                # caller opted in -- a reward that is not the generator's must
+                # never pass as one.
+                _sv_shape = getattr(sem_video, "shape", None)
+                _msg = (f"[BatchedLiveDiffusedBackend] no semantic half decoded for B={B}: "
+                        f"sink keys {list(sink)}, sem_video shape {_sv_shape}")
+                if not bool(getattr(self, "allow_hint_fallback", False)):
+                    raise RuntimeError(_msg + " -- set allow_hint_fallback=True to use the raster hint")
+                print(_msg + " -- USING THE RASTER HINT", flush=True)
                 labels_per_robot = [
                     tgt_sem[i, -1].detach().cpu().numpy().astype(np.int8)
                     for i in range(B)]

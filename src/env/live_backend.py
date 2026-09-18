@@ -309,7 +309,14 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         t1 = time.perf_counter()
         sink: dict = {}
         orig_decode = pipe.vae.decode
-        pipe.vae.decode = _make_dual_decode(orig_decode, sink)
+        _dual = _make_dual_decode(orig_decode, sink)
+
+        def _probe_decode(latents, **kw):
+            # 2026-09-18: record what the VAE was asked to decode, so a missing
+            # semantic half can be diagnosed from the log instead of guessed.
+            sink.setdefault("latent_shapes", []).append(tuple(latents.shape))
+            return _dual(latents, **kw)
+        pipe.vae.decode = _probe_decode
         try:
             with torch.no_grad():
                 generated = pipe(
@@ -336,7 +343,17 @@ class LiveDiffusedBackend(CalibratedRealWorldBackend):
         if "sem_video" in sink:
             labels, _ = _sem_video_to_labels_and_colorized(sink["sem_video"], head=head)
             lab_last = labels[-1].astype(np.int8)
-        else:  # checkpoint without semantic output — degrade to raster hint
+        else:
+            # 2026-09-18 (Joana): this used to degrade SILENTLY to the raster
+            # hint. The whole trust pipeline ran through it: every "generated
+            # label" it graded was the hint (panels pixel-identical, A_map =
+            # 1.000 on six pairs). A score that is not the generator's must
+            # never pass as one -- fail loudly unless the caller opted in.
+            _msg = (f"[LiveDiffusedBackend] no semantic half decoded: VAE latent shapes "
+                    f"{sink.get('latent_shapes')} (32 channels expected), sink keys {list(sink)}")
+            if not bool(getattr(self, "allow_hint_fallback", False)):
+                raise RuntimeError(_msg + " -- set allow_hint_fallback=True to use the raster hint instead")
+            print(_msg + " -- USING THE RASTER HINT", flush=True)
             lab_last = target_semantic[0, -1].detach().cpu().numpy().astype(np.int8)
         alpha_last = (target_alpha[0, -1].detach().float().cpu().numpy()
                       > self._alpha_gate_tau).squeeze(-1)
