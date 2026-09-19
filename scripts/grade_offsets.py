@@ -78,7 +78,7 @@ def main():
     fp = footprint_mask(hw[0], hw[1], args.footprint)
 
     agree_pix = np.full(N, np.nan); agree_fp = np.full(N, np.nan); hint_pix = np.full(N, np.nan); fill = np.full(N, np.nan)
-    align = np.full(N, np.nan)          # mean |generated - rasterized| colour on observed pixels, in [0,1]
+    align = np.full(N, np.nan)          # mean |generated - rasterized| color on observed pixels, in [0,1]
     import cv2
     for t in range(N):
         _g = cv2.imread(str(args.sweep / "frames" / f"q_{t:04d}.png")); _r = cv2.imread(str(args.sweep / "raster" / f"q_{t:04d}.png"))
@@ -143,7 +143,7 @@ def main():
             ax[k].plot(x, [r[3] for r in rr], "o-", label="footprint walkable-vs-not (gen vs SAM3 on gen)")
             ax[k].plot(x, [r[4] for r in rr], "s--", label="pixel agreement (gen vs SAM3 on gen)")
             ax[k].plot(x, [r[5] for r in rr], "^:", label="gen vs hint, covered pixels")
-            ax[k].plot(x, [1.0 - r[7] if np.isfinite(r[7]) else np.nan for r in rr], "d-.", label="1 - colour alignment error (gen vs raster)")
+            ax[k].plot(x, [1.0 - r[7] if np.isfinite(r[7]) else np.nan for r in rr], "d-.", label="1 - color alignment error (gen vs raster)")
             ax[k].set_ylim(0, 1); ax[k].grid(alpha=0.3)
             ax[k].set_xlabel({"lat": "lateral offset [m]", "yaw": "turn [deg]", "cov": "coverage"}[axis])
             if axis == "cov":
@@ -168,7 +168,7 @@ def main():
             _rr = cv2.imread(str(args.sweep / "raster" / f"q_{t:04d}.png"))
             _rr = cv2.resize(_rr, (W, H))[:, :, ::-1] if _rr is not None else np.zeros_like(g)
             r = np.ascontiguousarray(np.concatenate([g, _rr, s_, p_, h_, c_], axis=1).astype(np.uint8))
-            for k, nm in enumerate(["GENERATED image", "rasterized colour (hint)", "SAM3 on the generated image",
+            for k, nm in enumerate(["GENERATED image", "rasterized color (hint)", "SAM3 on the generated image",
                                     "GENERATED labels", "rasterized hint labels", "coverage (dark = invented)"]):
                 cv2.putText(r, nm, (k * W + 8, H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)
                 cv2.putText(r, nm, (k * W + 8, H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)

@@ -30,6 +30,12 @@ for label, path in runs:
         cv2.polylines(img, [np.array([px(p) for p in t], np.int32)], False, col, 2, cv2.LINE_AA)
         s = px(t[0]); cv2.circle(img, s, 5, col, -1); cv2.putText(img, str(i), (s[0] + 4, s[1] - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, col, 2, cv2.LINE_AA)
         gp = px(e["goal_xy"]); cv2.drawMarker(img, gp, col, cv2.MARKER_STAR, 16, 2)
+        # dotted straight line spawn -> goal (the naive route), so a detour is visible
+        _n = max(2, int(np.hypot(gp[0] - s[0], gp[1] - s[1]) / 6))
+        for _k in range(0, _n, 2):
+            _a = (int(s[0] + (gp[0] - s[0]) * _k / _n), int(s[1] + (gp[1] - s[1]) * _k / _n))
+            _b = (int(s[0] + (gp[0] - s[0]) * (_k + 1) / _n), int(s[1] + (gp[1] - s[1]) * (_k + 1) / _n))
+            cv2.line(img, _a, _b, col, 1, cv2.LINE_AA)
         cv2.circle(img, gp, int(goal_radius * ppm), col, 1, cv2.LINE_AA)
         cv2.putText(img, e.get("outcome", "?")[:1], (gp[0] + 6, gp[1] + 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, col, 1, cv2.LINE_AA)
     panels.append((img, f"{label.upper()}  {sum(1 for e in eps if e.get('outcome') == 'GOAL')}/{len(eps)} GOAL  mean {np.mean([e['steps'] for e in eps]):.0f} steps  goal radius {goal_radius:.1f} m"))

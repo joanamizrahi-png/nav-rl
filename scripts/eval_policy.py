@@ -191,6 +191,7 @@ def build_env(args):
         random_spawn=True,
         trav_path=args.trav_path,
         collision_terminate_frac=args.collision_terminate_frac,
+        phantom_veto=bool(getattr(args, "phantom_veto", False)),
         collision_terminate_penalty=args.collision_terminate_penalty,
         action_chunk=args.action_chunk,
         footprint_along_motion=args.footprint_along_motion,
@@ -432,6 +433,7 @@ def main():
                     help="render-high/observe-small: match the checkpoint's "
                          "training RENDERH (world at this res, obs downsized)")
     ap.add_argument("--render_width", type=int, default=None)
+    ap.add_argument("--phantom_veto", action="store_true", help="adopted from env_config.json when present")
     ap.add_argument("--collision_terminate_frac", type=float, default=0.0,
                     help="match the policy's training rule; >0 ends the episode "
                          "on a real collision (and it does NOT count as success)")
@@ -497,7 +499,7 @@ def main():
             args._adopted = {}
             for _k in ("step_size_m", "yaw_step_rad", "forward_only",
                        "look_ahead_dist", "goal_radius", "collision_threshold",
-                       "collision_terminate_frac", "collision_terminate_penalty",
+                       "collision_terminate_frac", "collision_terminate_penalty", "phantom_veto",
                        "action_chunk",
                        # 2026-09-02: training rejects goals with no
                        # reconstruction under them (14.5% of draws) and can

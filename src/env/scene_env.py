@@ -245,6 +245,7 @@ class SceneEnvConfig:
     failure_snap_max: int = 200         # cap so long runs don't fill the disk
     failure_snap_min_frac: float = 0.2  # only snapshot substantial overlaps —
                                         # tiny footprint grazes are risk, not collision
+    phantom_veto: bool = False               # 2026-09-19: no crash on ground the fused map knows to be walkable
     collision_terminate_frac: float = 0.0    # >0: footprint overlap at/above this
                                         # ENDS the episode (no goal bonus) — see step().
     collision_terminate_penalty: float = 20.0  # subtracted on crash
@@ -1642,13 +1643,30 @@ class SceneEnv(gym.Env if gym is not None else object):
         # "success 1.0". A real collision must END the episode, like a real
         # robot's would. 0 = off (every result before this date).
         crash = 0.0
+        phantom_vetoed = 0.0
         if self.cfg.collision_terminate_frac > 0.0:
             frac = -float(breakdown.collision) / max(self.cfg.reward.collision, 1e-6)
             _moving = (not bool(self.cfg.crash_requires_motion)) or abs(float(action[0])) >= float(self.cfg.crash_motion_eps)
             if frac >= self.cfg.collision_terminate_frac and _moving:
-                crash = -self.cfg.collision_terminate_penalty
-                truncated = True          # ends the episode, and NOT a success
-                bonus = 0.0
+                # PHANTOM VETO (2026-09-19, Joana: "map veto is not a bad
+                # idea"): the eval of the old A checkpoint found 8/8 crashes
+                # were person/vehicle labels on pavement the fused map knows
+                # to be walkable. With the veto such a step keeps its contact
+                # cost (the policy still learns to avoid it) but does not end
+                # the episode. The map must actually know the footprint
+                # (at most half of it on unknown cells) and its own no-go
+                # share must be below the crash threshold.
+                _mv = getattr(self, "_map_vs_gen", None)
+                _map_knows = (breakdown_map is not None
+                              and float(getattr(breakdown_map, "void_frac", 1.0)) <= 0.5)
+                if (bool(getattr(self.cfg, "phantom_veto", False)) and _mv and _map_knows
+                        and float(_mv.get("map_collision_frac", 1.0)) < self.cfg.collision_terminate_frac):
+                    phantom_vetoed = 1.0
+                    self._phantom_vetoes = int(getattr(self, "_phantom_vetoes", 0)) + 1
+                else:
+                    crash = -self.cfg.collision_terminate_penalty
+                    truncated = True          # ends the episode, and NOT a success
+                    bonus = 0.0
         # VOID TERMINATION (2026-09-01, her concern): with the alpha gate ON,
         # unobserved regions become void and stop counting as collisions — but
         # then "walk into the unobserved" becomes a way to dodge real terrain:
@@ -1769,6 +1787,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             dist_to_goal / self._initial_goal_dist
             if getattr(self, "_initial_goal_dist", 0.0) else float("nan"))
         info["crash"] = crash
+        info["phantom_vetoed"] = phantom_vetoed
         info["halted"] = float(halted)
         info["refusal_bonus"] = float(refusal_term)          # net: bonus paid minus wrong-halt penalty
         info["refusal_paid"] = float(max(refusal_term, 0.0))

@@ -329,7 +329,7 @@ class RewardComponentsCallback(BaseCallback):
                  # 1.0 on the step a HALTED-SAFELY terminal fires, so
                  # diag/halted is the RATE of correct stops -- the first
                  # metric for the behaviour this project is about.
-                 "halted",
+                 "halted", "phantom_vetoed",
                  "image_void_frac", "scene_idx", "rgb_delta",
                  # THE one that was missing: fraction of steps where the
                  # footprint did not project into the image at all. Two evals
@@ -669,6 +669,7 @@ def _dump_env_config(args, cfg):
             "goal_radius": cfg.goal_radius,
             "collision_threshold": cfg.collision_threshold,
             "collision_terminate_frac": cfg.collision_terminate_frac,
+            "phantom_veto": bool(getattr(cfg, "phantom_veto", False)),
             "collision_terminate_penalty": cfg.collision_terminate_penalty,
             "trav_path": cfg.trav_path,
             # 2026-09-02, her question: "for eval, why not do the same spawns
@@ -978,6 +979,7 @@ def _scene_env_cfg(args):
         spin_cost=getattr(args, "spin_cost", 0.05),
         backward_cost=getattr(args, "backward_cost", 0.0),
         collision_terminate_frac=getattr(args, "collision_terminate_frac", 0.0),
+        phantom_veto=bool(getattr(args, "phantom_veto", False)),
         collision_terminate_penalty=getattr(args, "collision_terminate_penalty", 20.0),
         void_terminate_frac=getattr(args, "void_terminate_frac", 0.0),
         void_terminate_penalty=getattr(args, "void_terminate_penalty", 100.0),
@@ -1731,6 +1733,10 @@ def main():
     ap.add_argument("--no_alpha_gate", action="store_true",
                     help="UNGATED reward: trust diffused labels in invented regions too "
                          "(coherence-justified; the gated run is the safety-anchored twin)")
+    ap.add_argument("--phantom_veto", action="store_true",
+                    help="2026-09-19: a crash-level footprint reading on ground the fused map knows to be "
+                         "walkable does not end the episode (the generated no-go label is a phantom); it "
+                         "still pays the per-step contact cost. Needs the map (clouds_dir).")
     ap.add_argument("--collision_terminate_frac", type=float, default=0.0,
                     help="footprint overlap that ENDS the episode (0 = off). "
                          "Without it a whole episode of walking through a tree "
