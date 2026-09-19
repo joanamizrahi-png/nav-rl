@@ -48,7 +48,7 @@ for s in $SCENES; do
             --sem_palette "$SEMPAL" --render_window "$RENDWIN" --coverage_window "$COVWIN" \
             ${STATICMOVERS:+--static_movers "$STATICMOVERS"} \
             --base_every "${BASE_EVERY:-8}" --lat_max "${LAT_MAX:-2.0}" --lat_step "${LAT_STEP:-0.2}" \
-            --yaw_max "${YAW_MAX:-90}" --yaw_step "${YAW_STEP:-10}" --out "$out") \
+            --yaw_max "${YAW_MAX:-90}" --yaw_step "${YAW_STEP:-10}" --history "${HISTORY:-gradual}" --out "$out") \
             || { echo "!!! stage1 FAILED: $s"; continue; }
     fi
     # [2] SAM3 on the generated frames (reads the png directory in file order)

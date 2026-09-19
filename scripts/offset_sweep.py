@@ -63,6 +63,8 @@ def main():
     ap.add_argument("--base_lo", type=int, default=10); ap.add_argument("--base_hi", type=int, default=70)
     ap.add_argument("--lat_max", type=float, default=2.0); ap.add_argument("--lat_step", type=float, default=0.2)
     ap.add_argument("--yaw_max", type=float, default=90.0); ap.add_argument("--yaw_step", type=float, default=10.0)
+    ap.add_argument("--history", choices=["gradual", "cold"], default="gradual",
+                    help="clip history for each query: 4 poses stepping from the base pose to the query (as a robot would), or the cold recorded-frame history")
     args = ap.parse_args()
     import cv2, torch
     from src.env.live_backend import LiveDiffusedBackend
@@ -107,7 +109,23 @@ def main():
         else:
             x, y = x0, y0; yaw = yaw0 + sgn * math.radians(o)
         pose = pose_nav_from_xy_yaw(x, y, yaw)
-        world._pose_hist = []
+        if args.history == "gradual":
+            # 2026-09-19 (Joana: "the yaw is not really working"): with a COLD
+            # history (recorded frames behind the spawn, all facing the walk)
+            # the 5-frame clip is four forward frames plus one turned 90 deg;
+            # the video model keeps the clip continuous and the last frame
+            # comes out un-turned (alignment error 0.06 -> 0.39 on quad2_01).
+            # A robot never jumps like that: it turns 17 deg per step. Give the
+            # query the history it would really have -- four poses stepping
+            # from the base pose to the query.
+            world._pose_hist = []
+            for i in range(1, 5):
+                f = i / 5.0
+                ph = pose_nav_from_xy_yaw(x0 + f * (x - x0), y0 + f * (y - y0), yaw0 + f * (yaw - yaw0))
+                pr, _ = world._pose_nav_to_recon(ph)
+                world._pose_hist.append(pr.astype(np.float32))
+        else:
+            world._pose_hist = []
         gen_rgb, K, w2c = world.render(pose)
         pred = np.asarray(world._last_semantic_raw)
         pose_recon, t_idx = world._pose_nav_to_recon(pose)
