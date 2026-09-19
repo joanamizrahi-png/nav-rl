@@ -1031,6 +1031,14 @@ if [ ${#_base} -gt 200 ]; then
     OUT="$(dirname "$OUT")/${_base:0:170}_h${_h}"
     echo "==> run dir name shortened from ${#_base} chars: $(basename "$OUT")"
 fi
+# 2026-09-19: the run dir is a function of the knobs, so a RELAUNCH with the
+# same knobs (491641 after 491267) landed in the same folder and overwrote the
+# first run's checkpoints and tensorboard events -- "old A" evals were in fact
+# the new run at 50k. Every job now gets its own folder and wandb name.
+if [ -n "${SLURM_JOB_ID:-}" ]; then
+    OUT="${OUT}_j${SLURM_JOB_ID}"
+    LABEL="${LABEL:+${LABEL}-j${SLURM_JOB_ID}}"
+fi
 mkdir -p "$OUT" 2>/dev/null || true
 LEDGER_ENTRY="$(cat <<EOF
 === job ${SLURM_JOB_ID:-nojob}   $(date -Is)   node ${SLURMD_NODENAME:-?}
