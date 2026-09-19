@@ -176,7 +176,11 @@ def main():
                         (8, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
             return r
         bases = sorted(set(base)); b0 = bases[len(bases) // 2]
-        for axis, picks in (("lat", [0.0, 0.6, 1.2, 2.0]), ("yaw", [0.0, 30.0, 60.0, 90.0])):
+        for axis, avail in (("lat", lat_vals), ("yaw", yaw_vals)):
+            # up to 4 offsets spread over what was actually rendered (a short
+            # probe has 0..0.4 m; the full sweep 0..2 m), always including 0
+            avail = sorted(set(float(v) for v in avail))
+            picks = [avail[int(round(i * (len(avail) - 1) / 3))] for i in range(4)] if len(avail) > 4 else avail
             rws = []
             for o in picks:
                 m = (base == b0) & (((kind == axis) & (off == o)) | ((kind == "lat") & (off == 0.0) & (o == 0.0)))
