@@ -310,6 +310,15 @@ if [[ "${WARMSTART:-}" == */LATEST ]]; then
     WARMSTART=$(ls -t "$_wdir"/ppo_*_steps.zip 2>/dev/null | head -1 || true)
     [[ -f "$WARMSTART" ]] || { echo "REFUSED: no checkpoint under $_wdir to continue from"; exit 2; }
     echo "==> continuing from $WARMSTART"
+    # 2026-09-19: the goal-distance curriculum is written to the run's
+    # curriculum_state.json but never read back, so a continuation restarted
+    # at GOALDIST_START. Resume it from the run being continued unless the
+    # caller set GOALDIST_START explicitly.
+    _cst="$(dirname "$_wdir")/curriculum_state.json"
+    if [ -z "${GOALDIST_START:-}" ] && [ -f "$_cst" ]; then
+        GOALDIST_START=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['goal_dist'])" "$_cst" 2>/dev/null || true)
+        [ -n "$GOALDIST_START" ] && echo "==> curriculum resumed at goal_dist=$GOALDIST_START (from $_cst)"
+    fi
 fi
 if [ -n "${WARMSTART:-}" ]; then
     BC_ARGS="$BC_ARGS --warmstart $WARMSTART"

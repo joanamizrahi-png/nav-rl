@@ -45,10 +45,10 @@ def main():
     for run in args.runs:
         series = load_scalars(run)
         name = os.path.basename(run.rstrip("/"))
-        tag = "pathA" if "g4_" in name else ("map" if "rmap" in name or "hyb" in name else
-                                              "memory" if "bm5" in name else "chunk" if "chunk" in name else "?")
+        tag = ("memory" if "bm5" in name else "chunk" if "chunk" in name else
+               "A-map" if ("hyb" in name or "map_then" in name) else "A (4 GPU)" if "_g4_" in name else "A-like (2 GPU)")
         steps = max((s[-1][0] for s in series.values() if s), default=0)
-        print(f"\n== {tag}: {name[:60]}...  ({steps} env steps logged)")
+        print(f"\n== {tag}: ...{name[-48:]}  ({steps} env steps logged)")
         if not series:
             print("   no tensorboard events found"); continue
         for k in args.keys:
