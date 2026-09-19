@@ -538,8 +538,16 @@ class CalibratedRealWorldBackend(RealWorldBackend):
             if cone_yaw is not None:
                 fwd = np.array([np.cos(float(cone_yaw)), np.sin(float(cone_yaw))])
                 ahead = ((pos[:, :2] - np.asarray(spawn_xy)) @ fwd) > 0.0
-                if bool(np.any(ahead & (cost < 1.0))):
-                    cost = np.where(ahead, cost, np.inf)
+                # 2026-09-18 evening: the first version only kept frames ahead
+                # when one lay within 1 m of the target, else fell back to ALL
+                # frames -- near the end of the walk that fallback put 24% of
+                # goals behind the robot (run 491267's probe). Now: whenever any
+                # frame ahead is beyond the minimum separation, the goal is the
+                # ahead frame closest to the target, even if that is shorter
+                # than asked; only a spawn with nothing ahead at all falls back.
+                _ok = ahead & (d >= float(min_sep_m or 0.0))
+                if bool(np.any(_ok)):
+                    cost = np.where(_ok, cost, np.inf)
             frame = lo + int(np.argmin(cost))
             frame = int(np.clip(frame + rng.integers(-2, 3), lo, hi))
             goal = cal.positions[frame].copy()
