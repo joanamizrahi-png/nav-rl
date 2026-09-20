@@ -299,6 +299,15 @@ echo "==> eval: $RUN_NAME / $(basename "$CKPT") scene=$SCENE spawn_max=${SPAWN_M
 # rerun, 467571): keep the head readable, hash the tail. Same rule as the
 # training launcher; the full knob list is in the .out anyway.
 OUT_DIR=/scratch/m000204-pm06b/joana/outputs/eval_${RUN_SHORT}_$(basename "$CKPT" .zip)${OUT_SUFFIX}
+# EVALTAG (2026-09-19, Joana: "the folders are not organized"): with EVALTAG=A_corners the
+# eval lands in outputs/evals/<EVALTAG>/<scene>_<checkpoint>[_goalNN|_gfrA-B]/ instead of one
+# long name among hundreds; the training-run knobs are still recorded in metrics.json.
+if [ -n "${EVALTAG:-}" ]; then
+    _ck=$(basename "$CKPT" .zip | sed 's/ppo_//; s/_steps//')
+    _g="${GOAL_FRAME:+_goal${GOAL_FRAME}}${GOALFRAMERANGE:+_gfr${GOALFRAMERANGE/,/-}}"
+    OUT_DIR=/scratch/m000204-pm06b/joana/outputs/evals/${EVALTAG}/${SCENE}_${_ck}${_g}
+    mkdir -p "$(dirname "$OUT_DIR")"
+fi
 _base=$(basename "$OUT_DIR")
 if [ ${#_base} -gt 200 ]; then
     _h=$(printf '%s' "$_base" | md5sum | cut -c1-8)
