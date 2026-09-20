@@ -70,6 +70,8 @@ class RewardBreakdown:
                                     # own uncertainty signal; drives void-termination
     box_memory_age: float = 0.0     # near box read from the frame this many steps
     memory_hits: int = 0            # stored frames that contained the near box (mean mode averages them)
+    box_memory_hits: tuple = ()     # (age, non-walkable share, projected box uv[4,2]) per stored frame that
+                                    # contained the near box -- what a memory crash was decided on (2026-09-20)
                                     # back (0 = current view, -1 = no stored frame
                                     # contained it -> far-box fallback). Joana's
                                     # t-2 idea, 2026-09-04.
@@ -80,7 +82,9 @@ class RewardBreakdown:
                                       # off-frame would silently disable crashes.
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d.pop("box_memory_hits", None)   # arrays: for the crash strip only, never for the logs
+        return d
 
 
 def _footprint_corners_world(
@@ -274,6 +278,7 @@ def compute_reward(
     collision_off_frame = 0.0
     box_memory_age = 0.0
     memory_hits = 0
+    _hits = []
     if (collision_look_ahead_dist is not None
             and abs(collision_look_ahead_dist - look_ahead_dist) > 1e-6):
         c_corners = _footprint_corners_world(
@@ -326,7 +331,7 @@ def compute_reward(
                     _frac = float((non_traversable_mask[m_classes] & ~m_void).mean())
                 else:
                     _frac = float(non_traversable_mask[m_classes].mean())
-                _hits.append((_age, _frac))
+                _hits.append((_age, _frac, np.asarray(m_uv, dtype=np.float32)))
                 if memory_aggregate != "mean":
                     break
             if _hits:
@@ -334,7 +339,7 @@ def compute_reward(
                 # shares over every frame that contained the box, so one frame's
                 # label noise cannot decide a crash on its own
                 box_memory_age = float(_hits[0][0])
-                collision_frac = (float(np.mean([f for _, f in _hits])) if memory_aggregate == "mean"
+                collision_frac = (float(np.mean([f for _, f, _uv in _hits])) if memory_aggregate == "mean"
                                   else float(_hits[0][1]))
                 c_ok = True
                 memory_hits = len(_hits)
@@ -373,6 +378,7 @@ def compute_reward(
         collision_off_frame=float(collision_off_frame),
         box_memory_age=float(box_memory_age),
         memory_hits=int(memory_hits),
+        box_memory_hits=tuple(_hits) if memory_hits else (),
         dominant_class_id=dominant_class_id,
         off_frame_frac=off_frame_frac,
         void_frac=float(void_frac),

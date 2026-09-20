@@ -554,12 +554,71 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._last_K: Optional[np.ndarray] = None
         self._last_w2c: Optional[np.ndarray] = None
         self._failure_snaps = 0
+        self._memory_strips = 0
         # x4/x8 runs put N envs behind one failure_snap_dir, each with its own
         # counter — so robot 0 and robot 1 both wrote collision_0000_... and
         # silently overwrote each other. Every env gets a tag (2026-09-01).
         global _ENV_SEQ
         _ENV_SEQ += 1
         self._env_tag = _ENV_SEQ
+
+    def _save_memory_crash_strip(self, breakdown) -> None:
+        """One picture per memory-decided crash: [current view | stored frame age 1 | age 2 ...],
+        each stored frame colorized with the near box drawn and its non-walkable share; the
+        header carries the mean the crash rule compared against the threshold."""
+        from pathlib import Path as _Path
+        try:
+            from ..eval.reward_2d import _footprint_corners_world, _project_points, GO2_BODY_LENGTH, GO2_BODY_WIDTH
+            from ..eval.palette import CLASS_COLORS_V14_255
+            out = _Path(self.cfg.failure_snap_dir); out.mkdir(parents=True, exist_ok=True)
+            pal = CLASS_COLORS_V14_255
+            fm = getattr(self, "_frame_memory", None) or []
+            rgb = self._last_rgb
+            H, W = rgb.shape[:2]
+            panels = []
+            cur = rgb.copy()
+            pose = self._robot_pose_world
+            hd = getattr(self, "_last_fp_heading", None)
+            if hd is None:
+                hd = pose[:3, :3] @ np.array([1.0, 0.0, 0.0])
+            _la = getattr(self.cfg, "collision_look_ahead_m", None) or self.cfg.look_ahead_dist
+            corners = _footprint_corners_world(pose[:3, 3], hd, look_ahead_dist=float(_la),
+                                               length=GO2_BODY_LENGTH, width=GO2_BODY_WIDTH)
+            uv, in_front = _project_points(corners, self._last_K, self._last_w2c)
+            if in_front.all():
+                cv2.polylines(cur, [uv.astype(np.int32)], True, (255, 255, 0), 2, cv2.LINE_AA)
+            cv2.putText(cur, "NOW (box below the camera)", (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+            panels.append(cur)
+            shares = []
+            for age, frac, buv in breakdown.box_memory_hits:
+                idx = len(fm) - int(age)
+                if idx < 0 or idx >= len(fm):
+                    continue
+                m_sem = fm[idx][0]
+                col = pal[np.clip(np.asarray(m_sem), 0, len(pal) - 1)].astype(np.uint8)
+                if col.shape[:2] != (H, W):
+                    sy, sx = H / col.shape[0], W / col.shape[1]
+                    col = cv2.resize(col, (W, H), interpolation=cv2.INTER_NEAREST)
+                    buv = np.asarray(buv, np.float32) * np.array([sx, sy], np.float32)
+                col = np.ascontiguousarray(col)
+                cv2.polylines(col, [np.asarray(buv).astype(np.int32)], True, (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(col, f"age {int(age)}  non-walkable {frac:.2f}", (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)
+                cv2.putText(col, f"age {int(age)}  non-walkable {frac:.2f}", (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+                panels.append(col); shares.append(float(frac))
+            if not shares:
+                return
+            panel = np.concatenate(panels, axis=1)
+            bar = np.zeros((28, panel.shape[1], 3), dtype=np.uint8)
+            agg = str(getattr(self.cfg, "collision_box_memory_agg", "newest"))
+            used = float(np.mean(shares)) if agg == "mean" else shares[0]
+            cv2.putText(bar, f"MEMORY CRASH  {self._scene_id}  step {self._steps}  {len(shares)} stored frame(s) contain the box  "
+                             f"{agg} share {used:.2f} >= threshold {self.cfg.collision_terminate_frac:.2f}",
+                        (6, 19), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (80, 80, 255), 1, cv2.LINE_AA)
+            img = np.concatenate([bar, panel], axis=0)
+            cv2.imwrite(str(out / f"crash_memory_e{self._env_tag:02d}_{self._memory_strips:04d}_{self._scene_id}_step{self._steps:03d}.png"), img[:, :, ::-1])
+            self._memory_strips += 1
+        except Exception as _e:  # a picture must never end a training step
+            print(f"[memory strip] skipped: {_e}", flush=True)
 
     def _save_failure_snapshot(self, breakdown, semantic_image) -> None:
         """One PNG per collision: [obs RGB | v14-colorized semantics], with the
@@ -1571,6 +1630,18 @@ class SceneEnv(gym.Env if gym is not None else object):
                 and breakdown.collision < -self.cfg.failure_snap_min_frac
                 and self._failure_snaps < self.cfg.failure_snap_max):
             self._save_failure_snapshot(breakdown, semantic_image)
+        # MEMORY CRASH STRIP (2026-09-20, Joana: "visualize the crash footprint
+        # from the previous frames it looked at"): when a crash-level reading
+        # was decided from stored frames, save every stored frame that
+        # contained the near box, with the box drawn and its share, beside the
+        # current view. Saved BEFORE the memory buffer takes the current frame,
+        # so age N here is the same frame age N the reward read.
+        if (self.cfg.failure_snap_dir is not None
+                and int(getattr(breakdown, "memory_hits", 0)) > 0
+                and self.cfg.collision_terminate_frac > 0.0
+                and -float(breakdown.collision) / max(self.cfg.reward.collision, 1e-6) >= self.cfg.collision_terminate_frac
+                and self._memory_strips < self.cfg.failure_snap_max):
+            self._save_memory_crash_strip(breakdown)
 
         # ---- apply the action to advance the robot pose ----
         if int(self.cfg.collision_box_memory) > 0:
