@@ -75,7 +75,8 @@ def build_env(args):
         render_window=int(getattr(args, "render_window", 0) or 0),
         coverage_window=int(getattr(args, "coverage_window", 0) or 0),
         spawn_heading_from_walk=bool(getattr(args, "spawn_heading_from_walk", False)),
-        spawn_frames_by_scene=str(getattr(args, "spawn_frames", "") or ""),
+        spawn_frames_by_scene=_clip_spawn_frames(str(getattr(args, "spawn_frames", "") or ""),
+                                                 args.spawn_min_frame, args.spawn_max_frame),
         # 2026-09-07: the backend palette was never set in evals (default v1)
         # while training passes --sem_palette 4; see the log line "active palette"
         sem_palette_version=int(getattr(args, "sem_palette", 4)),
@@ -217,6 +218,28 @@ def _pose_xyyaw(env) -> list:
     return [round(float(P[0, 3]), 3), round(float(P[1, 3]), 3),
             round(float(np.arctan2(P[1, 0], P[0, 0])), 3)]
 
+
+
+def _clip_spawn_frames(spec: str, lo, hi) -> str:
+    """2026-09-19 (Joana: "spawns are not where we decided"): the training run's
+    spawn-frame list is adopted from env_config.json and, being an explicit
+    list, it overrode SPAWN_MIN/SPAWN_MAX -- corner evals spawned anywhere in
+    5..60 and half the goals ended up behind the robot. Keep the adopted list
+    (unflagged frames) but intersect it with the requested range."""
+    if not spec:
+        return spec
+    lo = int(lo or 0); hi = int(hi) if hi is not None else 10 ** 9
+    out = []
+    for part in spec.split(";"):
+        if ":" not in part:
+            continue
+        sc, fr = part.split(":", 1)
+        keep = [f for f in fr.split(",") if f.strip() and lo <= int(f) <= hi]
+        if keep:
+            out.append(f"{sc}:{','.join(keep)}")
+    kept = ";".join(out)
+    print(f"[eval] spawn frames clipped to [{lo}, {hi}]: {kept[:120]}{'...' if len(kept) > 120 else ''}", flush=True)
+    return kept
 
 def main():
     ap = argparse.ArgumentParser()

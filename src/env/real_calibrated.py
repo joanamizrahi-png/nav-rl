@@ -553,13 +553,22 @@ class CalibratedRealWorldBackend(RealWorldBackend):
             goal = cal.positions[frame].copy()
             goal[2] = 0.0
             return goal.astype(np.float32)
+        # 2026-09-19: the plain frame-range draw (evals, no curriculum) now also
+        # keeps goals IN FRONT of the spawn heading when one is given; the eval
+        # of 09-19 drew half its goals behind a forward-only robot through here.
+        _fwd = (np.array([np.cos(float(cone_yaw)), np.sin(float(cone_yaw))])
+                if cone_yaw is not None else None)
         goal = None
-        for _ in range(20):
+        for _try in range(60):
             frame = int(rng.integers(lo, hi + 1))
             goal = cal.positions[frame].copy()
             goal[2] = 0.0
-            if np.linalg.norm(goal[:2] - np.asarray(spawn_xy)) >= min_sep_m:
-                break
+            d_vec = goal[:2] - np.asarray(spawn_xy)
+            if np.linalg.norm(d_vec) < min_sep_m:
+                continue
+            if _fwd is not None and _try < 50 and float(d_vec @ _fwd) <= 0.0:
+                continue
+            break
         return goal.astype(np.float32)
 
     # ---------- label attachment (SAM3 -> Gaussians) ----------
