@@ -1213,10 +1213,13 @@ class SceneEnv(gym.Env if gym is not None else object):
         rng = np.random.default_rng(seed)
         wb = self.world_backend
         out = {}
+        self._probe_corner = {}     # 2026-09-21: corner-episode share + bend at the goal, per scene
         for sid in self.scene_ids:
-            errs = []
+            errs = []; bends = []; corner_n = 0
+            cal = getattr(wb, "_calib", {}).get(sid)
             for _ in range(int(n)):
                 pose = wb.sample_start_pose(sid, rng)
+                _corner = bool(getattr(wb, "_corner_episode", False))
                 yaw = float(np.arctan2(pose[1, 0], pose[0, 0]))
                 cone = (wb.last_spawn_base_yaw()
                         if hasattr(wb, "last_spawn_base_yaw") else None)
@@ -1225,10 +1228,25 @@ class SceneEnv(gym.Env if gym is not None else object):
                 d = g[:2] - pose[:2, 3]
                 e = float(np.arctan2(d[1], d[0])) - yaw
                 errs.append(abs(np.degrees((e + np.pi) % (2 * np.pi) - np.pi)))
+                if _corner and cal is not None:
+                    # bend = walk direction at the goal frame vs at the spawn frame
+                    P = np.asarray(cal.positions)[:, :2]
+                    fs = int(np.argmin(np.linalg.norm(P - pose[:2, 3], axis=1)))
+                    fg = int(np.argmin(np.linalg.norm(P - g[:2], axis=1)))
+                    d0, d1 = cal.walk_direction(fs), cal.walk_direction(fg)
+                    if d0 is not None and d1 is not None:
+                        c = float(np.clip(np.dot(np.asarray(d0[:2]), np.asarray(d1[:2])), -1.0, 1.0))
+                        bends.append(float(np.degrees(np.arccos(c)))); corner_n += 1
+                        if len(bends) <= 3:
+                            self._probe_corner.setdefault(sid + "_examples", []).append((fs, fg, round(bends[-1])))
             e = np.asarray(errs)
             out[sid] = (float(e.mean()), float(e.max()),
                         float(100.0 * (e > 90).mean()))
+            self._probe_corner[sid] = (100.0 * corner_n / max(int(n), 1), float(np.mean(bends)) if bends else float("nan"))
         return out
+
+    def goal_corner_probe_result(self) -> dict:
+        return dict(getattr(self, "_probe_corner", {}))
 
     def set_goal_dist(self, d: float) -> "tuple | None":
         """Distance-curriculum hook (2026-08-29, Joana: E must bootstrap like
@@ -1910,6 +1928,10 @@ class SceneEnv(gym.Env if gym is not None else object):
         return self._obs(), reward, terminated, truncated, info
 
     def render(self):
+        # what the POLICY sees: in a mirrored episode the image is flipped (2026-09-21, so that
+        # rollout videos show the policy's view; the failure snapshots keep the world view)
+        if getattr(self, "_mirrored", False) and self._last_rgb is not None:
+            return self._last_rgb[:, ::-1]
         return self._last_rgb
 
     # ---------------- helpers ----------------

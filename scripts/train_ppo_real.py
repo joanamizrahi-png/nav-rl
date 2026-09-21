@@ -902,6 +902,21 @@ def _goal_cone_banner(env, n: int = 500) -> None:
               f"NOT centred on the recorded spawn heading in this run.")
     else:
         print("OK: no goal starts behind the robot on any scene.")
+    # corner episodes (2026-09-21): share of draws that spawned before a bend and aimed beyond it,
+    # the mean bend between spawn and goal, and three examples (spawn frame, goal frame, bend)
+    try:
+        cr = env.env_method("goal_corner_probe_result")[0]
+        rows = [(sid, v) for sid, v in cr.items() if not sid.endswith("_examples")]
+        if rows and any(v[0] > 0 for _, v in rows):
+            print("=== CORNER EPISODES (same draws) ===")
+            print(f"{'scene':<16}{'corner %':>10}{'mean bend':>11}   examples (spawn->goal frame, bend deg)")
+            for sid, (pct, mb) in sorted(rows):
+                ex = cr.get(sid + "_examples", [])
+                print(f"{sid:<16}{pct:9.0f}%{mb:10.0f}   {ex}")
+            tot = float(np.mean([v[0] for _, v in rows]))
+            print(f"corner episodes over all scenes: {tot:.0f}% of draws (bend scenes fire, straight walks fall back)")
+    except Exception as _e:
+        print(f"[corner probe] unavailable: {_e}")
     print(flush=True)
 
 
@@ -1381,6 +1396,8 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
 
         # --- HUD banner ---
         draw.rectangle([0, 0, W, 14], fill=(0, 0, 0, 180))
+        if bool(getattr(base_env, "_mirrored", False)):
+            draw.text((W - 190, 2), "MIRRORED EPISODE (policy view)", fill=(255, 80, 80, 255))
         draw.text((4, 2), f"t={len(frames):3d} v={float(action[0]):+.2f} "
                           f"w={float(action[1]):+.2f} r={float(r):+.2f} "
                           f"dist={info.get('dist_to_goal', float('nan')):.1f}m "
@@ -1391,6 +1408,8 @@ def save_rollout_video(model, env, out_path: Path, max_frames=120,
                   fill=(255, 255, 255, 255))
         frame = np.array(img.convert("RGB"))
         fp_uv = _footprint_uv(base_env, world, action)
+        if fp_uv is not None and bool(getattr(base_env, "_mirrored", False)):
+            fp_uv = fp_uv.copy(); fp_uv[:, 0] = (frame.shape[1] - 1) - fp_uv[:, 0]   # mirrored view
         if fp_uv is not None:
             import cv2 as _cv
             _cv.polylines(frame, [fp_uv.astype(np.int32)], True, (255, 255, 0), 2, _cv.LINE_AA)
