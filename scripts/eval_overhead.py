@@ -21,6 +21,14 @@ panels = []
 cols = [(0, 0, 255), (0, 160, 0), (255, 0, 0), (0, 200, 255), (255, 0, 255), (0, 120, 255), (128, 0, 128), (0, 255, 0), (255, 128, 0), (60, 60, 60)]
 for label, path in runs:
     img = img0.copy(); cv2.polylines(img, [np.array([px(w) for w in walk], np.int32)], False, (0, 90, 230), 2, cv2.LINE_AA)
+    # FRAMETICKS=N (2026-09-21, Joana: "select good scenes"): number the walk every N recorded frames
+    # so spawn and goal frames can be chosen from the picture
+    _ft = int(os.environ.get("FRAMETICKS", "0") or 0)
+    if _ft > 0:
+        for _i in range(0, len(walk), _ft):
+            _p = px(walk[_i]); cv2.circle(img, _p, 3, (0, 60, 160), -1)
+            cv2.putText(img, str(_i), (_p[0] + 4, _p[1] - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(img, str(_i), (_p[0] + 4, _p[1] - 3), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 255, 255), 1, cv2.LINE_AA)
     eps = json.load(open(path))["episodes"]
     import os as _os
     _ec = _os.path.join(_os.path.dirname(path), "env_config.json")
@@ -38,7 +46,8 @@ for label, path in runs:
             cv2.line(img, _a, _b, col, 1, cv2.LINE_AA)
         cv2.circle(img, gp, int(goal_radius * ppm), col, 1, cv2.LINE_AA)
         cv2.putText(img, e.get("outcome", "?")[:1], (gp[0] + 6, gp[1] + 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, col, 1, cv2.LINE_AA)
-    panels.append((img, f"{label.upper()}  {sum(1 for e in eps if e.get('outcome') == 'GOAL')}/{len(eps)} GOAL  mean {np.mean([e['steps'] for e in eps]):.0f} steps  goal radius {goal_radius:.1f} m"))
+    panels.append((img, (f"{label.upper()}  {sum(1 for e in eps if e.get('outcome') == 'GOAL')}/{len(eps)} GOAL  mean {np.mean([e['steps'] for e in eps]):.0f} steps  goal radius {goal_radius:.1f} m")
+                   if eps else f"{scene}  map + recorded walk, frame numbers every {_ft or 0}"))
 # crop all panels to the bounding box of walk + trajectories + goals (same crop for both), with margin
 pts = [] if ZOOM else [px(w) for w in walk]
 for _, path in runs:
