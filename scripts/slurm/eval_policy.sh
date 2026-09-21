@@ -285,8 +285,16 @@ if [[ "${LIVE:-0}" == "1" ]]; then
     # checkpoint's TRAINING table or the eval measures a different task —
     # the default v14 table scores grass 0.75 (walkable!), while the J-arms
     # train with grass 0.0. Default kept for backwards compatibility.
-    EXTRA_ARGS+=(--live --trav_path "${TRAV:-config/traversability_v14.yaml}")
-    echo "==> eval traversability table: ${TRAV:-config/traversability_v14.yaml}"
+    # 2026-09-20: the default v14 table (grass 0.75, vegetation 0.2) scored a whole day of
+    # evals of walkway-trained arms: 18 steps on a lawn without a crash. The eval now ADOPTS
+    # the training table from env_config.json when TRAV is not given; TRAV forces a table.
+    EXTRA_ARGS+=(--live)
+    if [[ -n "${TRAV:-}" ]]; then
+        EXTRA_ARGS+=(--trav_path "$TRAV")
+        echo "==> eval traversability table FORCED: $TRAV"
+    else
+        echo "==> eval traversability table: adopted from the checkpoint's env_config.json"
+    fi
     if [[ -n "${LIVECKPT:-}" ]]; then
         EXTRA_ARGS+=(--live_ckpt "$LIVECKPT")
     fi

@@ -492,6 +492,26 @@ def main():
             print(f"[eval] adoption SKIPPED (--no_adopt): env built from the CLI, not from {_ec}", flush=True)
         elif _ec.exists():
             _tr = _json.loads(_ec.read_text())
+            # TRAVERSABILITY TABLE (2026-09-20): a whole day of evals scored walkway-trained
+            # arms with the launcher's default v14 table (grass 0.75, vegetation 0.2 = walkable):
+            # A 60k walked 18 steps on a lawn without a crash. The table is adopted from
+            # training unless the CLI names one; a CLI table that differs from training is
+            # refused unless --force_env_keys names trav_path.
+            _tt = _tr.get("trav_path")
+            _fk = set(v.strip() for v in str(getattr(args, "force_env_keys", "") or "").split(",") if v.strip())
+            if args.trav_path is None and _tt:
+                args.trav_path = _tt
+                print(f"[eval] traversability table adopted from training: {_tt}", flush=True)
+            elif args.trav_path is not None and _tt and str(args.trav_path) != str(_tt) and "trav_path" not in _fk:
+                raise SystemExit(f"REFUSED: --trav_path {args.trav_path} differs from the training table {_tt}; "
+                                 f"drop TRAV to adopt it, or add trav_path to --force_env_keys to score a different task on purpose")
+            try:
+                from src.eval.traversability import load_traversability as _lt
+                _sc = _lt(str(args.trav_path))
+                print(f"[eval] traversability table: {args.trav_path}  grass={float(_sc[3]):.2f} vegetation={float(_sc[11]):.2f} "
+                      f"(non-walkable = score <= {getattr(args, 'collision_threshold', 0.1)})", flush=True)
+            except Exception as _e:
+                print(f"[eval] traversability table: {args.trav_path} (could not print scores: {_e})", flush=True)
             # collision_terminate_* belong here too: training ENDS the
             # episode at >=0.35 footprint non-traversable, eval defaulted to 0
             # and let the policy keep walking through terrain that would have
