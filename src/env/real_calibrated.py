@@ -203,6 +203,12 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # width in metres and the range becomes (max(lo0, hi - width), hi), so
     # trivially close goals retire as the far end grows.
     goal_dist_window_m: "float | None" = None
+    # CORNER GOALS (2026-09-21, Joana: "give them more corners"): with probability goal_turn_mix a
+    # path goal must lie beyond a bend of the walk: the walk direction at the goal frame differs
+    # from the direction at the spawn frame by at least goal_turn_deg. Falls back to the plain
+    # draw when no frame in the distance band satisfies it (straight walks). 0 = off.
+    goal_turn_deg: float = 0.0
+    goal_turn_mix: float = 0.0
     # Cone constraint (2026-08-31, her spin sweep verdict: single-pass capture
     # only supports a forward viewing cone — backward views render the backs
     # of one-sided splats and the reward labels there are garbage). Goals are
@@ -535,6 +541,33 @@ class CalibratedRealWorldBackend(RealWorldBackend):
             # the spawn heading (cone_yaw = the heading the robot spawns with);
             # fall back to all frames when nothing ahead is within 1 m of target.
             cost = np.abs(d - target)
+            # corner goals: restrict to frames beyond a bend (see cfg.goal_turn_deg)
+            _turn_deg = float(getattr(self.cfg, "goal_turn_deg", 0.0) or 0.0)
+            _turn_mix = float(getattr(self.cfg, "goal_turn_mix", 0.0) or 0.0)
+            _corner_draw = _turn_deg > 0.0 and _turn_mix > 0.0 and float(rng.random()) < _turn_mix
+            self._goal_turn_tries = int(getattr(self, "_goal_turn_tries", 0)) + int(_corner_draw)
+            if _corner_draw:
+                _sp = lo + int(np.argmin(d))                       # recorded frame nearest the spawn
+                _d0 = self.walk_direction(_sp)
+                if _d0 is not None:
+                    _bend = np.full(len(pos), np.inf)
+                    for _k in range(len(pos)):
+                        _dk = self.walk_direction(lo + _k)
+                        if _dk is None:
+                            continue
+                        _c = float(np.clip(np.dot(_d0[:2], _dk[:2]), -1.0, 1.0))
+                        _bend[_k] = float(np.degrees(np.arccos(_c)))
+                    _band = (d >= float(rng_lo_hi[0])) & (d <= float(rng_lo_hi[1])) if rng_lo_hi else np.ones(len(pos), bool)
+                    _cand = (_bend >= _turn_deg) & (_bend <= 150.0) & _band
+                    if cone_yaw is not None:
+                        _fwd0 = np.array([np.cos(float(cone_yaw)), np.sin(float(cone_yaw))])
+                        _cand &= ((pos[:, :2] - np.asarray(spawn_xy)) @ _fwd0) > 0.0
+                    if bool(np.any(_cand)):
+                        cost = np.where(_cand, cost, np.inf)
+                        self._goal_turn_hits = int(getattr(self, "_goal_turn_hits", 0)) + 1
+                if self._goal_turn_tries % 100 == 0:
+                    print(f"[goals] corner draws {int(getattr(self, '_goal_turn_hits', 0))}/{self._goal_turn_tries} "
+                          f"found a frame beyond a {_turn_deg:.0f} deg bend in the band", flush=True)
             if cone_yaw is not None:
                 fwd = np.array([np.cos(float(cone_yaw)), np.sin(float(cone_yaw))])
                 ahead = ((pos[:, :2] - np.asarray(spawn_xy)) @ fwd) > 0.0
@@ -545,9 +578,13 @@ class CalibratedRealWorldBackend(RealWorldBackend):
                 # frame ahead is beyond the minimum separation, the goal is the
                 # ahead frame closest to the target, even if that is shorter
                 # than asked; only a spawn with nothing ahead at all falls back.
-                _ok = ahead & (d >= float(min_sep_m or 0.0))
+                _ok = ahead & (d >= float(min_sep_m or 0.0)) & np.isfinite(cost)
                 if bool(np.any(_ok)):
                     cost = np.where(_ok, cost, np.inf)
+                elif bool(np.any(ahead & (d >= float(min_sep_m or 0.0)))):
+                    # corner restriction left nothing ahead: drop it, keep the ahead rule
+                    _ok = ahead & (d >= float(min_sep_m or 0.0))
+                    cost = np.where(_ok, np.abs(d - target), np.inf)
             frame = lo + int(np.argmin(cost))
             frame = int(np.clip(frame + rng.integers(-2, 3), lo, hi))
             goal = cal.positions[frame].copy()

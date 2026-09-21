@@ -588,6 +588,8 @@ def make_env(args):
         goal_dist_range=(tuple(float(v) for v in args.goal_dist_range.split(","))
                          if getattr(args, "goal_dist_range", None) else None),
         goal_dist_window_m=getattr(args, "goal_dist_window", None),
+        goal_turn_deg=float(getattr(args, "goal_turn_deg", 0.0) or 0.0),
+        goal_turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
@@ -661,6 +663,8 @@ def _dump_env_config(args, cfg):
             "collision_box_memory": getattr(cfg, "collision_box_memory", 0),
             "collision_box_memory_agg": getattr(cfg, "collision_box_memory_agg", "newest"),
             "collision_box_memory_always": bool(getattr(cfg, "collision_box_memory_always", False)),
+            "goal_turn_deg": float(getattr(cfg, "goal_turn_deg", 0.0) or 0.0),
+            "goal_turn_mix": float(getattr(cfg, "goal_turn_mix", 0.0) or 0.0),
             "collision_at_next_pose": bool(getattr(cfg, "collision_at_next_pose", False)),
             "look_ahead_auto": bool(getattr(cfg, "look_ahead_auto", False)),
             "footprint_next_heading": bool(getattr(cfg, "footprint_next_heading", False)),
@@ -1080,6 +1084,8 @@ def make_live_vec_env(args):
         goal_dist_range=(tuple(float(v) for v in args.goal_dist_range.split(","))
                          if getattr(args, "goal_dist_range", None) else None),
         goal_dist_window_m=getattr(args, "goal_dist_window", None),
+        goal_turn_deg=float(getattr(args, "goal_turn_deg", 0.0) or 0.0),
+        goal_turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
@@ -1789,6 +1795,8 @@ def main():
                          "or the MEAN over every stored frame containing it (2026-09-16, Joana)")
     ap.add_argument("--collision_box_memory_always", action="store_true",
                     help="average the current frame's box reading with the stored frames even when the box is visible now (2026-09-20)")
+    ap.add_argument("--goal_turn_deg", type=float, default=0.0, help="corner goals: minimum bend of the walk between spawn and goal frame (0 = off)")
+    ap.add_argument("--goal_turn_mix", type=float, default=0.0, help="share of episodes that draw a corner goal when one exists in the band")
     ap.add_argument("--collision_box_memory", type=int, default=0,
                     help="read the near box from the newest of the last N generated frames that contains it (0 = off)")
     ap.add_argument("--collision_look_ahead", type=float, default=0.0,
