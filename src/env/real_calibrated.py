@@ -317,6 +317,34 @@ class CalibratedRealWorldBackend(RealWorldBackend):
     def start_pose(self, scene_id: str) -> np.ndarray:
         return self._calib[scene_id].robot_pose_nav(0)
 
+    def _corner_spawn_frames(self, scene_id: str, frames, rng_lo_hi) -> list:
+        """Frames of `frames` that have a bend of >= cfg.goal_turn_deg within the goal band ahead
+        of them (2026-09-21, Joana: "THERE'S A CORNER THERE": the corner rule can only pick a
+        goal beyond a bend when the spawn is BEFORE the bend; the spawn draw must know that)."""
+        cal = self._calib[scene_id]
+        turn = float(getattr(self.cfg, "goal_turn_deg", 0.0) or 0.0)
+        if turn <= 0.0 or not frames:
+            return []
+        pos = np.asarray(cal.positions)[:, :2]
+        dirs = [cal.walk_direction(k) for k in range(len(pos))]
+        lo_d, hi_d = (float(rng_lo_hi[0]), float(rng_lo_hi[1])) if rng_lo_hi else (1.0, 1e9)
+        keep = []
+        for f in frames:
+            d0 = dirs[f]
+            if d0 is None:
+                continue
+            d = np.linalg.norm(pos - pos[f], axis=1)
+            fwd = np.asarray(d0[:2])
+            ahead = ((pos - pos[f]) @ fwd) > 0.0
+            for k in range(f + 1, len(pos)):
+                if not ahead[k] or d[k] < lo_d or d[k] > hi_d or dirs[k] is None:
+                    continue
+                c = float(np.clip(np.dot(fwd, np.asarray(dirs[k][:2])), -1.0, 1.0))
+                bend = float(np.degrees(np.arccos(c)))
+                if turn <= bend <= 150.0:
+                    keep.append(f); break
+        return keep
+
     def sample_start_pose(self, scene_id: str, rng) -> np.ndarray:
         """Spawn curriculum: a random pose along the REAL trajectory, upstream
         of the goal (so some spawns are near it -> early successes to learn from).
@@ -347,6 +375,21 @@ class CalibratedRealWorldBackend(RealWorldBackend):
                     _lists[k.strip()] = [int(x) for x in v.split(",") if x.strip()]
             if scene_id in _lists and _lists[scene_id]:
                 _fr = [f for f in _lists[scene_id] if 0 <= f < len(cal.positions) - 1]
+                # corner episode? decided HERE, once per episode, and read by sample_goal_position
+                _mix = float(getattr(self.cfg, "goal_turn_mix", 0.0) or 0.0)
+                self._corner_episode = bool(float(getattr(self.cfg, "goal_turn_deg", 0.0) or 0.0) > 0.0
+                                            and _mix > 0.0 and float(rng.random()) < _mix)
+                if self._corner_episode:
+                    _pre = self._corner_spawn_frames(scene_id, _fr, getattr(self.cfg, "goal_dist_range", None))
+                    self._corner_spawn_stats = getattr(self, "_corner_spawn_stats", [0, 0])
+                    self._corner_spawn_stats[1] += 1
+                    if _pre:
+                        _fr = _pre; self._corner_spawn_stats[0] += 1
+                    else:
+                        self._corner_episode = False      # straight walk in this band: plain episode
+                    if self._corner_spawn_stats[1] % 100 == 0:
+                        print(f"[goals] corner episodes {self._corner_spawn_stats[0]}/{self._corner_spawn_stats[1]} "
+                              f"had a spawn before a bend (band {getattr(self.cfg, 'goal_dist_range', None)})", flush=True)
                 if not getattr(self, "_spawn_list_announced", {}).get(scene_id):
                     if not hasattr(self, "_spawn_list_announced"):
                         self._spawn_list_announced = {}
@@ -544,7 +587,8 @@ class CalibratedRealWorldBackend(RealWorldBackend):
             # corner goals: restrict to frames beyond a bend (see cfg.goal_turn_deg)
             _turn_deg = float(getattr(self.cfg, "goal_turn_deg", 0.0) or 0.0)
             _turn_mix = float(getattr(self.cfg, "goal_turn_mix", 0.0) or 0.0)
-            _corner_draw = _turn_deg > 0.0 and _turn_mix > 0.0 and float(rng.random()) < _turn_mix
+            _corner_draw = bool(getattr(self, "_corner_episode", False)) if _turn_deg > 0.0 and _turn_mix > 0.0 else False
+            self._corner_episode = False                  # consumed by this draw
             self._goal_turn_tries = int(getattr(self, "_goal_turn_tries", 0)) + int(_corner_draw)
             if _corner_draw:
                 _sp = lo + int(np.argmin(d))                       # recorded frame nearest the spawn
