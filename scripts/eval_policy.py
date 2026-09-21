@@ -108,6 +108,7 @@ def build_env(args):
         collision_look_ahead_m=args.collision_look_ahead,
         collision_box_memory=int(getattr(args, "collision_box_memory", 0)),
         collision_box_memory_agg=str(getattr(args, "collision_box_memory_agg", "newest") or "newest"),
+        collision_box_memory_always=bool(getattr(args, "collision_box_memory_always", False)),
         collision_at_next_pose=bool(getattr(args, "collision_at_next_pose", False)),
         look_ahead_auto=bool(getattr(args, "look_ahead_auto", False)),
         footprint_next_heading=bool(getattr(args, "footprint_next_heading", False)),
@@ -387,6 +388,7 @@ def main():
     ap.add_argument("--collision_box_memory", type=int, default=0)
     ap.add_argument("--collision_box_memory_agg", type=str, default="newest", choices=("newest", "mean"),
                     help="adopted from env_config.json when present (memory arm trains with mean; 2026-09-20)")
+    ap.add_argument("--collision_box_memory_always", action="store_true", help="adopted from env_config.json when present")
     ap.add_argument("--collision_at_next_pose", action="store_true", help="adopted from env_config.json when present")
     ap.add_argument("--look_ahead_auto", action="store_true", help="adopted from env_config.json when present")
     ap.add_argument("--footprint_next_heading", action="store_true", help="adopted from env_config.json when present")
@@ -552,7 +554,7 @@ def main():
                        # judge collision on its own closer footprint. Eval did
                        # neither, so it was scoring a goal distribution
                        # training never sees.
-                       "goal_support_radius_m", "collision_look_ahead_m", "collision_box_memory", "collision_box_memory_agg",
+                       "goal_support_radius_m", "collision_look_ahead_m", "collision_box_memory", "collision_box_memory_agg", "collision_box_memory_always",
                        "collision_at_next_pose", "look_ahead_auto", "footprint_next_heading", "crash_requires_motion",
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test

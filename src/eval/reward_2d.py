@@ -165,6 +165,8 @@ def compute_reward(
     body_width: float = GO2_BODY_WIDTH,
     frame_memory=None,                 # previous frames, oldest first: (semantic_image, K, w2c)
     memory_min_visible: float = 0.5,   # share of the box's projected area that must be inside a stored frame
+    memory_always: bool = False,       # 2026-09-20 (Joana): also average the CURRENT frame's reading with the
+                                       # stored frames when the box IS visible now, so one frame never decides alone
     memory_aggregate: str = "newest",  # "newest": first stored frame that contains the box decides;
                                        # "mean" (2026-09-16, Joana): the box is read in EVERY stored frame
                                        # that contains it and the non-walkable shares are averaged
@@ -299,7 +301,8 @@ def compute_reward(
                 else:
                     collision_frac = float(non_traversable_mask[c_classes].mean())
                 c_ok = True
-        if not c_ok and frame_memory:
+        _cur_frac = collision_frac if c_ok else None
+        if (not c_ok or memory_always) and frame_memory:
             # Joana's t-2 idea (2026-09-04): the near box sits below the camera
             # NOW, but a frame from a few steps back saw that ground from
             # ~1.2 m away. Project the SAME world box into stored frames,
@@ -339,8 +342,13 @@ def compute_reward(
                 # shares over every frame that contained the box, so one frame's
                 # label noise cannot decide a crash on its own
                 box_memory_age = float(_hits[0][0])
-                collision_frac = (float(np.mean([f for _, f, _uv in _hits])) if memory_aggregate == "mean"
-                                  else float(_hits[0][1]))
+                _mem_frac = (float(np.mean([f for _, f, _uv in _hits])) if memory_aggregate == "mean"
+                             else float(_hits[0][1]))
+                if _cur_frac is not None and memory_always:
+                    # memory_always: the current frame is one vote among the frames that saw the box
+                    collision_frac = float(np.mean([_cur_frac] + [f for _, f, _uv in _hits]))
+                else:
+                    collision_frac = _mem_frac
                 c_ok = True
                 memory_hits = len(_hits)
         if not c_ok:

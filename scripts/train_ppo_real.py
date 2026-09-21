@@ -660,6 +660,7 @@ def _dump_env_config(args, cfg):
             "collision_look_ahead_m": cfg.collision_look_ahead_m,
             "collision_box_memory": getattr(cfg, "collision_box_memory", 0),
             "collision_box_memory_agg": getattr(cfg, "collision_box_memory_agg", "newest"),
+            "collision_box_memory_always": bool(getattr(cfg, "collision_box_memory_always", False)),
             "collision_at_next_pose": bool(getattr(cfg, "collision_at_next_pose", False)),
             "look_ahead_auto": bool(getattr(cfg, "look_ahead_auto", False)),
             "footprint_next_heading": bool(getattr(cfg, "footprint_next_heading", False)),
@@ -968,6 +969,7 @@ def _scene_env_cfg(args):
         collision_look_ahead_m=getattr(args, "collision_look_ahead", 0.0),
         collision_box_memory=int(getattr(args, "collision_box_memory", 0)),
         collision_box_memory_agg=str(getattr(args, "collision_box_memory_agg", "newest") or "newest"),
+        collision_box_memory_always=bool(getattr(args, "collision_box_memory_always", False)),
         collision_at_next_pose=bool(getattr(args, "collision_at_next_pose", False)),
         look_ahead_auto=bool(getattr(args, "look_ahead_auto", False)),
         footprint_next_heading=bool(getattr(args, "footprint_next_heading", False)),
@@ -1785,6 +1787,8 @@ def main():
     ap.add_argument("--collision_box_memory_agg", type=str, default="newest", choices=("newest", "mean"),
                     help="how the near box is read from the frame memory: the newest frame containing it, "
                          "or the MEAN over every stored frame containing it (2026-09-16, Joana)")
+    ap.add_argument("--collision_box_memory_always", action="store_true",
+                    help="average the current frame's box reading with the stored frames even when the box is visible now (2026-09-20)")
     ap.add_argument("--collision_box_memory", type=int, default=0,
                     help="read the near box from the newest of the last N generated frames that contains it (0 = off)")
     ap.add_argument("--collision_look_ahead", type=float, default=0.0,
