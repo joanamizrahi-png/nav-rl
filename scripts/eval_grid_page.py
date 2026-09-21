@@ -16,9 +16,9 @@ TESTS = [("quad1_01", "plaza_goals-ahead-frames15-70", "quad1_01 plaza, goals ah
          ("quad2_00", "corner_spawn12-22_goal48", "quad2_00 corner, spawn 12-22, goal 48"),
          ("sequoia1_17", "corner_spawn45-55_goal72", "sequoia1_17 corner, spawn 45-55, goal 72")]
 FAR = ("quad2_00", "corner-far_spawn5-11_goal48", "quad2_00 far corner, spawn 5-11, goal 48")
-ARM_ORDER = ["A", "memory", "A_v35b", "memory_v35b", "memory_always", "veto", "map", "chunk10"]
+ARM_ORDER = ["A", "memory", "A_v35b", "memory_v35b", "memory_always", "veto", "map", "chunk10", "memory_BLIND", "A_v35b_BLIND", "A_MIRRORED"]
 ARM_LABEL = {"A": "A (v33)", "memory": "memory (v33)", "A_v35b": "A (v35b)", "memory_v35b": "memory (v35b)",
-             "memory_always": "memory-always (v33)", "veto": "veto (v33, veto on)", "map": "map (v33)", "chunk10": "chunk 10 (v33)"}
+             "memory_always": "memory-always (v33)", "veto": "veto (v33, veto on)", "map": "map (v33)", "chunk10": "chunk 10 (v33)", "memory_BLIND": "memory (v33), BLIND: image zeroed", "A_v35b_BLIND": "A (v35b), BLIND: image zeroed", "A_MIRRORED": "A (v33), every episode MIRRORED"}
 
 rows = {}  # (arm, ckpt) -> {test: cell}
 for f in sorted(glob.glob(os.path.join(evals, "*", "*", "metrics.json"))):

@@ -592,11 +592,11 @@ class CalibratedRealWorldBackend(RealWorldBackend):
             self._goal_turn_tries = int(getattr(self, "_goal_turn_tries", 0)) + int(_corner_draw)
             if _corner_draw:
                 _sp = lo + int(np.argmin(d))                       # recorded frame nearest the spawn
-                _d0 = self.walk_direction(_sp)
+                _d0 = cal.walk_direction(_sp)
                 if _d0 is not None:
                     _bend = np.full(len(pos), np.inf)
                     for _k in range(len(pos)):
-                        _dk = self.walk_direction(lo + _k)
+                        _dk = cal.walk_direction(lo + _k)
                         if _dk is None:
                             continue
                         _c = float(np.clip(np.dot(_d0[:2], _dk[:2]), -1.0, 1.0))
