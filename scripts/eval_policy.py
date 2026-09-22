@@ -193,7 +193,8 @@ def build_env(args):
         goal_nontrav_tries=int(getattr(args, "goal_nontrav_tries", 0)),
         goal_nontrav_cone_deg=float(getattr(args, "goal_nontrav_cone_deg", 0.0)),
         goal_case_mix=str(getattr(args, "goal_case_mix", "") or ""),
-        obs_frame_stack=int(getattr(args, "obs_frame_stack", 1)),
+        # default is None so adoption can tell "not given" from "given as 1"
+        obs_frame_stack=int(getattr(args, "obs_frame_stack", None) or 1),
         goal_case_tries=int(getattr(args, "goal_case_tries", 24)),
         goal_center_clear_m=float(getattr(args, "goal_center_clear_m", 0.0) or 0.0),
         mirror_prob=float(getattr(args, "mirror_prob", 0.0) or 0.0),
