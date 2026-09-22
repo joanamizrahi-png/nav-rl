@@ -46,7 +46,7 @@ def build_env(args):
         scene_video_paths={args.scene: f"{args.clips_dir}/{args.scene}.mp4"},
         scene_poses_paths={args.scene: f"{args.poses_dir}/{args.scene}_poses.npz"},
         scene_labels_paths={args.scene: f"{args.labels_dir}/{args.scene}.npz"},
-        goal_frame=args.goal_frame,
+        goal_frame=(int(args.goal_frame) if getattr(args, "goal_frame", None) is not None else 30),
         goal_xy_override=(tuple(float(v) for v in args.goal_xy.split(","))
                           if args.goal_xy else None),
         # 2026-09-02: eval could ONLY use a fixed goal_xy or the default goal
@@ -248,7 +248,9 @@ def main():
     ap.add_argument("--checkpoint", required=True)
     ap.add_argument("--scene", default="rugd_trail_00")
     ap.add_argument("--episodes", type=int, default=20)
-    ap.add_argument("--goal_frame", type=int, default=30)
+    ap.add_argument("--goal_frame", type=int, default=None,
+                    help="pin the goal to this recorded frame (fixed goal, every episode); when given, the "
+                         "training goal sampling (goal_frame_range / goal_dist_range) is NOT adopted")
     ap.add_argument("--max_steps", type=int, default=60,
                     help="episode step budget (60 = training default; raise "
                          "for scenes recorded with large per-frame motion)")
@@ -521,7 +523,14 @@ def main():
             # behaviour is invisible (2026-09-02).
             # Sampling first: rebuild the training goal/spawn distribution
             # unless the caller deliberately pinned a goal with --goal_xy.
-            if not args.goal_xy:
+            # 2026-09-21 night: --goal_frame is a DESIGNED test too. Until now the training
+            # goal_frame_range / goal_dist_range were adopted over it, and every "goal48" /
+            # "goal72" / pedestrian "goal58" eval drew a fresh short goal per episode (7 distinct
+            # goals, 1-7 m) -- the corner and pedestrian columns never tested the pinned goal.
+            if getattr(args, "goal_frame", None) is not None and not args.goal_xy:
+                print(f"[eval] FIXED GOAL: frame {args.goal_frame} every episode; training goal sampling "
+                      f"(frames={_tr.get('goal_frame_range')} range={_tr.get('goal_dist_range')}) NOT adopted", flush=True)
+            if not args.goal_xy and getattr(args, "goal_frame", None) is None:
                 _gr = _tr.get("goal_dist_range")
                 _fr = _tr.get("goal_frame_range")
                 if _tr.get("goal_dir_360"):
@@ -660,6 +669,13 @@ def main():
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     inner_env = build_env(args)
+    # HARD CHECK (2026-09-21 night): a pinned --goal_frame must reach the sampler as a FIXED goal.
+    if getattr(args, 'goal_frame', None) is not None and not args.goal_xy:
+        _bc = getattr(getattr(inner_env.unwrapped, 'world_backend', None), 'cfg', None)
+        if _bc is None or getattr(_bc, 'goal_frame_range', None) is not None or int(getattr(_bc, 'goal_frame', -1)) != int(args.goal_frame):
+            raise SystemExit(f"REFUSED: --goal_frame {args.goal_frame} but the backend has goal_frame={getattr(_bc, 'goal_frame', None)} "
+                             f"goal_frame_range={getattr(_bc, 'goal_frame_range', None)}: the pinned goal would be ignored")
+        print(f"[eval] FIXED GOAL confirmed in the backend: frame {args.goal_frame}, goal_frame_range=None", flush=True)
     # HARD CHECK: every value adopted from the training env_config must be
     # what the built env actually carries. An adopted key that build_env
     # does not read would otherwise pass silently (the 09-04 far-box evals).
