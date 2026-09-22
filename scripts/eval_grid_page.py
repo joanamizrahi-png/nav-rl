@@ -1,47 +1,78 @@
 """One page for the whole eval grid (2026-09-21, Joana: "visualize all of those and the overheads,
-clearly organized, because the numbers are not always consistent with what we see").
+clearly organized"). Rewritten 2026-09-22 after two findings: (1) every "goalNN" eval before the
+eval fix drew random short goals (those cells are dropped), (2) every policy trained before the image
+fix never used its camera (every row is the odometry-only ablation, said so in the banner).
 
-Reads the Mac eval folder (evals/<arm>/<ckpt>_<scene>_<test>/metrics.json) and the overhead pictures
-(evals/pictures/*.png), and writes a single self-contained HTML page: the grid of goals / lawn /
-phantom per arm x test, then one section per test with the overheads and the folder of every cell
-so the videos can be opened. Pictures are embedded as data URIs. numpy-free, stdlib only.
+Folder styles read from the Mac evals dir:
+  <family>/<ckpt>[-cont]_<scene>_<test>            old style (plaza cells only; corner cells were random goals)
+  <family>_cont<N>k/<scene>_<steps>_gfr15-70       continuation plazas
+  corner_<family>_<N>k[_jit]/<scene>_<steps>_goal<g>    fixed-goal corner tests (jit = spawn jitter, 8 distinct episodes)
+  ped_<family>_<N>k[_BLIND][_jit]/<scene>_<steps>_goal<g>  fixed-goal pedestrian tests
+Overheads: pictures/ (plazas) and pictures_0922/ (fixed-goal tests).
 
     python scripts/eval_grid_page.py <evals_dir> <out.html>
 """
 import base64, glob, html, json, os, re, sys
 
 evals, out = sys.argv[1], sys.argv[2]
-TESTS = [("quad1_01", "plaza_goals-ahead-frames15-70", "quad1_01 plaza, goals ahead"),
-         ("quad1_07", "plaza_goals-ahead-frames15-70", "quad1_07 plaza, goals ahead"),
-         ("quad2_00", "corner_spawn12-22_goal48", "quad2_00 corner, spawn 12-22, goal 48"),
-         ("sequoia1_17", "corner_spawn45-55_goal72", "sequoia1_17 corner, spawn 45-55, goal 72")]
-FAR = ("quad2_00", "corner-far_spawn5-11_goal48", "quad2_00 far corner, spawn 5-11, goal 48")
-ARM_ORDER = ["A", "memory", "A_v35b", "memory_v35b", "memory_always", "veto", "map", "chunk10", "memory_BLIND", "A_v35b_BLIND", "A_MIRRORED"]
-ARM_LABEL = {"A": "A (v33)", "memory": "memory (v33)", "A_v35b": "A (v35b)", "memory_v35b": "memory (v35b)",
-             "memory_always": "memory-always (v33)", "veto": "veto (v33, veto on)", "map": "map (v33)", "chunk10": "chunk 10 (v33)", "memory_BLIND": "memory (v33), BLIND: image zeroed", "A_v35b_BLIND": "A (v35b), BLIND: image zeroed", "A_MIRRORED": "A (v33), every episode MIRRORED"}
+TESTS = [("quad1_01", "plaza", "quad1_01 plaza, goals ahead 15-70"),
+         ("quad1_07", "plaza", "quad1_07 plaza, goals ahead 15-70"),
+         ("quad2_00", "goal48", "quad2_00 obstacle corner, spawn 12-22, goal 48"),
+         ("sequoia1_17", "goal72", "sequoia1_17 lawn corner, spawn 45-55, goal 72"),
+         ("quad2_04", "goal62", "quad2_04 person on the path, spawn 26-30, goal 62"),
+         ("sequoia1_10", "goal30", "sequoia1_10 group crossing, spawn 5-7, goal 30"),
+         ("packard1_16", "goal25", "packard1_16 person walking past, spawn 4-8, goal 25")]
+FAMILY_LABEL = {"A": "A (v33)", "memory": "memory (v33)", "A_v35b": "A (v35b)", "memory_v35b": "memory (v35b)",
+                "memory_always": "memory-always (v33)", "veto": "veto (v33)", "map": "map (v33)", "chunk10": "chunk 10 (v33)"}
+FAMILY_ORDER = ["A_v35b", "memory", "A", "veto", "memory_v35b", "memory_always", "map", "chunk10"]
 
-rows = {}  # (arm, ckpt) -> {test: cell}
-for f in sorted(glob.glob(os.path.join(evals, "*", "*", "metrics.json"))):
-    arm = f.split(os.sep)[-3]; name = f.split(os.sep)[-2]
-    if arm in ("scored_with_v14_table", "flawed_goals_behind"): continue
-    m = re.match(r"(\d+k(?:-cont)?)_(quad\d_\d\d|sequoia\d_\d\d)_(.+)$", name)
-    if not m: continue
-    ck, scene, test = m.groups()
-    d = json.load(open(f)); s = d["summary"]; eps = d["episodes"]
+def read_cell(f):
+    d = json.load(open(f)); eps = d["episodes"]
     n = len(eps); goals = sum(1 for e in eps if e["success"]); crashes = sum(1 for e in eps if e["outcome"] == "CRASH")
-    ph = sum(1 for e in eps if e.get("crash_was_phantom")); lawn = sum(1 for e in eps if e.get("trespass_steps", 0) > 0)
-    steps = sum(e["steps"] for e in eps) / max(n, 1)
-    rows.setdefault((arm, ck), {})[(scene, test)] = dict(goals=goals, n=n, crashes=crashes, phantom=ph, lawn=lawn, steps=steps,
-                                                        folder=os.path.relpath(os.path.dirname(f), evals))
+    lawn = sum(1 for e in eps if e.get("trespass_steps", 0) > 0); steps = sum(e["steps"] for e in eps) / max(n, 1)
+    spawns = len(set(tuple(round(v, 2) for v in e["spawn"][:2]) for e in eps if isinstance(e.get("spawn"), list)))
+    return dict(goals=goals, n=n, crashes=crashes, lawn=lawn, steps=steps, distinct=spawns,
+                folder=os.path.relpath(os.path.dirname(f), evals))
 
-def ck_key(ck):
-    v = int(ck.replace("k", "").replace("-cont", "")); return v + (0.5 if "cont" in ck else 0)
-keys = sorted(rows, key=lambda k: (ARM_ORDER.index(k[0]) if k[0] in ARM_ORDER else 99, ck_key(k[1])))
+rows = {}   # (family, steps_k, variant) -> {(scene, test): cell};  variant in {"", "BLIND"}
+def put(family, steps_k, variant, scene, test, cell, prefer=False):
+    key = (family, steps_k, variant); cur = rows.setdefault(key, {}).get((scene, test))
+    if cur is None or prefer or (cell["distinct"] > cur["distinct"]):
+        rows[key][(scene, test)] = cell
+
+for f in sorted(glob.glob(os.path.join(evals, "*", "*", "metrics.json"))):
+    tag = f.split(os.sep)[-3]; name = f.split(os.sep)[-2]
+    if tag in ("scored_with_v14_table", "flawed_goals_behind", "corner_far", "corner_veto_50k", "ped_AV35", "ped_memory",
+               "A_MIRRORED", "A_MIRRORED_stamped", "memory_BLIND", "A_v35b_BLIND"):
+        continue                                   # random-goal or mirror/blind checks, documented elsewhere
+    cell = read_cell(f)
+    m = re.match(r"(corner|ped)_(A_v35b|memory_v35b|memory|A|veto)_(\d+)k(_BLIND)?(_jit)?$", tag)
+    if m:
+        kind, fam, k, blind, jit = m.groups()
+        m2 = re.match(r"([a-z0-9]+_\d\d)_(\d+)_goal(\d+)$", name)
+        if not m2: continue
+        scene, _, g = m2.groups()
+        put(fam, int(k), "BLIND" if blind else "", scene, f"goal{g}", cell, prefer=bool(jit))
+        if jit: rows[(fam, int(k), "BLIND" if blind else "")][(scene, f"goal{g}")]["jit"] = True
+        continue
+    m = re.match(r"(A|memory|veto)_cont(\d+)k$", tag)
+    if m:
+        fam, k = m.groups(); m2 = re.match(r"([a-z0-9]+_\d\d)_(\d+)_gfr15-70$", name)
+        if m2: put(fam, int(k), "", m2.group(1), "plaza", cell)
+        continue
+    m = re.match(r"(\d+)k(?:-cont)?_([a-z0-9]+_\d\d)_(.+)$", name)
+    if m and tag in FAMILY_LABEL:
+        k, scene, test = m.groups()
+        if test.startswith("plaza"): put(tag, int(k), "", scene, "plaza", cell)
+        continue
+
+keys = sorted(rows, key=lambda k: (FAMILY_ORDER.index(k[0]) if k[0] in FAMILY_ORDER else 99, k[1], k[2]))
 
 def cell_html(c):
-    if c is None: return '<td class="pend">pending</td>'
+    if c is None: return '<td class="pend">—</td>'
     r = c["goals"] / c["n"]; cls = "g3" if r >= 0.875 else "g2" if r >= 0.6 else "g1" if r >= 0.35 else "g0"
-    return (f'<td class="{cls}"><b>{c["goals"]}/{c["n"]}</b><span class="sub">lawn {c["lawn"]} · phantom {c["phantom"]}/{c["crashes"]} · {c["steps"]:.0f} st</span></td>')
+    dist = f' · {c["distinct"]} distinct starts' if c["distinct"] < c["n"] else ""
+    return (f'<td class="{cls}"><b>{c["goals"]}/{c["n"]}</b><span class="sub">lawn {c["lawn"]} · crashes {c["crashes"]} · {c["steps"]:.0f} st{dist}{" · jitter" if c.get("jit") else ""}</span></td>')
 
 def img_tag(path, alt):
     if not os.path.exists(path): return f'<p class="miss">missing: {html.escape(os.path.basename(path))}</p>'
@@ -71,27 +102,30 @@ ul.cells{columns:2;column-gap:28px;padding-left:18px;max-width:1100px}ul.cells l
 p.miss{color:var(--mute);font-size:12px}
 </style>
 <h1>WorldNav Eval Grid</h1>
-<p class="lead">Every policy checkpoint evaluated in the generated world with the training traversability table (grass 0.0), 8 episodes per cell, goals ahead of the spawn, v33 semantics for the v33 arms and v35b epoch 3 for the v35b arms. A cell shows goals reached, then the number of episodes that touched lawn, the phantom crashes over all crashes, and the mean episode length in steps.</p>""")
-parts.append('<table><tr><th>arm (checkpoint)</th>' + "".join(f"<th>{html.escape(t[2])}</th>" for t in TESTS) + '<th>total /32</th><th>far corner</th></tr>')
-for arm, ck in keys:
-    r = rows[(arm, ck)]; cells = [r.get((t[0], t[1])) for t in TESTS]
-    tot = sum(c["goals"] for c in cells if c); n = sum(c["n"] for c in cells if c)
-    far = r.get((FAR[0], FAR[1]))
-    parts.append(f'<tr><td class="arm">{html.escape(ARM_LABEL.get(arm, arm))} {html.escape(ck)}</td>' + "".join(cell_html(c) for c in cells)
-                 + f'<td class="tot">{tot}/{n}' + (" (partial)" if n < 32 else "") + '</td>' + (cell_html(far) if far else '<td class="pend">—</td>') + '</tr>')
-parts.append('</table><p class="legend">Color: goals reached, dark green 7-8, light green 5-6, tan 3-4, red 0-2. "phantom a/b": a of the b crashes were labels the fused map calls walkable. Phantom counts are honest for every arm except "veto on", whose surviving crashes are by construction the non-phantom ones.</p>')
+<p class="lead"><b>Every policy on this page was trained before the image fix of 2026-09-22 and never used its camera</b> (the image reached DINOv2 divided by 255 twice; blind and sighted runs agree to 4 mm). These rows are the odometry-only ablation. Evaluated in the generated world with the training traversability table (grass 0.0), 8 episodes per cell, v33 semantics for the v33 arms and v35b epoch 3 for the v35b arms. A cell shows goals reached, then episodes that touched lawn, crashes, and the mean episode length in steps.</p>""")
 
-pics = os.path.join(evals, "pictures")
-for scene, test, title in TESTS + [FAR]:
+parts.append('<table><tr><th>policy (checkpoint)</th>' + "".join(f"<th>{html.escape(t[2])}</th>" for t in TESTS) + '</tr>')
+for fam, k, var in keys:
+    r = rows[(fam, k, var)]; cells = [r.get((t[0], t[1])) for t in TESTS]
+    label = f'{FAMILY_LABEL.get(fam, fam)} {k}k' + (" · BLIND (image zeroed)" if var else "")
+    parts.append(f'<tr><td class="arm">{html.escape(label)}</td>' + "".join(cell_html(c) for c in cells) + '</tr>')
+parts.append('</table><p class="legend">Color: goals reached, dark green 7-8, light green 5-6, tan 3-4, red 0-2. Corner and pedestrian cells are fixed-goal tests (the goal is the same recorded frame in every episode); "distinct starts" says how many different spawns the 8 episodes had when no spawn jitter was used; "jitter" marks the reruns with ±10° / ±0.3 m spawn jitter. The old corner cells (random short goals) are dropped.</p>')
+
+pics, pics2 = os.path.join(evals, "pictures"), os.path.join(evals, "pictures_0922")
+OVERHEAD = {("quad1_01", "plaza"): [(pics2, "plaza_quad1_01.png", "memory 150k | veto 100k | A 240k"), (pics, "arms_tw_quad1_01.png", "A 60k | memory 50k | A 110k | memory 70k (v33)"), (pics, "arms2_quad1_01.png", "memory v35b 40k | A v35b 70k | memory-always 50k | veto 50k")],
+            ("quad1_07", "plaza"): [(pics2, "plaza_quad1_07.png", "memory 150k | veto 100k | A 240k"), (pics, "arms_tw_quad1_07.png", "A 60k | memory 50k | A 110k | memory 70k (v33)"), (pics, "arms2_quad1_07.png", "memory v35b 40k | A v35b 70k | memory-always 50k | veto 50k")],
+            ("quad2_00", "goal48"): [(pics2, "corner_quad2_00.png", "fixed goal 48: A v35b 70k | memory 50k | veto 100k | memory 150k | A 110k | A 240k — failures crash AT the goal, which sits against the wall")],
+            ("sequoia1_17", "goal72"): [(pics2, "corner_sequoia1_17.png", "fixed goal 72: every policy cuts straight across the lawn")],
+            ("quad2_04", "goal62"): [(pics2, "ped_quad2_04.png", "A v35b 70k | memory 50k")],
+            ("sequoia1_10", "goal30"): [(pics2, "ped_sequoia1_10.png", "A v35b 70k sighted | blind | memory 50k sighted | blind")],
+            ("packard1_16", "goal25"): [(pics2, "ped_packard1_16.png", "A v35b 70k sighted | blind | memory 50k sighted | blind")]}
+for scene, test, title in TESTS:
     parts.append(f"<h2>{html.escape(title)}</h2>")
-    if (scene, test) == (FAR[0], FAR[1]):
-        parts.append(img_tag(os.path.join(pics, "arms_tw_quad2_00_far.png"), "far corner: memory 50k (left), A 60k (right); v33 semantics"))
-    else:
-        parts.append(img_tag(os.path.join(pics, f"arms_tw_{scene}.png"), f"{scene}: v33 arms — A 60k | memory 50k | A continued 110k | memory continued 70k"))
-        parts.append(img_tag(os.path.join(pics, f"arms2_{scene}.png"), f"{scene}: new arms — memory on v35b 40k | A on v35b 70k | memory-always 50k | veto 50k (veto on); missing panels = cell still running"))
+    for d, fn, cap in OVERHEAD.get((scene, test), []):
+        parts.append(img_tag(os.path.join(d, fn), f"{scene}: {cap}"))
     items = []
-    for arm, ck in keys:
-        c = rows[(arm, ck)].get((scene, test))
-        if c: items.append(f"<li><b>{html.escape(ARM_LABEL.get(arm, arm))} {html.escape(ck)}</b>: {c['goals']}/{c['n']} goals, lawn {c['lawn']}, phantom {c['phantom']}/{c['crashes']} — <code>{html.escape(c['folder'])}</code></li>")
-    parts.append('<p class="legend">Videos: campus_data_2026-09-19/evals/ then the folder named on each line; failures/ inside holds the collision pictures.</p><ul class="cells">' + "".join(items) + "</ul>")
-open(out, "w").write("\n".join(parts)); print("wrote", out, f"{os.path.getsize(out)/1e6:.1f} MB", len(keys), "arm rows")
+    for fam, k, var in keys:
+        c = rows[(fam, k, var)].get((scene, test))
+        if c: items.append(f"<li><b>{html.escape(FAMILY_LABEL.get(fam, fam))} {k}k{' BLIND' if var else ''}</b>: {c['goals']}/{c['n']} goals, lawn {c['lawn']}, crashes {c['crashes']}, {c['distinct']} distinct starts — <code>{html.escape(c['folder'])}</code></li>")
+    parts.append('<p class="legend">Videos: campus_data_2026-09-19/evals/ then the folder named on each line.</p><ul class="cells">' + "".join(items) + "</ul>")
+open(out, "w").write("\n".join(parts)); print("wrote", out, f"{os.path.getsize(out)/1e6:.1f} MB", len(keys), "rows")

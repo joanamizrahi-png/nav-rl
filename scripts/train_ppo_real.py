@@ -591,6 +591,7 @@ def make_env(args):
         goal_turn_deg=float(getattr(args, "goal_turn_deg", 0.0) or 0.0),
         goal_turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0),
         goal_turn_beyond_m=float(getattr(args, "goal_turn_beyond_m", 2.0)),
+        obs_frame_stack=int(getattr(args, "obs_frame_stack", 1)),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
@@ -667,6 +668,7 @@ def _dump_env_config(args, cfg):
             "goal_turn_deg": float(getattr(cfg, "goal_turn_deg", 0.0) or 0.0),
             "goal_turn_mix": float(getattr(cfg, "goal_turn_mix", 0.0) or 0.0),
             "goal_turn_beyond_m": float(getattr(cfg, "goal_turn_beyond_m", 2.0)),
+            "obs_frame_stack": int(getattr(cfg, "obs_frame_stack", 1)),
             "image_norm_fix": bool(getattr(args, "image_norm_fix", False)),
             "reset_image_head": bool(getattr(args, "reset_image_head", False)),
             "collision_at_next_pose": bool(getattr(cfg, "collision_at_next_pose", False)),
@@ -1106,6 +1108,7 @@ def make_live_vec_env(args):
         goal_turn_deg=float(getattr(args, "goal_turn_deg", 0.0) or 0.0),
         goal_turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0),
         goal_turn_beyond_m=float(getattr(args, "goal_turn_beyond_m", 2.0)),
+        obs_frame_stack=int(getattr(args, "obs_frame_stack", 1)),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
@@ -1846,6 +1849,8 @@ def main():
                     choices=["nature", "dinov2", "dinov2b", "resnet18", "both"],
                     help="policy visual encoder: SB3 NatureCNN (scratch) or "
                          "a frozen pretrained backbone (advisor ablation)")
+    ap.add_argument("--obs_frame_stack", type=int, default=1,
+                    help="MULTIPLE IMAGES: the observation is the last K rendered views on the channel axis (1 = current frame only)")
     ap.add_argument("--image_norm_fix", action="store_true",
                     help="build/patch the policy with normalize_images=False: SB3 divided the image by 255 "
                          "before the extractor divided it again (all DINO arms before 2026-09-22 were blind)")
@@ -2245,6 +2250,14 @@ def main():
     _goal_cone_banner(env)
     if args.frozen_probe:
         _frozen_probe(env)
+    # ---- FRAME STACK CHECK (2026-09-22): the env must actually hand the policy K views ----
+    _k = int(getattr(args, "obs_frame_stack", 1))
+    _ch = int(env.observation_space["rgb"].shape[0] if env.observation_space["rgb"].shape[0] % 3 == 0
+              and env.observation_space["rgb"].shape[0] <= 30 else env.observation_space["rgb"].shape[-1])
+    if _ch != 3 * _k:
+        raise SystemExit(f"REFUSED: --obs_frame_stack {_k} but obs['rgb'] carries {_ch} channels")
+    if _k > 1:
+        print(f"[frame stack] {_k} views per observation, {_ch} channels", flush=True)
     # ---- IMAGE CHECK (2026-09-22): does the policy react to its image at all? ----
     try:
         from src.policy.encoders import image_sensitivity

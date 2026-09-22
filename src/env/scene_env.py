@@ -181,6 +181,9 @@ class SceneEnvConfig:
     # redraw (window + cone) until the drawn goal's class matches the wanted
     # one, at most goal_case_tries times, keeping the last walkable draw.
     # Every draw must be walkable (disc share >= goal_case_walkable_min).
+    # MULTIPLE IMAGES (2026-09-22, Jing's third arm): the observation is the last K rendered
+    # views concatenated on the channel axis, oldest first. 1 = the current frame only.
+    obs_frame_stack: int = 1
     goal_case_mix: str = ""
     goal_case_tries: int = 24
     goal_case_walkable_min: float = 0.5
@@ -532,7 +535,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         if cfg.obs_out_hw is not None:
             H, W = int(cfg.obs_out_hw[0]), int(cfg.obs_out_hw[1])
         self.observation_space = spaces.Dict({
-            "rgb":  spaces.Box(low=0, high=255, shape=(H, W, 3), dtype=np.uint8),
+            "rgb":  spaces.Box(low=0, high=255, shape=(H, W, 3 * max(1, int(getattr(cfg, "obs_frame_stack", 1)))), dtype=np.uint8),
             "goal": spaces.Box(low=-np.inf, high=np.inf, shape=(3,), dtype=np.float32),
         })
         self.action_space = spaces.Box(
@@ -935,6 +938,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._prev_obstacle_dist = None
         self._prev_grass_dist = None
         # Choose a scene (round-robin for now; can be random later).
+        self._rgb_hist, self._rgb_hist_key = None, None      # frame stack restarts every episode
         self._mirrored = bool(float(getattr(self.cfg, "mirror_prob", 0.0)) > 0.0
                               and self.np_random.random() < float(self.cfg.mirror_prob))
         idx = self.np_random.integers(0, len(self.scene_ids))
@@ -1954,6 +1958,20 @@ class SceneEnv(gym.Env if gym is not None else object):
             if rgb.shape[0] != oh or rgb.shape[1] != ow:
                 import cv2
                 rgb = cv2.resize(rgb, (ow, oh), interpolation=cv2.INTER_AREA)
+        _k = max(1, int(getattr(self.cfg, "obs_frame_stack", 1)))
+        if _k > 1:
+            # one append per environment step: _obs() may be called again for the same step
+            # (inject_render, debug rebuilds) and must not shift the history when it is
+            _key = (self._scene_id, int(getattr(self, "_steps", 0)))
+            if getattr(self, "_rgb_hist", None) is None:
+                self._rgb_hist, self._rgb_hist_key = [], None
+            if not self._rgb_hist:
+                self._rgb_hist = [rgb] * _k                      # episode start: repeat the first view
+                self._rgb_hist_key = _key
+            elif self._rgb_hist_key != _key:
+                self._rgb_hist = (self._rgb_hist + [rgb])[-_k:]
+                self._rgb_hist_key = _key
+            rgb = np.concatenate(self._rgb_hist, axis=2)          # oldest ... newest
         return {
             "rgb":  rgb.copy(),
             "goal": goal_robot.astype(np.float32),

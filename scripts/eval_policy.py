@@ -185,6 +185,7 @@ def build_env(args):
         goal_nontrav_tries=int(getattr(args, "goal_nontrav_tries", 0)),
         goal_nontrav_cone_deg=float(getattr(args, "goal_nontrav_cone_deg", 0.0)),
         goal_case_mix=str(getattr(args, "goal_case_mix", "") or ""),
+        obs_frame_stack=int(getattr(args, "obs_frame_stack", 1)),
         goal_case_tries=int(getattr(args, "goal_case_tries", 24)),
         goal_center_clear_m=float(getattr(args, "goal_center_clear_m", 0.0) or 0.0),
         mirror_prob=float(getattr(args, "mirror_prob", 0.0) or 0.0),
@@ -368,6 +369,7 @@ def main():
     ap.add_argument("--spawn_heading_from_walk", action="store_true", help="adopted from env_config.json when present")
     ap.add_argument("--spawn_frames", type=str, default="", help="adopted from env_config.json when present")
     ap.add_argument("--goal_case_mix", type=str, default="", help="adopted from env_config.json when present")
+    ap.add_argument("--obs_frame_stack", type=int, default=None, help="adopted from env_config.json when present")
     ap.add_argument("--goal_case_tries", type=int, default=24)
     ap.add_argument("--sem_palette", type=int, default=4,
                     help="colour table for the video semantic panels. MUST "
@@ -567,7 +569,7 @@ def main():
                        "collision_at_next_pose", "look_ahead_auto", "footprint_next_heading", "crash_requires_motion",
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test
-                       "raster_obs", "static_scene", "static_movers", "render_window", "coverage_window", "sem_palette", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix", "label_remap", "goal_center_clear_m",
+                       "raster_obs", "static_scene", "static_movers", "render_window", "coverage_window", "sem_palette", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix", "obs_frame_stack", "label_remap", "goal_center_clear_m",
                        "goal_nontrav_edge_m", "goal_nontrav_tries", "goal_nontrav_cone_deg", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage

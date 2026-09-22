@@ -45,6 +45,12 @@ class FrozenBackboneExtractor(BaseFeaturesExtractor):
                  backbone: str = "dinov2", head_dim: int = 256,
                  grid: "tuple[int, int] | None" = None):
         goal_dim = int(observation_space["goal"].shape[0])
+        # MULTIPLE IMAGES (2026-09-22): SB3 hands us the transposed space (C, H, W); C = 3 * K for a
+        # stack of K views. Every frame goes through the frozen backbone and the features concatenate.
+        _c = int(observation_space["rgb"].shape[0])
+        if _c % 3 != 0:
+            raise ValueError(f"obs['rgb'] has {_c} channels, expected a multiple of 3")
+        self.n_stack = _c // 3
         super().__init__(observation_space, features_dim=head_dim + goal_dim)
         self.backbone_name = backbone
         self.grid = tuple(int(v) for v in grid) if grid else self.GRID
@@ -55,9 +61,11 @@ class FrozenBackboneExtractor(BaseFeaturesExtractor):
         if backbone in self.DINO or backbone == "both":
             name, self.dino_dim = self.DINO.get(backbone, self.DINO["dinov2"])
             self.dino = torch.hub.load("facebookresearch/dinov2", name)
-            feat_dim += self.dino_dim * (1 + gh * gw)   # CLS + region grid
+            feat_dim += self.dino_dim * (1 + gh * gw)   # CLS + region grid, per frame
             print(f"[FrozenBackboneExtractor] {name} frozen, {self.dino_dim}-d tokens, "
-                  f"{gh}x{gw} region grid -> {feat_dim} features -> {head_dim}", flush=True)
+                  f"{gh}x{gw} region grid, {self.n_stack} frame(s) -> {feat_dim * self.n_stack} features -> {head_dim}", flush=True)
+        if self.n_stack > 1 and backbone in ("resnet18", "both"):
+            raise ValueError("obs_frame_stack > 1 is implemented for the dinov2 backbones only")
         if backbone in ("resnet18", "both"):
             from torchvision.models import resnet18, ResNet18_Weights
             net = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
@@ -70,7 +78,7 @@ class FrozenBackboneExtractor(BaseFeaturesExtractor):
                 for p in m.parameters():
                     p.requires_grad_(False)
                 m.eval()
-        self.head = nn.Sequential(nn.Linear(feat_dim, head_dim), nn.ReLU())
+        self.head = nn.Sequential(nn.Linear(feat_dim * self.n_stack, head_dim), nn.ReLU())
 
     def train(self, mode: bool = True):
         # keep the frozen backbones in eval mode regardless of policy mode
@@ -88,7 +96,10 @@ class FrozenBackboneExtractor(BaseFeaturesExtractor):
         # barely depend on the scene. Actions changed by <0.003 between a real frame and
         # zeros. Build the policy with normalize_images=False (train: --image_norm_fix) so this
         # single division is the only one.
-        rgb = obs["rgb"].float() / 255.0      # [B,3,H,W] via VecTransposeImage
+        rgb = obs["rgb"].float() / 255.0      # [B, 3*K, H, W] via VecTransposeImage
+        b0 = rgb.shape[0]
+        if self.n_stack > 1:                  # every stacked frame through the backbone, as its own item
+            rgb = rgb.reshape(b0 * self.n_stack, 3, rgb.shape[-2], rgb.shape[-1])
         rgb = (rgb - IMAGENET_MEAN.to(rgb.device)) / IMAGENET_STD.to(rgb.device)
         parts = []
         gh, gw = self.grid
@@ -104,6 +115,8 @@ class FrozenBackboneExtractor(BaseFeaturesExtractor):
             if self.resnet is not None:
                 parts.append(self.resnet(rgb).flatten(1))
         feat = torch.cat(parts, dim=-1)
+        if self.n_stack > 1:                  # [B*K, F] -> [B, K*F], oldest frame first
+            feat = feat.reshape(b0, self.n_stack * feat.shape[-1])
         return torch.cat([self.head(feat), obs["goal"].float()], dim=-1)
 
 
