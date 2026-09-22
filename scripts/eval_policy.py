@@ -41,6 +41,14 @@ from src.env.real_calibrated import (
 from src.eval.reward_2d import RewardWeights
 
 
+def _parse_range(text, cast, name):
+    """"2,4" -> (2.0, 4.0). Refuses anything else by name instead of raising deep inside the env."""
+    parts = [p for p in str(text).split(",") if p.strip() != ""]
+    if len(parts) != 2:
+        raise SystemExit(f"REFUSED: --{name} is {text!r}, expected two numbers like '2,4'")
+    return tuple(cast(p) for p in parts)
+
+
 def build_env(args):
     cfg = CalibratedBackendConfig(
         scene_video_paths={args.scene: f"{args.clips_dir}/{args.scene}.mp4"},
@@ -62,10 +70,10 @@ def build_env(args):
         # dataclass killed six evals in four seconds on 2026-09-03.
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
         spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
-        goal_dist_range=(tuple(float(v) for v in args.goal_dist_range.split(","))
+        goal_dist_range=(_parse_range(args.goal_dist_range, float, "goal_dist_range")
                          if args.goal_dist_range else None),
         goal_cone_deg=args.goal_cone_deg,
-        goal_frame_range=(tuple(int(v) for v in args.goal_frame_range.split(","))
+        goal_frame_range=(_parse_range(args.goal_frame_range, int, "goal_frame_range")
                           if args.goal_frame_range else None),
         spawn_max_frame=args.spawn_max_frame,
         spawn_min_frame=args.spawn_min_frame,
@@ -537,12 +545,16 @@ def main():
                 _fr = _tr.get("goal_frame_range")
                 if _tr.get("goal_dir_360"):
                     args.goal_dir_360 = True
+                # train_ppo_real records these straight from argparse, so they are the STRING
+                # "2,4" for runs launched with GOALRANGE and a list for older ones. Joining a
+                # string over its characters produced "2,,,4" and every eval of this week's arms
+                # died in build_env (2026-09-22).
                 if _gr and not args.goal_dist_range:
-                    args.goal_dist_range = ",".join(str(v) for v in _gr)
+                    args.goal_dist_range = _gr if isinstance(_gr, str) else ",".join(str(v) for v in _gr)
                 if _tr.get("goal_cone_deg") and args.goal_cone_deg >= 360.0:
                     args.goal_cone_deg = float(_tr["goal_cone_deg"])
                 if _fr and not args.goal_frame_range:
-                    args.goal_frame_range = ",".join(str(v) for v in _fr)
+                    args.goal_frame_range = _fr if isinstance(_fr, str) else ",".join(str(v) for v in _fr)
                 print(f"[eval] goal sampling from training: dir360="
                       f"{args.goal_dir_360} range={args.goal_dist_range} "
                       f"cone={args.goal_cone_deg} frames={args.goal_frame_range}",

@@ -573,9 +573,9 @@ class SceneEnv(gym.Env if gym is not None else object):
         from pathlib import Path as _Path
         try:
             from ..eval.reward_2d import _footprint_corners_world, _project_points, GO2_BODY_LENGTH, GO2_BODY_WIDTH
-            from ..eval.palette import CLASS_COLORS_V14_255
+            from ..eval.palette import display_palette
             out = _Path(self.cfg.failure_snap_dir); out.mkdir(parents=True, exist_ok=True)
-            pal = CLASS_COLORS_V14_255
+            pal = display_palette(int(getattr(self.cfg, "sem_palette_version", 4)))
             fm = getattr(self, "_frame_memory", None) or []
             rgb = self._last_rgb
             H, W = rgb.shape[:2]
@@ -629,11 +629,11 @@ class SceneEnv(gym.Env if gym is not None else object):
         reward numbers burned in. Files: <dir>/collision_<n>_<scene>_step<k>.png"""
         import cv2
         from pathlib import Path as _Path
-        from ..eval.palette import CLASS_COLORS_V14_255
+        from ..eval.palette import display_palette
         out = _Path(self.cfg.failure_snap_dir)
         out.mkdir(parents=True, exist_ok=True)
         rgb = self._last_rgb
-        pal = CLASS_COLORS_V14_255
+        pal = display_palette(int(getattr(self.cfg, "sem_palette_version", 4)))
         col = pal[np.clip(semantic_image, 0, len(pal) - 1)]
         if col.shape[:2] != rgb.shape[:2]:
             col = cv2.resize(col, (rgb.shape[1], rgb.shape[0]),
