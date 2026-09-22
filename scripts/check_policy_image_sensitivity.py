@@ -21,7 +21,11 @@ from stable_baselines3 import PPO
 
 ckpt, video = sys.argv[1], sys.argv[2]
 model = PPO.load(ckpt, device="cpu")
-H, W, _ = model.observation_space["rgb"].shape
+_shp = model.observation_space["rgb"].shape
+CHW = _shp[0] == 3                                   # SB3 stores the transposed (3,H,W) space
+H, W = (_shp[1], _shp[2]) if CHW else (_shp[0], _shp[1])
+def to_obs(img_hwc):
+    return np.ascontiguousarray(img_hwc.transpose(2, 0, 1)) if CHW else img_hwc
 cap = cv2.VideoCapture(video); frames = []
 i = 0
 while True:
@@ -36,16 +40,16 @@ rng = np.random.default_rng(0)
 images = {"frame_a": obs_from(frames[0]), "frame_b": obs_from(frames[min(2, len(frames) - 1)]),
           "zeros": np.zeros((H, W, 3), np.uint8), "noise": rng.integers(0, 256, (H, W, 3)).astype(np.uint8),
           "flipped_a": obs_from(frames[0])[:, ::-1].copy(), "white": np.full((H, W, 3), 255, np.uint8)}
-print(f"checkpoint {ckpt}\nobs rgb shape {(H, W)}, {len(frames)} frames sampled from {video}")
+print(f"checkpoint {ckpt}\nobs rgb space {_shp} -> H={H} W={W}, {len(frames)} frames sampled from {video}")
 def feats(img, g):
-    obs_t, _ = model.policy.obs_to_tensor({"rgb": img[None], "goal": g[None]})
+    obs_t, _ = model.policy.obs_to_tensor({"rgb": to_obs(img)[None], "goal": g[None]})
     with torch.no_grad():
         return model.policy.extract_features(obs_t, model.policy.pi_features_extractor)[0].cpu().numpy()
 for g in (np.array([5.0, 0.0, 0.0], np.float32), np.array([5.0, 2.0, 0.4], np.float32), np.array([3.0, -2.0, -0.6], np.float32)):
     print(f"\n== goal vector {g.tolist()}")
     acts, fts = {}, {}
     for name, img in images.items():
-        a, _ = model.predict({"rgb": img, "goal": g}, deterministic=True); acts[name] = np.asarray(a, np.float32); fts[name] = feats(img, g)
+        a, _ = model.predict({"rgb": to_obs(img), "goal": g}, deterministic=True); acts[name] = np.asarray(a, np.float32); fts[name] = feats(img, g)
         print(f"   {name:10s} action v={acts[name][0]:+.4f} w={acts[name][1]:+.4f}")
     base = acts["frame_a"]; fb = fts["frame_a"]
     print("   max |action - action(frame_a)|:", {k: round(float(np.abs(v - base).max()), 5) for k, v in acts.items()})
