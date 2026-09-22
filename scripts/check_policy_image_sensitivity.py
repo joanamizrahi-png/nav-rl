@@ -54,6 +54,37 @@ for g in (np.array([5.0, 0.0, 0.0], np.float32), np.array([5.0, 2.0, 0.4], np.fl
     base = acts["frame_a"]; fb = fts["frame_a"]
     print("   max |action - action(frame_a)|:", {k: round(float(np.abs(v - base).max()), 5) for k, v in acts.items()})
     print("   |features - features(frame_a)| / |features(frame_a)|:", {k: round(float(np.linalg.norm(v - fb) / (np.linalg.norm(fb) + 1e-9)), 4) for k, v in fts.items()})
+# ---- where does the image signal die? DINO tokens -> head Linear+ReLU -> 256 features ----
+ext = model.policy.pi_features_extractor
+IM_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1); IM_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+def dino_feat(img_hwc):
+    x = torch.as_tensor(to_obs(img_hwc)[None]).float() / 255.0
+    x = (x - IM_MEAN) / IM_STD
+    with torch.no_grad():
+        out = ext.dino.forward_features(x); tok = out["x_norm_patchtokens"]
+        ph, pw = x.shape[-2] // 14, x.shape[-1] // 14
+        grid = tok.transpose(1, 2).reshape(1, ext.dino_dim, ph, pw)
+        grid = torch.nn.functional.adaptive_avg_pool2d(grid, ext.grid)
+        feat = torch.cat([out["x_norm_clstoken"], grid.flatten(1)], dim=-1)
+        pre = ext.head[0](feat); post = ext.head(feat)
+    return feat[0], pre[0], post[0]
+fa, pa, ha = dino_feat(images["frame_a"]); fz, pz, hz = dino_feat(images["zeros"]); fn, pn, hn = dino_feat(images["noise"])
+print("\n== where the image signal dies")
+print(f"   DINO features: |frame_a - zeros| / |frame_a| = {float((fa - fz).norm() / fa.norm()):.3f}, |frame_a - noise| / |frame_a| = {float((fa - fn).norm() / fa.norm()):.3f}   (should be large)")
+print(f"   head pre-activation (Linear out, 256): frame_a mean {float(pa.mean()):+.4f} max {float(pa.max()):+.4f}; units > 0: {int((pa > 0).sum())}/256 (frame_a), {int((pz > 0).sum())}/256 (zeros), {int((pn > 0).sum())}/256 (noise)")
+print(f"   head output after ReLU: |frame_a| = {float(ha.norm()):.4f}, |frame_a - zeros| = {float((ha - hz).norm()):.4f}, goal part norm for [5,0,0] = 5.0")
+W = ext.head[0].weight.detach(); b = ext.head[0].bias.detach()
+print(f"   head Linear: mean |W| {float(W.abs().mean()):.6f}, bias mean {float(b.mean()):+.4f} min {float(b.min()):+.4f} max {float(b.max()):+.4f}")
+# optional: more checkpoints -> alive units over training
+for extra in sys.argv[3:]:
+    m2 = PPO.load(extra, device="cpu"); e2 = m2.policy.pi_features_extractor
+    x = torch.as_tensor(to_obs(images["frame_a"])[None]).float() / 255.0; x = (x - IM_MEAN) / IM_STD
+    with torch.no_grad():
+        out = e2.dino.forward_features(x); tok = out["x_norm_patchtokens"]; ph, pw = x.shape[-2] // 14, x.shape[-1] // 14
+        grid = torch.nn.functional.adaptive_avg_pool2d(tok.transpose(1, 2).reshape(1, e2.dino_dim, ph, pw), e2.grid)
+        pre = e2.head[0](torch.cat([out["x_norm_clstoken"], grid.flatten(1)], dim=-1))[0]
+    print(f"   {extra.split('/')[-3][-12:]}/{extra.split('/')[-1]}: alive units {int((pre > 0).sum())}/256, pre-activation max {float(pre.max()):+.4f}, bias mean {float(e2.head[0].bias.mean()):+.4f}")
+
 # weight mass of the first policy layer on the image part vs the goal part of the feature vector
 n_goal = int(model.observation_space["goal"].shape[0]); n_feat = fts["frame_a"].shape[0]
 first = None
