@@ -590,6 +590,7 @@ def make_env(args):
         goal_dist_window_m=getattr(args, "goal_dist_window", None),
         goal_turn_deg=float(getattr(args, "goal_turn_deg", 0.0) or 0.0),
         goal_turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0),
+        goal_turn_beyond_m=float(getattr(args, "goal_turn_beyond_m", 2.0)),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
@@ -665,6 +666,7 @@ def _dump_env_config(args, cfg):
             "collision_box_memory_always": bool(getattr(cfg, "collision_box_memory_always", False)),
             "goal_turn_deg": float(getattr(cfg, "goal_turn_deg", 0.0) or 0.0),
             "goal_turn_mix": float(getattr(cfg, "goal_turn_mix", 0.0) or 0.0),
+            "goal_turn_beyond_m": float(getattr(cfg, "goal_turn_beyond_m", 2.0)),
             "collision_at_next_pose": bool(getattr(cfg, "collision_at_next_pose", False)),
             "look_ahead_auto": bool(getattr(cfg, "look_ahead_auto", False)),
             "footprint_next_heading": bool(getattr(cfg, "footprint_next_heading", False)),
@@ -1101,6 +1103,7 @@ def make_live_vec_env(args):
         goal_dist_window_m=getattr(args, "goal_dist_window", None),
         goal_turn_deg=float(getattr(args, "goal_turn_deg", 0.0) or 0.0),
         goal_turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0),
+        goal_turn_beyond_m=float(getattr(args, "goal_turn_beyond_m", 2.0)),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
@@ -1816,6 +1819,7 @@ def main():
                     help="average the current frame's box reading with the stored frames even when the box is visible now (2026-09-20)")
     ap.add_argument("--goal_turn_deg", type=float, default=0.0, help="corner goals: minimum bend of the walk between spawn and goal frame (0 = off)")
     ap.add_argument("--goal_turn_mix", type=float, default=0.0, help="share of episodes that draw a corner goal when one exists in the band")
+    ap.add_argument("--goal_turn_beyond_m", type=float, default=2.0, help="corner goals: metres of walk past the first bend the goal must lie (0 = off)")
     ap.add_argument("--collision_box_memory", type=int, default=0,
                     help="read the near box from the newest of the last N generated frames that contains it (0 = off)")
     ap.add_argument("--collision_look_ahead", type=float, default=0.0,

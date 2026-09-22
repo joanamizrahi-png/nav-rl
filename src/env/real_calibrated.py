@@ -209,6 +209,10 @@ class CalibratedBackendConfig(RealWorldBackendConfig):
     # draw when no frame in the distance band satisfies it (straight walks). 0 = off.
     goal_turn_deg: float = 0.0
     goal_turn_mix: float = 0.0
+    # corner goals must lie at least this far ALONG THE WALK past the first bend (2026-09-21 evening,
+    # Joana: "the robot can't just go in a straight line and has to detour"; on the stub L-walk 18% of
+    # goals landed within 1 m of the bend, where the straight line is still walkable). 0 = off.
+    goal_turn_beyond_m: float = 2.0
     # Cone constraint (2026-08-31, her spin sweep verdict: single-pass capture
     # only supports a forward viewing cone — backward views render the backs
     # of one-sided splats and the reward labels there are garbage). Goals are
@@ -328,6 +332,8 @@ class CalibratedRealWorldBackend(RealWorldBackend):
         pos = np.asarray(cal.positions)[:, :2]
         dirs = [cal.walk_direction(k) for k in range(len(pos))]
         lo_d, hi_d = (float(rng_lo_hi[0]), float(rng_lo_hi[1])) if rng_lo_hi else (1.0, 1e9)
+        beyond = float(getattr(self.cfg, "goal_turn_beyond_m", 0.0) or 0.0)
+        arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(pos, axis=0), axis=1))])
         keep = []
         for f in frames:
             d0 = dirs[f]
@@ -336,12 +342,21 @@ class CalibratedRealWorldBackend(RealWorldBackend):
             d = np.linalg.norm(pos - pos[f], axis=1)
             fwd = np.asarray(d0[:2])
             ahead = ((pos - pos[f]) @ fwd) > 0.0
+            kb = None                                   # first frame after f where the walk has bent
             for k in range(f + 1, len(pos)):
-                if not ahead[k] or d[k] < lo_d or d[k] > hi_d or dirs[k] is None:
+                if dirs[k] is None:
                     continue
                 c = float(np.clip(np.dot(fwd, np.asarray(dirs[k][:2])), -1.0, 1.0))
                 bend = float(np.degrees(np.arccos(c)))
-                if turn <= bend <= 150.0:
+                if kb is None:
+                    if bend >= turn:
+                        kb = k
+                        if arc[kb] - arc[f] < beyond:
+                            break                       # spawn too close to the bend: a straight line would still fit
+                    else:
+                        continue
+                # a usable GOAL frame: ahead, in the band, still bent, and `beyond` m of walk past the bend
+                if ahead[k] and lo_d <= d[k] <= hi_d and turn <= bend <= 150.0 and arc[k] - arc[kb] >= beyond:
                     keep.append(f); break
         return keep
 
@@ -587,8 +602,9 @@ class CalibratedRealWorldBackend(RealWorldBackend):
             # corner goals: restrict to frames beyond a bend (see cfg.goal_turn_deg)
             _turn_deg = float(getattr(self.cfg, "goal_turn_deg", 0.0) or 0.0)
             _turn_mix = float(getattr(self.cfg, "goal_turn_mix", 0.0) or 0.0)
+            # the flag is set per EPISODE by sample_start_pose and stays on for every goal redraw of
+            # that episode (goal-support and goal-case retries), so a redraw cannot silently become plain
             _corner_draw = bool(getattr(self, "_corner_episode", False)) if _turn_deg > 0.0 and _turn_mix > 0.0 else False
-            self._corner_episode = False                  # consumed by this draw
             self._goal_turn_tries = int(getattr(self, "_goal_turn_tries", 0)) + int(_corner_draw)
             if _corner_draw:
                 _sp = lo + int(np.argmin(d))                       # recorded frame nearest the spawn
@@ -603,12 +619,23 @@ class CalibratedRealWorldBackend(RealWorldBackend):
                         _bend[_k] = float(np.degrees(np.arccos(_c)))
                     _band = (d >= float(rng_lo_hi[0])) & (d <= float(rng_lo_hi[1])) if rng_lo_hi else np.ones(len(pos), bool)
                     _cand = (_bend >= _turn_deg) & (_bend <= 150.0) & _band
+                    # at least goal_turn_beyond_m of WALK past the first bend after the spawn, so the
+                    # straight spawn->goal line has to cut through the inside of the corner
+                    _beyond_m = float(getattr(self.cfg, "goal_turn_beyond_m", 0.0) or 0.0)
+                    _after = np.arange(len(pos)) > (_sp - lo)
+                    _kb = np.flatnonzero(_after & (_bend >= _turn_deg))
+                    if len(_kb) and _beyond_m > 0.0:
+                        _arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(pos[:, :2], axis=0), axis=1))])
+                        _cand &= _after & ((_arc - _arc[int(_kb[0])]) >= _beyond_m)
+                    elif not len(_kb):
+                        _cand[:] = False
                     if cone_yaw is not None:
                         _fwd0 = np.array([np.cos(float(cone_yaw)), np.sin(float(cone_yaw))])
                         _cand &= ((pos[:, :2] - np.asarray(spawn_xy)) @ _fwd0) > 0.0
                     if bool(np.any(_cand)):
                         cost = np.where(_cand, cost, np.inf)
                         self._goal_turn_hits = int(getattr(self, "_goal_turn_hits", 0)) + 1
+                        _no_jitter = True                 # the +-2 frame jitter could pull the goal back to the bend
                 if self._goal_turn_tries % 100 == 0:
                     print(f"[goals] corner draws {int(getattr(self, '_goal_turn_hits', 0))}/{self._goal_turn_tries} "
                           f"found a frame beyond a {_turn_deg:.0f} deg bend in the band", flush=True)
@@ -630,7 +657,8 @@ class CalibratedRealWorldBackend(RealWorldBackend):
                     _ok = ahead & (d >= float(min_sep_m or 0.0))
                     cost = np.where(_ok, np.abs(d - target), np.inf)
             frame = lo + int(np.argmin(cost))
-            frame = int(np.clip(frame + rng.integers(-2, 3), lo, hi))
+            if not locals().get("_no_jitter", False):
+                frame = int(np.clip(frame + rng.integers(-2, 3), lo, hi))
             goal = cal.positions[frame].copy()
             goal[2] = 0.0
             return goal.astype(np.float32)
