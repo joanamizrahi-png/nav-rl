@@ -745,6 +745,19 @@ def main():
     else:
         model = PPO.load(args.checkpoint, env=env, device="cuda")
         print(f"loaded {args.checkpoint}", flush=True)
+        # IMAGE CHECK (2026-09-22): report whether this policy reacts to its image; refuse a
+        # post-fix checkpoint (env_config image_norm_fix) that is being evaluated with the double /255
+        try:
+            from src.policy.encoders import image_sensitivity
+            _is = image_sensitivity(model)
+            print(f"[eval] image check: normalize_images={_is['normalize_images']}  |action(random image) - action(black)| = {_is['delta']:.4f}"
+                  f"  ({'uses the image' if _is['delta'] > 1e-3 else 'BLIND: image has no effect'})", flush=True)
+            if bool((_tr if '_tr' in dir() else {}).get("image_norm_fix", False)) and _is["normalize_images"]:
+                raise SystemExit("REFUSED: checkpoint trained with --image_norm_fix but loaded with normalize_images=True")
+        except SystemExit:
+            raise
+        except Exception as _e:
+            print(f"[eval] image check skipped: {_e}", flush=True)
     demo_obs, demo_goal, demo_act, demo_ep = [], [], [], []
     demo_kept = 0
 

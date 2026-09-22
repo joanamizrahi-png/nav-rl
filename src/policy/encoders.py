@@ -81,6 +81,13 @@ class FrozenBackboneExtractor(BaseFeaturesExtractor):
         return self
 
     def forward(self, obs: dict) -> torch.Tensor:
+        # 2026-09-22 (Joana: "are we sure the blind arms were actually blind?"): SB3's
+        # preprocess_obs ALREADY divides uint8 image spaces by 255 when the policy is built
+        # with normalize_images=True (its default), so every DINO policy trained before this
+        # date received the image divided by 255 TWICE -- a near-black frame whose tokens
+        # barely depend on the scene. Actions changed by <0.003 between a real frame and
+        # zeros. Build the policy with normalize_images=False (train: --image_norm_fix) so this
+        # single division is the only one.
         rgb = obs["rgb"].float() / 255.0      # [B,3,H,W] via VecTransposeImage
         rgb = (rgb - IMAGENET_MEAN.to(rgb.device)) / IMAGENET_STD.to(rgb.device)
         parts = []
@@ -98,3 +105,18 @@ class FrozenBackboneExtractor(BaseFeaturesExtractor):
                 parts.append(self.resnet(rgb).flatten(1))
         feat = torch.cat(parts, dim=-1)
         return torch.cat([self.head(feat), obs["goal"].float()], dim=-1)
+
+
+def image_sensitivity(model, goal=(5.0, 0.0, 0.0), seed=0) -> dict:
+    """How much the deterministic action changes between a random image and a black one for
+    one goal vector. A policy that uses its camera moves by 0.01-1; a blind one by <0.003
+    (measured 2026-09-22 on every checkpoint trained with the double /255)."""
+    import numpy as np
+    shp = tuple(model.observation_space["rgb"].shape)
+    rng = np.random.default_rng(seed)
+    g = np.asarray(goal, dtype=np.float32)[: int(model.observation_space["goal"].shape[0])]
+    img = rng.integers(0, 256, shp).astype(np.uint8)
+    a_img, _ = model.predict({"rgb": img, "goal": g}, deterministic=True)
+    a_zero, _ = model.predict({"rgb": np.zeros(shp, np.uint8), "goal": g}, deterministic=True)
+    return {"delta": float(np.abs(np.asarray(a_img) - np.asarray(a_zero)).max()),
+            "normalize_images": bool(getattr(model.policy, "normalize_images", True))}

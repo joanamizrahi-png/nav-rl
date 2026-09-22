@@ -667,6 +667,8 @@ def _dump_env_config(args, cfg):
             "goal_turn_deg": float(getattr(cfg, "goal_turn_deg", 0.0) or 0.0),
             "goal_turn_mix": float(getattr(cfg, "goal_turn_mix", 0.0) or 0.0),
             "goal_turn_beyond_m": float(getattr(cfg, "goal_turn_beyond_m", 2.0)),
+            "image_norm_fix": bool(getattr(args, "image_norm_fix", False)),
+            "reset_image_head": bool(getattr(args, "reset_image_head", False)),
             "collision_at_next_pose": bool(getattr(cfg, "collision_at_next_pose", False)),
             "look_ahead_auto": bool(getattr(cfg, "look_ahead_auto", False)),
             "footprint_next_heading": bool(getattr(cfg, "footprint_next_heading", False)),
@@ -1844,6 +1846,12 @@ def main():
                     choices=["nature", "dinov2", "dinov2b", "resnet18", "both"],
                     help="policy visual encoder: SB3 NatureCNN (scratch) or "
                          "a frozen pretrained backbone (advisor ablation)")
+    ap.add_argument("--image_norm_fix", action="store_true",
+                    help="build/patch the policy with normalize_images=False: SB3 divided the image by 255 "
+                         "before the extractor divided it again (all DINO arms before 2026-09-22 were blind)")
+    ap.add_argument("--reset_image_head", action="store_true",
+                    help="with --warmstart: zero the image head (Linear+ReLU) so the policy starts exactly as "
+                         "the warm-start behaves and grows the image pathway from zero")
     ap.add_argument("--encoder_grid", type=str, default="",
                     help='region grid for the frozen ViT patch tokens, e.g. "6x8" (default 3x4)')
     ap.add_argument("--goal_dist_start", type=float, default=None,
@@ -2115,6 +2123,24 @@ def main():
         # first updates, and the old leash aborts every round at step 0 (Run C
         # 2026-08-23: 300k steps, zero learning). Honor the CLI value instead.
         model.target_kl = (args.target_kl if args.target_kl > 0 else None)
+        if getattr(args, "image_norm_fix", False):
+            # the checkpoint's pickled policy_kwargs carry normalize_images=True: patch the live
+            # policy AND the kwargs that PPO.save writes, so evals of the new checkpoints match
+            model.policy.normalize_images = False
+            model.policy_kwargs = dict(model.policy_kwargs or {}); model.policy_kwargs["normalize_images"] = False
+            print("[image check] warm-start patched: normalize_images=False (single /255 in the extractor)", flush=True)
+        if getattr(args, "reset_image_head", False):
+            _n = 0
+            for _ext in {id(e): e for e in (getattr(model.policy, "pi_features_extractor", None),
+                                             getattr(model.policy, "vf_features_extractor", None),
+                                             getattr(model.policy, "features_extractor", None)) if e is not None}.values():
+                _head = getattr(_ext, "head", None)
+                if _head is not None:
+                    with torch.no_grad():
+                        _head[0].weight.zero_(); _head[0].bias.zero_()
+                    _n += 1
+            print(f"[image check] image head zeroed on {_n} extractor(s): step 0 behaves like the warm-start, "
+                  f"the image pathway grows from zero", flush=True)
         print(f"[train_ppo_real] warm-start from {args.warmstart} "
               f"(num_timesteps={model.num_timesteps}, target_kl={model.target_kl})")
     else:
@@ -2127,6 +2153,8 @@ def main():
             policy_kwargs.update(
                 features_extractor_class=FrozenBackboneExtractor,
                 features_extractor_kwargs=_fk)
+        if getattr(args, "image_norm_fix", False):
+            policy_kwargs["normalize_images"] = False
         model = PPO(
         "MultiInputPolicy", env,
         policy_kwargs=policy_kwargs,
@@ -2216,6 +2244,20 @@ def main():
     _goal_cone_banner(env)
     if args.frozen_probe:
         _frozen_probe(env)
+    # ---- IMAGE CHECK (2026-09-22): does the policy react to its image at all? ----
+    try:
+        from src.policy.encoders import image_sensitivity
+        _is = image_sensitivity(model)
+        print(f"[image check] normalize_images={_is['normalize_images']}  |action(random image) - action(black)| = {_is['delta']:.4f}"
+              f"  ({'uses the image' if _is['delta'] > 1e-3 else 'BLIND: image has no effect'})", flush=True)
+        if getattr(args, "image_norm_fix", False) and _is["normalize_images"]:
+            raise SystemExit("REFUSED: --image_norm_fix given but the policy still has normalize_images=True")
+        if getattr(args, "image_norm_fix", False) and not getattr(args, "reset_image_head", False) and _is["delta"] <= 1e-3:
+            raise SystemExit("REFUSED: --image_norm_fix given but the action does not react to the image")
+    except SystemExit:
+        raise
+    except Exception as _e:
+        print(f"[image check] skipped: {_e}", flush=True)
     model.learn(total_timesteps=args.total_steps, callback=callbacks, progress_bar=True,
                 reset_num_timesteps=(args.warmstart is None))
     model.save(str(args.output_dir / "ppo_final.zip"))
