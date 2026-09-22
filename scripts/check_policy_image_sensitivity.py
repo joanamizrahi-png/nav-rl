@@ -6,6 +6,16 @@ extractor produces, and the first policy layer's weight mass on image features v
     python scripts/check_policy_image_sensitivity.py <ckpt.zip> <eval_episode.mp4>
 Runs on the login node (CPU) in the neoverse env."""
 import sys, numpy as np, cv2, torch
+# checkpoints were pickled under numpy 2 ("numpy._core"); on a numpy-1 interpreter map those
+# module names onto numpy.core so the unpickler finds them (login node, 2026-09-22)
+if not hasattr(np, "_core"):
+    import importlib, types
+    for sub in ("", ".numeric", ".multiarray", ".umath", "._multiarray_umath", ".fromnumeric", "._methods"):
+        try:
+            sys.modules["numpy._core" + sub] = importlib.import_module("numpy.core" + sub)
+        except Exception:
+            pass
+print("numpy", np.__version__, "torch", torch.__version__, "python", sys.executable)
 sys.path.insert(0, "/scratch/m000204-pm06b/joana/nav-rl")
 from stable_baselines3 import PPO
 
