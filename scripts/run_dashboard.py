@@ -82,6 +82,12 @@ def main():
                     help="follow each run's warm-start ancestry and plot the whole history as one curve")
     ap.add_argument("--keys", nargs="+", default=DEFAULT_KEYS)
     ap.add_argument("--points", type=int, default=6, help="history samples per key")
+    ap.add_argument("--smooth", type=int, default=0,
+                    help="average each key over a window of this many env steps before sampling. "
+                         "The resident scene rotates every --scene_rotate steps (3000 in the campus "
+                         "arms) and one logged point is one rollout (~2048 steps), so a single point "
+                         "is essentially one scene. Use a full rotation cycle (scenes x rotate, "
+                         "39000 for 13 scenes) to compare learning rather than scene difficulty.")
     args = ap.parse_args()
     for run in args.runs:
         dirs = chain_of(run) if args.chain else [run]
@@ -92,13 +98,20 @@ def main():
         tag = ("memory" if "bm5" in name else "chunk" if "chunk" in name else
                "A-map" if ("hyb" in name or "map_then" in name) else "A (4 GPU)" if "_g4_" in name else "A-like (2 GPU)")
         steps = max((s[-1][0] for s in series.values() if s), default=0)
-        print(f"\n== {tag}: ...{name[-48:]}  ({steps} env steps logged)")
+        print(f"\n== {tag}: ...{name[-48:]}  ({steps} env steps logged{', smoothed over ' + str(args.smooth) + ' steps' if args.smooth else ''})")
         if not series:
             print("   no tensorboard events found"); continue
         for k in args.keys:
             s = series.get(k)
             if not s:
                 print(f"   {k:<28} (not logged)"); continue
+            if args.smooth > 0:
+                sm = []
+                for i, (st, _) in enumerate(s):
+                    lo = st - args.smooth
+                    win = [v for stp, v in s[max(0, i - 400):i + 1] if stp >= lo]
+                    if win: sm.append((st, sum(win) / len(win)))
+                s = sm or s
             n = len(s); idx = sorted(set(int(round(i * (n - 1) / max(1, args.points - 1))) for i in range(args.points)))
             hist = "  ".join(f"{s[i][0] // 1000}k:{s[i][1]:.3g}" for i in idx)
             print(f"   {k:<28} latest {s[-1][1]:9.3f}   | {hist}")
