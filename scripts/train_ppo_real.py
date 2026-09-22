@@ -2130,6 +2130,7 @@ def main():
             model.policy_kwargs = dict(model.policy_kwargs or {}); model.policy_kwargs["normalize_images"] = False
             print("[image check] warm-start patched: normalize_images=False (single /255 in the extractor)", flush=True)
         if getattr(args, "reset_image_head", False):
+            import torch                                   # only imported lazily elsewhere in this script
             _n = 0
             for _ext in {id(e): e for e in (getattr(model.policy, "pi_features_extractor", None),
                                              getattr(model.policy, "vf_features_extractor", None),
