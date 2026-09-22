@@ -669,6 +669,8 @@ def _dump_env_config(args, cfg):
             "goal_turn_mix": float(getattr(cfg, "goal_turn_mix", 0.0) or 0.0),
             "goal_turn_beyond_m": float(getattr(cfg, "goal_turn_beyond_m", 2.0)),
             "obs_frame_stack": int(getattr(cfg, "obs_frame_stack", 1)),
+            # the parent checkpoint, so a continued run's full curve can be chained (2026-09-22)
+            "warmstart": (str(getattr(args, "warmstart", "")) if getattr(args, "warmstart", None) else ""),
             "image_norm_fix": bool(getattr(args, "image_norm_fix", False)),
             "reset_image_head": bool(getattr(args, "reset_image_head", False)),
             "collision_at_next_pose": bool(getattr(cfg, "collision_at_next_pose", False)),

@@ -36,15 +36,59 @@ def load_scalars(run_dir: str):
     return series
 
 
+def _parent_of(run_dir: str):
+    """The run directory a continued run was warm-started from, or None.
+    Uses env_config['warmstart'] when present (runs after 2026-09-22); otherwise resolves the
+    checkpoint path recorded in the directory name is not possible, so the chain simply stops."""
+    import json
+    p = os.path.join(run_dir, "env_config.json")
+    if not os.path.exists(p):
+        return None
+    try:
+        ws = json.load(open(p)).get("warmstart", "")
+    except Exception:
+        return None
+    if not ws:
+        return None
+    ws = os.path.realpath(ws)                       # .../<run>/checkpoints/LATEST -> resolve the symlink
+    d = os.path.dirname(os.path.dirname(ws))        # strip checkpoints/<file>
+    return d if os.path.isdir(d) else None
+
+
+def chain_of(run_dir: str, limit: int = 8):
+    """[oldest ancestor, ..., run_dir] following warm starts backwards."""
+    seen, chain, cur = set(), [], os.path.realpath(run_dir)
+    while cur and cur not in seen and len(chain) < limit:
+        seen.add(cur); chain.append(cur); cur = _parent_of(cur)
+    return list(reversed(chain))
+
+
+def merge_scalars(dirs):
+    """Concatenate several runs' scalars by env step. PPO keeps its step counter across a warm
+    start (reset_num_timesteps=False), so the steps already line up end to end."""
+    out = {}
+    for d in dirs:
+        for tag, pts in load_scalars(d).items():
+            out.setdefault(tag, []).extend(pts)
+    for tag in out:
+        out[tag].sort()
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("runs", nargs="+")
+    ap.add_argument("--chain", action="store_true",
+                    help="follow each run's warm-start ancestry and plot the whole history as one curve")
     ap.add_argument("--keys", nargs="+", default=DEFAULT_KEYS)
     ap.add_argument("--points", type=int, default=6, help="history samples per key")
     args = ap.parse_args()
     for run in args.runs:
-        series = load_scalars(run)
+        dirs = chain_of(run) if args.chain else [run]
+        series = merge_scalars(dirs) if len(dirs) > 1 else load_scalars(run)
         name = os.path.basename(run.rstrip("/"))
+        if len(dirs) > 1:
+            print(f"\n   chained {len(dirs)} runs: " + " -> ".join(os.path.basename(d)[-14:] for d in dirs))
         tag = ("memory" if "bm5" in name else "chunk" if "chunk" in name else
                "A-map" if ("hyb" in name or "map_then" in name) else "A (4 GPU)" if "_g4_" in name else "A-like (2 GPU)")
         steps = max((s[-1][0] for s in series.values() if s), default=0)
