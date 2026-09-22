@@ -2128,13 +2128,22 @@ def main():
         # first updates, and the old leash aborts every round at step 0 (Run C
         # 2026-08-23: 300k steps, zero learning). Honor the CLI value instead.
         model.target_kl = (args.target_kl if args.target_kl > 0 else None)
+        _parent_normalize = bool(getattr(model.policy, "normalize_images", True))
         if getattr(args, "image_norm_fix", False):
             # the checkpoint's pickled policy_kwargs carry normalize_images=True: patch the live
             # policy AND the kwargs that PPO.save writes, so evals of the new checkpoints match
             model.policy.normalize_images = False
             model.policy_kwargs = dict(model.policy_kwargs or {}); model.policy_kwargs["normalize_images"] = False
             print("[image check] warm-start patched: normalize_images=False (single /255 in the extractor)", flush=True)
-        if getattr(args, "reset_image_head", False):
+        # Reset the image head only when the PARENT never used its camera. A pre-fix checkpoint was
+        # trained with the double /255, so its head must start from zero; a post-fix checkpoint has
+        # already learned to see and zeroing it would throw that away (2026-09-22, continuations).
+        _parent_blind = bool(_parent_normalize)
+        _do_reset = bool(getattr(args, "reset_image_head", False)) or (
+            bool(getattr(args, "image_norm_fix", False)) and _parent_blind)
+        print(f"[image check] parent normalize_images={_parent_normalize} -> image head reset: {_do_reset}"
+              + ("" if _do_reset else "  (parent already sees; keeping its image pathway)"), flush=True)
+        if _do_reset:
             import torch                                   # only imported lazily elsewhere in this script
             _n = 0
             for _ext in {id(e): e for e in (getattr(model.policy, "pi_features_extractor", None),
