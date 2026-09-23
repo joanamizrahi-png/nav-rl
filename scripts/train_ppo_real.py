@@ -2183,6 +2183,12 @@ def main():
         print(f"[image check] parent normalize_images={_parent_normalize} -> image head reset: {_do_reset}"
               + ("" if _do_reset else "  (parent already sees; keeping its image pathway)"), flush=True)
         if _do_reset:
+            # 2026-09-23: the guard below and env_config both read args.reset_image_head,
+            # so an AUTOMATIC reset has to write itself back. Without this, two warm arms
+            # (500181, 500182) had their head correctly zeroed and were then refused by
+            # their own guard for not reacting to the image -- which a zeroed head cannot
+            # do by construction -- and env_config recorded reset_image_head=false.
+            args.reset_image_head = True
             import torch                                   # only imported lazily elsewhere in this script
             _n = 0
             for _ext in {id(e): e for e in (getattr(model.policy, "pi_features_extractor", None),
@@ -2218,7 +2224,11 @@ def main():
         # n_steps x robots env steps, so a 2-GPU arm (8 robots) with 128 updates
         # on 1024 steps while the 4-GPU run (16 robots) updates on 2048. Set
         # n_steps=256 on 2-GPU arms so every run updates on the same 2048.
-        n_steps=int(getattr(args, "n_steps", 128)), batch_size=64,
+        n_steps=int(getattr(args, "n_steps", 128)),
+        # 2026-09-23: a K-frame stack sends K images per sample through the backbone, so a
+        # fixed batch of 64 OOMed both stack-3 arms (500172, 500173) in the policy update.
+        # Scale it down by K and keep it a multiple of 8. K=1 is unchanged at 64.
+        batch_size=max(8, (64 // max(1, int(getattr(args, "obs_frame_stack", 1)))) // 8 * 8),
         # v6c: constant lr again. v6b's linear decay produced a NEVER-learned
         # policy (0% at 200k/306k/400k, goal-blind) — the random-goal task needs
         # full-rate learning throughout (v6 only found its peak at 306k). The KL
