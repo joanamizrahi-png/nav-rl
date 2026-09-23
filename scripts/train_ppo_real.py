@@ -683,6 +683,9 @@ def _dump_env_config(args, cfg):
             "goal_turn_from": getattr(args, "goal_turn_from", None),
             "obs_frame_stack": int(getattr(cfg, "obs_frame_stack", 1)),
             "obs_frame_stride": int(getattr(cfg, "obs_frame_stride", 1)),
+            # the encoder was only ever in the directory name, and only for dinov2, so an eval
+            # of an older run cannot tell which backbone it was (2026-09-22)
+            "encoder": str(getattr(args, "encoder", "nature")),
             # the parent checkpoint, so a continued run's full curve can be chained (2026-09-22)
             "warmstart": (str(getattr(args, "warmstart", "")) if getattr(args, "warmstart", None) else ""),
             "image_norm_fix": bool(getattr(args, "image_norm_fix", False)),
