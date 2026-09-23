@@ -94,6 +94,27 @@ def main():
         print(f"   ({dropped} points dropped for straddling a rotation; "
               f"scenes ordered worst crash last)")
 
+        # WHICH SCENE EARNED EACH CURRICULUM RUNG? (2026-09-23, Joana: "what if it
+        # was an easy straight scene and not a corner one?") A rung needs 50% wins
+        # over 100 episodes, and a scene stays resident ~3000 steps per worker, so a
+        # rung is earned inside ONE scene's residency. A band reached only on the
+        # easiest scene is not a band the policy can do anywhere.
+        cur = load_scalars(run, ["curriculum/goal_dist"]).get("curriculum/goal_dist")
+        if cur:
+            rung = {}
+            for step, v in sorted(cur.items()):
+                i = idx.get(step)
+                if i is None or abs(i - round(i)) > args.tol:
+                    continue
+                nm = names[round(i)] if names and round(i) < len(names) else f"idx {round(i)}"
+                lo, hi = rung.get(nm, (v, v))
+                rung[nm] = (min(lo, v), max(hi, v))
+            if rung:
+                print("   curriculum band while each scene was resident:")
+                for nm, (lo, hi) in sorted(rung.items(), key=lambda kv: kv[1][1]):
+                    grew = "  <- GREW HERE" if hi - lo > 0.25 else ""
+                    print(f"     {nm:<16} {lo:>5.2f} -> {hi:>5.2f} m{grew}")
+
 
 if __name__ == "__main__":
     sys.exit(main())
