@@ -246,6 +246,17 @@ if [[ "${GOAL_XY:-}" != "" ]]; then
     OUT_SUFFIX="${OUT_SUFFIX}_gxy${GOAL_XY/,/_}"
 fi
 SCENE=${SCENE:-rugd_trail_00}
+# 2026-09-23: twenty evals each burned ~10 min of a GPU before dying inside the
+# reconstructor because CLIPS_DIR still pointed at rugd_clips while the campus
+# scenes live in campus_clips. Check the file the job will ask for, up front.
+_CLIP="${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}/${SCENE}.mp4"
+if [ ! -f "$_CLIP" ]; then
+    echo "REFUSED: no clip at $_CLIP"
+    echo "         campus scenes need CLIPS_DIR=/scratch/m000204-pm06b/joana/data/campus_clips"
+    _alt=/scratch/m000204-pm06b/joana/data/campus_clips/${SCENE}.mp4
+    [ -f "$_alt" ] && echo "         (found it at $_alt)"
+    exit 1
+fi
 if [ "$SCENE" != "rugd_trail_00" ]; then
     OUT_SUFFIX="${OUT_SUFFIX}_${SCENE}"    # zero-shot evals get their own dir
 fi
