@@ -87,8 +87,17 @@ MUST_ROUNDTRIP = [
 
 
 def build_env_reads() -> set:
-    """Keys build_env actually threads into the backend/env config."""
+    """Keys build_env actually threads into the backend/env config.
+
+    2026-09-23: also follows helper functions build_env CALLS. max_steps moved
+    behind _eval_step_budget(args) and the flat text scan reported it as going
+    nowhere, which would have masked a real break next time.
+    """
     b = EVAL[EVAL.index("def build_env"):EVAL.index("def main")]
+    for helper in re.findall(r"\b(_[a-z][a-z0-9_]*)\(args", b):
+        m = re.search(rf"^def {helper}\(.*?(?=\n(?:def |class )|\Z)", EVAL, re.S | re.M)
+        if m:
+            b += m.group(0)
     used = set(re.findall(r'getattr\(args, "([a-z0-9_]+)"', b)) | set(re.findall(r'\bargs\.([a-z0-9_]+)', b))
     # eval renames a few on the way in (_dest): the value lands on a different attribute name
     m = re.search(r'_dest = \{(.*?)\}', EVAL, re.S)

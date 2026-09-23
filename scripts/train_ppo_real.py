@@ -679,6 +679,8 @@ def _dump_env_config(args, cfg):
             "goal_turn_mix": float(getattr(cfg, "goal_turn_mix", 0.0) or 0.0),
             "goal_turn_beyond_m": float(getattr(cfg, "goal_turn_beyond_m", 2.0)),
             "goal_turn_from": getattr(args, "goal_turn_from", None),
+            "max_steps_base": int(getattr(args, "max_steps_base", 40) or 40),
+            "max_steps_per_m": float(getattr(args, "max_steps_per_m", 0.0) or 0.0),
             "obs_frame_stack": int(getattr(args, "obs_frame_stack", 1) or 1),
             "obs_frame_stride": int(getattr(args, "obs_frame_stride", 1) or 1),
             # the encoder was only ever in the directory name, and only for dinov2, so an eval
@@ -1081,6 +1083,8 @@ def _scene_env_cfg(args):
         # SceneEnv._obs). They were passed to CalibratedBackendConfig instead,
         # which has no such field, so every arm carrying FRAMESTACK died in 8 s
         # with a TypeError. Eval had them on the right config all along.
+        max_steps_base=int(getattr(args, "max_steps_base", 40) or 40),
+        max_steps_per_m=float(getattr(args, "max_steps_per_m", 0.0) or 0.0),
         obs_frame_stack=int(getattr(args, "obs_frame_stack", 1) or 1),
         obs_frame_stride=int(getattr(args, "obs_frame_stride", 1) or 1),
         map_res_m=float(getattr(args, "map_res_m", 0.1)),
@@ -1933,6 +1937,10 @@ def main():
                     choices=["nature", "dinov2", "dinov2b", "resnet18", "both"],
                     help="policy visual encoder: SB3 NatureCNN (scratch) or "
                          "a frozen pretrained backbone (advisor ablation)")
+    ap.add_argument("--max_steps_base", type=int, default=40,
+                    help="episode budget = base + per_m * (top of the goal band)")
+    ap.add_argument("--max_steps_per_m", type=float, default=0.0,
+                    help="0 pins max_steps; 14 keeps a 1.15x margin over the measured cruise (2026-09-23)")
     ap.add_argument("--obs_frame_stack", type=int, default=1,
                     help="MULTIPLE IMAGES: the observation is the last K rendered views on the channel axis (1 = current frame only)")
     ap.add_argument("--obs_frame_stride", type=int, default=1,

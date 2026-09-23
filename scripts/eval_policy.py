@@ -49,6 +49,33 @@ def _parse_range(text, cast, name):
     return tuple(cast(p) for p in parts)
 
 
+def _eval_step_budget(args) -> int:
+    """The same budget training uses: base + per_m * (top of the goal band).
+
+    Returns args.max_steps unchanged when per_m is 0, which is every checkpoint
+    trained before 2026-09-23.
+    """
+    per_m = float(getattr(args, "max_steps_per_m", None) or 0.0)
+    if per_m <= 0.0:
+        return int(args.max_steps)
+    d = getattr(args, "goal_dist", None)
+    if d is None:
+        rng = getattr(args, "goal_dist_range", None)
+        if isinstance(rng, str) and rng:
+            try:
+                d = max(float(v) for v in rng.split(","))
+            except Exception:
+                d = None
+    if d is None:
+        print(f"[eval] no goal distance to size the budget from; keeping max_steps={args.max_steps}", flush=True)
+        return int(args.max_steps)
+    base = int(getattr(args, "max_steps_base", None) or 40)
+    n = int(round(base + per_m * float(d)))
+    print(f"[eval] step budget {n} = {base} + {per_m:g} x {float(d):g} m "
+          f"(training used the same rule); fixed default was {args.max_steps}", flush=True)
+    return n
+
+
 def build_env(args):
     cfg = CalibratedBackendConfig(
         scene_video_paths={args.scene: f"{args.clips_dir}/{args.scene}.mp4"},
@@ -131,7 +158,11 @@ def build_env(args):
         # action model it learned. Combined with forward_only defaulting off —
         # RW5 clamps reverse away during training — the robot could also drive
         # backwards in eval, which it never could while learning.
-        max_steps=args.max_steps,
+        # 2026-09-23: eval adopted max_steps_base/_per_m but never called
+        # set_goal_dist, where the scaling lives, so it would have kept the fixed
+        # 90-step budget while training grew its own. Apply the same formula here,
+        # off the goal distance the curriculum actually reached.
+        max_steps=_eval_step_budget(args),
         step_size_m=args.step_size_m, yaw_step_rad=args.yaw_step_rad,
         reward=RewardWeights(
             semantic=(args.semantic_weight if getattr(args, "semantic_weight", None) is not None else 1.0),
@@ -195,6 +226,8 @@ def build_env(args):
         goal_nontrav_cone_deg=float(getattr(args, "goal_nontrav_cone_deg", 0.0)),
         goal_case_mix=str(getattr(args, "goal_case_mix", "") or ""),
         # default is None so adoption can tell "not given" from "given as 1"
+        max_steps_base=int(getattr(args, "max_steps_base", None) or 40),
+        max_steps_per_m=float(getattr(args, "max_steps_per_m", None) or 0.0),
         obs_frame_stack=int(getattr(args, "obs_frame_stack", None) or 1),
         obs_frame_stride=int(getattr(args, "obs_frame_stride", None) or 1),
         goal_case_tries=int(getattr(args, "goal_case_tries", 24)),
@@ -380,6 +413,8 @@ def main():
     ap.add_argument("--spawn_heading_from_walk", action="store_true", help="adopted from env_config.json when present")
     ap.add_argument("--spawn_frames", type=str, default="", help="adopted from env_config.json when present")
     ap.add_argument("--goal_case_mix", type=str, default="", help="adopted from env_config.json when present")
+    ap.add_argument("--max_steps_base", type=int, default=None, help="adopted from env_config.json when present")
+    ap.add_argument("--max_steps_per_m", type=float, default=None, help="adopted from env_config.json when present")
     ap.add_argument("--obs_frame_stack", type=int, default=None, help="adopted from env_config.json when present")
     ap.add_argument("--obs_frame_stride", type=int, default=None, help="adopted from env_config.json when present")
     ap.add_argument("--goal_dist", type=float, default=None,
@@ -512,6 +547,26 @@ def main():
             print(f"[eval] adoption SKIPPED (--no_adopt): env built from the CLI, not from {_ec}", flush=True)
         elif _ec.exists():
             _tr = _json.loads(_ec.read_text())
+            # 2026-09-23: env_config records goal_dist from ARGS -- the CEILING the
+            # curriculum was allowed to climb to -- while curriculum_state.json beside
+            # it records where the policy actually got. Adopting the ceiling tested
+            # arms a full band beyond anything they trained on (goals at 9.0-9.4 m for
+            # policies whose band topped out at 7.5 m) and every one of those episodes
+            # timed out. The state file is the truth; prefer it.
+            _cs = _run / "curriculum_state.json"
+            if _cs.exists():
+                try:
+                    _cur = _json.loads(_cs.read_text())
+                    _reached = float(_cur.get("goal_dist"))
+                    _ceiling = float(_tr.get("goal_dist") or _reached)
+                    if _reached < _ceiling:
+                        print(f"[eval] curriculum REACHED {_reached:g} m of a {_ceiling:g} m ceiling; "
+                              f"testing at {_reached:g} m (curriculum_state.json)", flush=True)
+                    _tr["goal_dist"] = _reached
+                    if _cur.get("goal_dist_range"):
+                        _tr["goal_dist_range"] = ",".join(str(float(v)) for v in _cur["goal_dist_range"])
+                except Exception as _e:
+                    print(f"[eval] could not read {_cs} ({_e}); using the configured ceiling", flush=True)
             # TRAVERSABILITY TABLE (2026-09-20): a whole day of evals scored walkway-trained
             # arms with the launcher's default v14 table (grass 0.75, vegetation 0.2 = walkable):
             # A 60k walked 18 steps on a lawn without a crash. The table is adopted from
@@ -588,7 +643,7 @@ def main():
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test
                        "raster_obs", "static_scene", "static_movers", "render_window", "coverage_window", "sem_palette",
-                       "reward_source", "terrain_speed_scaled", "timeout_distance_scaled", "goal_dist", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix", "obs_frame_stack", "obs_frame_stride", "label_remap", "goal_center_clear_m",
+                       "reward_source", "terrain_speed_scaled", "timeout_distance_scaled", "goal_dist", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix", "max_steps_base", "max_steps_per_m", "obs_frame_stack", "obs_frame_stride", "label_remap", "goal_center_clear_m",
                        "goal_nontrav_edge_m", "goal_nontrav_tries", "goal_nontrav_cone_deg", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage

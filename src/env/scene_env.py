@@ -90,6 +90,17 @@ _ENV_SEQ = 0    # per-process env counter, tags crash snapshots
 @dataclass
 class SceneEnvConfig:
     max_steps: int = 100
+    # 2026-09-23: max_steps was pinned at 90 when goals were 2-4 m. The curriculum
+    # now runs to 10 m, and at the cruise these policies actually command (~0.07
+    # m/step measured) 90 steps buys ~6.3 m -- so from ~7 m upward the goal is
+    # unreachable no matter what the policy does, the goal bonus stops arriving,
+    # and the cheapest remaining behaviour is to slow down. Which is exactly what
+    # A_dino did: 1.92 m of travel in 90 steps regardless of goal distance.
+    # With per_m > 0 the budget grows with the band: steps = base + per_m * d.
+    # 16 steps/m keeps a 1.4x margin over the measured 0.070 m/step cruise, which is
+    # what a corner DETOUR needs; 1.15x only covers a straight run.
+    max_steps_base: int = 40
+    max_steps_per_m: float = 0.0        # 0 disables; 16.0 is the calibrated value
     step_size_m: float = 0.3            # meters per unit forward action
     yaw_step_rad: float = 0.5           # radians per unit yaw action
     reward: RewardWeights = field(default_factory=RewardWeights)
@@ -1305,6 +1316,11 @@ class SceneEnv(gym.Env if gym is not None else object):
                 # consuming rollout steps.
                 lo = max(self._goal_dist_lo0, float(d) - float(win))
             cfg.goal_dist_range = (lo, max(lo + 0.5, float(d)))
+        # the episode budget rides the same clock as the band
+        _pm = float(getattr(self.cfg, "max_steps_per_m", 0.0) or 0.0)
+        if _pm > 0.0:
+            _hi = float(getattr(cfg, "goal_dist_range", (0.0, d))[1])
+            self.cfg.max_steps = int(round(float(getattr(self.cfg, "max_steps_base", 40)) + _pm * _hi))
         # Returned so the callback can log the ACTUAL range on wandb. Logging
         # only `d` hid the near end, which the sliding window moves.
         return getattr(cfg, "goal_dist_range", None)
