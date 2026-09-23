@@ -1252,6 +1252,18 @@ class SceneEnv(gym.Env if gym is not None else object):
     def goal_corner_probe_result(self) -> dict:
         return dict(getattr(self, "_probe_corner", {}))
 
+    def set_goal_turn_mix(self, m: float) -> float:
+        """Corner-rule hook (2026-09-22, Joana: "corner rule is good to ramp up"). A corner goal
+        needs goal_turn_beyond_m of walk before the bend AND after it, so it is geometrically
+        impossible until the band is roughly 2 x that, and pinning the mix at 1.0 from step zero
+        made every episode on a bend scene a forced detour with no easy episodes anywhere: the
+        warm arm's mean throttle decayed from +0.92 to +0.16 in 30k steps under it. The curriculum
+        raises this as the distance band grows, so the first detour arrives once the policy drives."""
+        cfg = getattr(self.world_backend, "cfg", None)
+        if cfg is not None:
+            cfg.goal_turn_mix = float(m)
+        return float(m)
+
     def set_goal_dist(self, d: float) -> "tuple | None":
         """Distance-curriculum hook (2026-08-29, Joana: E must bootstrap like
         B did): goals START close (~3 m) and GROW as the policy earns wins.

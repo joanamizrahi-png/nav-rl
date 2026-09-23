@@ -226,7 +226,7 @@ class GoalDistCurriculum(BaseCallback):
 
     def __init__(self, start: float, end: float, window: int = 100,
                  threshold: float = 0.5, notch: float = 0.5,
-                 state_path: "Path | None" = None):
+                 state_path: "Path | None" = None, turn_from=None, turn_mix=0.0):
         super().__init__()
         self.d, self.end = start, end
         self.window, self.threshold, self.notch = window, threshold, notch
@@ -238,6 +238,8 @@ class GoalDistCurriculum(BaseCallback):
         # predictable from the config either: the far end only advances when
         # the policy earns notches, so the truth has to be written as it moves.
         self.state_path = state_path
+        self.turn_from = turn_from      # band distance at which corner goals start appearing
+        self.turn_mix = float(turn_mix)  # the mix reached at the ceiling
 
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
@@ -254,6 +256,15 @@ class GoalDistCurriculum(BaseCallback):
             self.d = min(self.end, self.d + self.notch)
             self._wins.clear()               # re-earn the next notch
         rngs = self.training_env.env_method("set_goal_dist", self.d)
+        # corner rule ramped on the SAME clock: no corners until the band reaches turn_from,
+        # then linearly to turn_mix by the ceiling. turn_from=None leaves the mix alone.
+        if self.turn_from is not None and self.turn_mix > 0.0:
+            span = max(1e-6, float(self.end) - float(self.turn_from))
+            frac = min(1.0, max(0.0, (float(self.d) - float(self.turn_from)) / span))
+            mix = float(self.turn_mix) * frac
+            self.training_env.env_method("set_goal_turn_mix", mix)
+            if self.logger is not None:
+                self.logger.record("curriculum/goal_turn_mix", mix)
         if self.logger is not None:
             self.logger.record("curriculum/goal_dist", self.d)
             # The far end alone is not the task: with a sliding window the near
@@ -668,6 +679,7 @@ def _dump_env_config(args, cfg):
             "goal_turn_deg": float(getattr(cfg, "goal_turn_deg", 0.0) or 0.0),
             "goal_turn_mix": float(getattr(cfg, "goal_turn_mix", 0.0) or 0.0),
             "goal_turn_beyond_m": float(getattr(cfg, "goal_turn_beyond_m", 2.0)),
+            "goal_turn_from": getattr(args, "goal_turn_from", None),
             "obs_frame_stack": int(getattr(cfg, "obs_frame_stack", 1)),
             # the parent checkpoint, so a continued run's full curve can be chained (2026-09-22)
             "warmstart": (str(getattr(args, "warmstart", "")) if getattr(args, "warmstart", None) else ""),
@@ -1832,6 +1844,9 @@ def main():
                     help="average the current frame's box reading with the stored frames even when the box is visible now (2026-09-20)")
     ap.add_argument("--goal_turn_deg", type=float, default=0.0, help="corner goals: minimum bend of the walk between spawn and goal frame (0 = off)")
     ap.add_argument("--goal_turn_mix", type=float, default=0.0, help="share of episodes that draw a corner goal when one exists in the band")
+    ap.add_argument("--goal_turn_from", type=float, default=None,
+                    help="ramp the corner mix with the distance curriculum: 0 below this band "
+                         "distance, rising to --goal_turn_mix at the ceiling (needs --goal_dist_start)")
     ap.add_argument("--goal_turn_beyond_m", type=float, default=2.0, help="corner goals: metres of walk past the first bend the goal must lie (0 = off)")
     ap.add_argument("--collision_box_memory", type=int, default=0,
                     help="read the near box from the newest of the last N generated frames that contains it (0 = off)")
@@ -2246,7 +2261,9 @@ def main():
     if args.goal_dist_start is not None and args.goal_dist is not None:
         callbacks.append(GoalDistCurriculum(
             args.goal_dist_start, args.goal_dist,
-            state_path=args.output_dir / "curriculum_state.json"))
+            state_path=args.output_dir / "curriculum_state.json",
+            turn_from=getattr(args, "goal_turn_from", None),
+            turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0)))
     if args.use_wandb:
         try:
             import wandb
