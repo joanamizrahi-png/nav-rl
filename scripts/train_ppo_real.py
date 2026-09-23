@@ -603,6 +603,7 @@ def make_env(args):
         goal_turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0),
         goal_turn_beyond_m=float(getattr(args, "goal_turn_beyond_m", 2.0)),
         obs_frame_stack=int(getattr(args, "obs_frame_stack", 1)),
+        obs_frame_stride=int(getattr(args, "obs_frame_stride", 1)),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
@@ -681,6 +682,7 @@ def _dump_env_config(args, cfg):
             "goal_turn_beyond_m": float(getattr(cfg, "goal_turn_beyond_m", 2.0)),
             "goal_turn_from": getattr(args, "goal_turn_from", None),
             "obs_frame_stack": int(getattr(cfg, "obs_frame_stack", 1)),
+            "obs_frame_stride": int(getattr(cfg, "obs_frame_stride", 1)),
             # the parent checkpoint, so a continued run's full curve can be chained (2026-09-22)
             "warmstart": (str(getattr(args, "warmstart", "")) if getattr(args, "warmstart", None) else ""),
             "image_norm_fix": bool(getattr(args, "image_norm_fix", False)),
@@ -1129,6 +1131,7 @@ def make_live_vec_env(args):
         goal_turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0),
         goal_turn_beyond_m=float(getattr(args, "goal_turn_beyond_m", 2.0)),
         obs_frame_stack=int(getattr(args, "obs_frame_stack", 1)),
+        obs_frame_stride=int(getattr(args, "obs_frame_stride", 1)),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
@@ -1874,6 +1877,8 @@ def main():
                          "a frozen pretrained backbone (advisor ablation)")
     ap.add_argument("--obs_frame_stack", type=int, default=1,
                     help="MULTIPLE IMAGES: the observation is the last K rendered views on the channel axis (1 = current frame only)")
+    ap.add_argument("--obs_frame_stride", type=int, default=1,
+                    help="steps between stacked views: stack 3 stride 3 spans 1.5 m instead of 0.5 m")
     ap.add_argument("--image_norm_fix", action="store_true",
                     help="build/patch the policy with normalize_images=False: SB3 divided the image by 255 "
                          "before the extractor divided it again (all DINO arms before 2026-09-22 were blind)")

@@ -184,6 +184,9 @@ class SceneEnvConfig:
     # MULTIPLE IMAGES (2026-09-22, Jing's third arm): the observation is the last K rendered
     # views concatenated on the channel axis, oldest first. 1 = the current frame only.
     obs_frame_stack: int = 1
+    # 2026-09-22 (Joana): three consecutive steps span only ~0.5 m. A stride keeps the same
+    # encoder cost but reaches further back: stack 3 stride 3 covers 1.5 m of travel.
+    obs_frame_stride: int = 1
     goal_case_mix: str = ""
     goal_case_tries: int = 24
     goal_case_walkable_min: float = 0.5
@@ -1971,19 +1974,22 @@ class SceneEnv(gym.Env if gym is not None else object):
                 import cv2
                 rgb = cv2.resize(rgb, (ow, oh), interpolation=cv2.INTER_AREA)
         _k = max(1, int(getattr(self.cfg, "obs_frame_stack", 1)))
+        _st = max(1, int(getattr(self.cfg, "obs_frame_stride", 1)))
         if _k > 1:
             # one append per environment step: _obs() may be called again for the same step
             # (inject_render, debug rebuilds) and must not shift the history when it is
             _key = (self._scene_id, int(getattr(self, "_steps", 0)))
             if getattr(self, "_rgb_hist", None) is None:
                 self._rgb_hist, self._rgb_hist_key = [], None
+            _need = (_k - 1) * _st + 1                        # frames to remember for this stride
             if not self._rgb_hist:
-                self._rgb_hist = [rgb] * _k                      # episode start: repeat the first view
+                self._rgb_hist = [rgb] * _need                   # episode start: repeat the first view
                 self._rgb_hist_key = _key
             elif self._rgb_hist_key != _key:
-                self._rgb_hist = (self._rgb_hist + [rgb])[-_k:]
+                self._rgb_hist = (self._rgb_hist + [rgb])[-_need:]
                 self._rgb_hist_key = _key
-            rgb = np.concatenate(self._rgb_hist, axis=2)          # oldest ... newest
+            sel = [self._rgb_hist[-1 - i * _st] for i in range(_k)][::-1]   # oldest ... newest
+            rgb = np.concatenate(sel, axis=2)
         return {
             "rgb":  rgb.copy(),
             "goal": goal_robot.astype(np.float32),

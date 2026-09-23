@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 
 K = int(sys.argv[1]) if len(sys.argv) > 1 else 3
+STRIDE = int(sys.argv[2]) if len(sys.argv) > 2 else 1
 H, W = 56, 84          # small: this test is about plumbing, not pixels
 
 
@@ -25,7 +26,8 @@ def test_env_side():
     from types import SimpleNamespace
     from src.env.scene_env import SceneEnv
     env = object.__new__(SceneEnv)
-    env.cfg = SimpleNamespace(obs_frame_stack=K, goal_noise_std=0.0, obs_out_hw=None, mirror_prob=0.0)
+    env.cfg = SimpleNamespace(obs_frame_stack=K, obs_frame_stride=STRIDE, goal_noise_std=0.0,
+                              obs_out_hw=None, mirror_prob=0.0)
     env._scene_id, env._steps = "s", 0
     env._rgb_hist, env._rgb_hist_key = None, None
     env._mirrored = False
@@ -39,12 +41,16 @@ def test_env_side():
     assert got == [10] * K, f"episode start should repeat the first view, got {got}"
     o2 = SceneEnv._obs(env)                                   # same step, must not shift
     assert [int(o2["rgb"][0, 0, 3 * i]) for i in range(K)] == [10] * K, "history shifted on a repeated _obs call"
-    for step, v in enumerate([20, 30, 40, 50], start=1):
+    vals = [10 * (i + 2) for i in range(12)]                 # 20, 30, ... one per step
+    for step, v in enumerate(vals, start=1):
         env._steps = step; env._last_rgb = frame(v)
         o = SceneEnv._obs(env)
     seen = [int(o["rgb"][0, 0, 3 * i]) for i in range(K)]
-    expect = ([10] * K + [20, 30, 40, 50])[-K:]
-    assert seen == expect, f"stack after 4 steps: got {seen}, expected {expect} (oldest first)"
+    hist = ([10] * ((K - 1) * STRIDE + 1) + vals)[-((K - 1) * STRIDE + 1):]
+    expect = [hist[-1 - i * STRIDE] for i in range(K)][::-1]
+    assert seen == expect, f"stride {STRIDE}: got {seen}, expected {expect} (oldest first)"
+    print(f"   stack of {K} at stride {STRIDE} -> {seen} (oldest first), "
+          f"spanning {(K - 1) * STRIDE * 0.25:.2f} m of travel")
     env._rgb_hist, env._rgb_hist_key, env._steps = None, None, 0      # what reset() does
     env._last_rgb = frame(99)
     o = SceneEnv._obs(env)
@@ -103,7 +109,7 @@ def test_cnn_side():
 
 
 if __name__ == "__main__":
-    print(f"== MULTIPLE IMAGES test, K = {K}")
+    print(f"== MULTIPLE IMAGES test, K = {K}, stride = {STRIDE}")
     test_env_side()
     test_policy_side()
     test_cnn_side()
