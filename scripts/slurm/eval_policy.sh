@@ -258,6 +258,18 @@ SCENE=${SCENE:-rugd_trail_00}
 # 2026-09-23: twenty evals each burned ~10 min of a GPU before dying inside the
 # reconstructor because CLIPS_DIR still pointed at rugd_clips while the campus
 # scenes live in campus_clips. Check the file the job will ask for, up front.
+# 2026-09-23 (Joana found it): a FIXED goal frame with spawns drawn past that frame
+# puts the goal BEHIND a forward-only robot, which then has to spin ~164 deg before
+# it can move. Every arm failed quad2_00 episode 1 for this reason and it dragged the
+# corner scores down all day. The old, correct runs were named "spawn12-22_goal48".
+if [ -n "${GOAL_FRAME:-}" ] && [ -z "${SPAWN_MAX:-}" ] && [ -z "${SPAWNMAX:-}" ]; then
+    echo "REFUSED: GOAL_FRAME=$GOAL_FRAME without SPAWN_MAX."
+    echo "         Spawns after frame $GOAL_FRAME put the goal behind a forward-only robot."
+    echo "         Set SPAWN_MAX to a frame comfortably before the goal, e.g."
+    echo "           SPAWN_MAX=$(( GOAL_FRAME > 12 ? GOAL_FRAME - 8 : 1 ))"
+    echo "         (pass SPAWN_MAX=$GOAL_FRAME deliberately if you really want U-turns in the test)"
+    exit 1
+fi
 _CLIP="${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}/${SCENE}.mp4"
 if [ ! -f "$_CLIP" ]; then
     echo "REFUSED: no clip at $_CLIP"
