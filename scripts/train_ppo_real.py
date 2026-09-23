@@ -1732,6 +1732,42 @@ def bc_pretrain(model, demos_path: Path, epochs: int = 25, batch_size: int = 64,
             _report(f"epoch {ep+1}")
 
 
+def resolve_warmstart(warmstart, goal_dist_start=None, log=print):
+    """(checkpoint_path, goal_dist_start) for a --warmstart that may be a DIRECTORY.
+
+    A directory is resolved to its newest ppo_<N>_steps.zip HERE, when the job starts,
+    not when it was submitted -- that is what lets a continuation be queued with
+    --dependency before its parent has written the checkpoint it continues from.
+    A continuation also gets a fresh output_dir, so the curriculum would restart at
+    goal_dist_start (2 m) and re-climb ground the parent already earned; the parent
+    wrote where it actually got to, so resume from there. 2026-09-23.
+    """
+    from pathlib import Path as _P
+    if warmstart is None:
+        return warmstart, goal_dist_start
+    _d = _P(str(warmstart))
+    if not _d.is_dir():
+        return str(warmstart), goal_dist_start
+    _cands = sorted(_d.glob("ppo_*_steps.zip"), key=lambda q: int(q.stem.split("_")[1]))
+    if not _cands:
+        raise SystemExit(f"REFUSED: --warmstart {_d} is a directory with no ppo_*_steps.zip in it")
+    ckpt = str(_cands[-1])
+    log(f"[warmstart] {_d} -> newest checkpoint {_P(ckpt).name} "
+        f"(of {len(_cands)}: {', '.join(q.stem.split('_')[1] for q in _cands[-4:])})")
+    _cs = _d.parent / "curriculum_state.json"
+    if _cs.is_file() and goal_dist_start is not None:
+        try:
+            import json as _j
+            _prev = float(_j.loads(_cs.read_text())["goal_dist"])
+            if _prev > float(goal_dist_start):
+                log(f"[warmstart] curriculum resumes at {_prev:.2f} m (parent's last value) "
+                    f"instead of {float(goal_dist_start):.2f}")
+                goal_dist_start = _prev
+        except Exception as _e:
+            log(f"[warmstart] could not read {_cs} ({_e}); curriculum starts at {goal_dist_start}")
+    return ckpt, goal_dist_start
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scene", default="rugd_trail_00")
@@ -2149,36 +2185,8 @@ def main():
         env = make_env(args)
 
     _expand = False
-    # 2026-09-23 (Joana: "run the continuations with dependency if possible"):
-    # --warmstart may name a DIRECTORY, in which case the newest ppo_<N>_steps.zip
-    # inside it is chosen HERE, when the job starts, not when it was submitted.
-    # That is what lets a continuation be queued with --dependency before its
-    # parent has written the checkpoint it will continue from.
-    if args.warmstart is not None and Path(str(args.warmstart)).is_dir():
-        _d = Path(str(args.warmstart))
-        _cands = sorted(_d.glob("ppo_*_steps.zip"),
-                        key=lambda q: int(q.stem.split("_")[1]))
-        if not _cands:
-            raise SystemExit(f"REFUSED: --warmstart {_d} is a directory with no ppo_*_steps.zip in it")
-        args.warmstart = str(_cands[-1])
-        print(f"[warmstart] {_d} -> newest checkpoint {Path(args.warmstart).name} "
-              f"(of {len(_cands)}: {', '.join(q.stem.split('_')[1] for q in _cands[-4:])})", flush=True)
-        # A continuation gets a FRESH output_dir, so the curriculum would restart at
-        # goal_dist_start (2 m) and re-climb ground the parent already earned -- about
-        # 40k steps of a 12 h slot. The parent wrote where it actually got to; resume
-        # from there. 2026-09-23.
-        _cs = _d.parent / "curriculum_state.json"
-        if _cs.is_file() and args.goal_dist_start is not None:
-            try:
-                import json as _j
-                _prev = float(_j.loads(_cs.read_text())["goal_dist"])
-                if _prev > float(args.goal_dist_start):
-                    print(f"[warmstart] curriculum resumes at {_prev:.2f} m "
-                          f"(parent's last value) instead of {float(args.goal_dist_start):.2f}", flush=True)
-                    args.goal_dist_start = _prev
-            except Exception as _e:
-                print(f"[warmstart] could not read {_cs} ({_e}); curriculum starts at "
-                      f"{args.goal_dist_start}", flush=True)
+    args.warmstart, args.goal_dist_start = resolve_warmstart(
+        args.warmstart, args.goal_dist_start, log=lambda m: print(m, flush=True))
     if args.warmstart is not None and getattr(args, "stop_action", False):
         try:
             _probe = PPO.load(str(args.warmstart), device="cpu")
