@@ -44,7 +44,9 @@ for S in $SCENES; do
            CLIPS_DIR=/scratch/m000204-pm06b/joana/data/campus_clips \
            MAXSTEPSPERM="${MAXSTEPSPERM:-16}" MAXSTEPSBASE="${MAXSTEPSBASE:-40}"
     eval "export $GOAL"
-    [ "$SPAWN" != "-" ] && eval "export $SPAWN"
+    if [ "$SPAWN" != "-" ]; then
+        for kv in ${SPAWN//,/ }; do eval "export $kv"; done
+    fi
     printf "    %-13s %-22s %s\n" "$S" "$GOAL" "${SPAWN/-/spawn unbounded (goal range, safe)}"
     [ "$DRY" = "1" ] && continue
     sbatch --export=ALL scripts/slurm/eval_policy.sh >/dev/null 2>&1 \

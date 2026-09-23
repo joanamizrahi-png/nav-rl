@@ -32,6 +32,10 @@ TODO=()
 for d in $(ls -d $OUT/*_j[0-9]* 2>/dev/null); do
   J=${d##*_j}
   [ "$J" -ge 499400 ] 2>/dev/null || continue          # today's arms only
+  # a job that died at startup wrote no checkpoint and is not an arm; the eight
+  # from this morning were drowning the real list (2026-09-23)
+  [ -d "$d/checkpoints" ] || continue
+  ls "$d/checkpoints"/ppo_*_steps.zip >/dev/null 2>&1 || continue
   NAME=$(name_of "$J")
   ST=$(sacct -j "$J" -X -n -o State%12 2>/dev/null | head -1 | tr -d ' '); ST=${ST:-?}
   CK=$(cd "$d/checkpoints" 2>/dev/null && ls ppo_*_steps.zip 2>/dev/null | sort -t_ -k2 -n | tail -1)
