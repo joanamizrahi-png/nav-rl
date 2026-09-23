@@ -69,13 +69,20 @@ for J in $JOBS; do
   else w "image check not reached yet"; fi
 
   # 7. warm start resolution and curriculum resume
-  if grep -q "\[warmstart\]" "$OUT" 2>/dev/null; then
-    p "$(grep -m1 "newest checkpoint" "$OUT" | sed 's/.*\[warmstart\] //' | cut -c1-80)"
+  #    WARM is read from the launch line, not from the [warmstart] log line, so a
+  #    job running older code is still reported as warm rather than as cold.
+  WARMP=$(grep -m1 -o -- "--warmstart [^ ]*" "$OUT" | awk '{print $2}')
+  if [ -n "$WARMP" ]; then
+    p "warm start from $(basename "$WARMP")"
+    if grep -q "newest checkpoint" "$OUT" 2>/dev/null; then
+      i "$(grep -m1 "newest checkpoint" "$OUT" | sed 's/.*\[warmstart\] //' | cut -c1-76)"
+    fi
     CR=$(grep -m1 "curriculum resumes at" "$OUT")
-    [ -n "$CR" ] && p "${CR#*\[warmstart\] }" || i "curriculum starts at the configured value (cold, or parent had no state)"
+    if [ -n "$CR" ]; then p "${CR#*\[warmstart\] }"
+    else i "curriculum NOT resumed from the parent (older code, or parent wrote no state)"; fi
     HR=$(grep -m1 "image head reset" "$OUT")
     [ -n "$HR" ] && i "${HR#*\[image check\] }"
-  else i "no warm start (cold arm)"; fi
+  else i "cold arm (no --warmstart on the launch line)"; fi
 
   # 8. the curriculum must actually be switched on
   if grep -qm1 -- "--goal_dist_start" "$OUT"; then p "distance curriculum active (--goal_dist_start present)"
@@ -85,14 +92,19 @@ for J in $JOBS; do
   # 9. is it actually training, and fast enough
   TS=$(grep "total_timesteps" "$OUT" | tail -1 | grep -o "[0-9]\+" | tail -1)
   TE=$(grep "time_elapsed" "$OUT" | tail -1 | grep -o "[0-9]\+" | tail -1)
-  if [ -n "$TS" ] && [ -n "$TE" ] && [ "$TE" -gt 0 ]; then
-    RATE=$((TS * 3600 / TE)); P12=$((RATE * 12))
+  # a continuation keeps the parent's step counter, so only the steps THIS job
+  # has run may be divided by the time THIS job has been up
+  W0=$(grep -m1 -o "warm[0-9]\+" "$OUT" | head -1 | tr -dc '0-9')
+  NEW=$TS; [ -n "$W0" ] && [ -n "$TS" ] && [ "$TS" -gt "$W0" ] && NEW=$((TS - W0))
+  if [ -n "$NEW" ] && [ -n "$TE" ] && [ "$TE" -gt 0 ]; then
+    RATE=$((NEW * 3600 / TE)); P12=$((RATE * 12))
+    [ -n "$W0" ] && P12=$((P12 + W0))
     if [ "$P12" -ge 50000 ]; then p "throughput $RATE steps/h -> ~${P12} in 12 h (past the 50k mark)"
     else f "throughput $RATE steps/h -> only ~${P12} in 12 h, short of 50k"; fi
   else w "no rollout logged yet"; fi
 
   # 10. throttle must not be decaying toward a motionless robot
-  TH=$(grep -o "throttle[^0-9-]*-\?[0-9.]*" "$OUT" | tail -1 | grep -o "\-\?[0-9.]*$")
+  TH=$(grep "diag/throttle" "$OUT" | tail -1 | tr -d ' ' | awk -F'|' '{print $3}')
   [ -n "$TH" ] && i "latest mean throttle $TH (must stay positive and not decay)"
 done
 
