@@ -41,8 +41,8 @@ MEM=${MEM:-$([ "$GPUS" -ge 4 ] && echo 192G || echo 96G)}
 CPUS=${CPUS:-$([ "$GPUS" -ge 4 ] && echo 16 || echo 8)}
 [ "$GPUS" -lt 4 ] && NSTEPS=${NSTEPS:-256}       # keep 2048 env steps per PPO update on 8 robots
 export LIVEGPUS=$GPUS SCENES="$(echo $SCENES_LIST | tr ' ' ',')" TAG=${TAG:-$ARM}
-[ -n "${NSTEPS:-}" ] && export NSTEPS
-[ -n "$WARM" ] && export WARMSTART="$WARM"
+if [ -n "${NSTEPS:-}" ]; then export NSTEPS; fi
+if [ -n "$WARM" ]; then export WARMSTART="$WARM"; fi
 
 # spawn frames are DERIVED from the pose screen, never typed
 export SPAWNFRAMES=$(TRAIN="$SCENES_LIST" python - <<'PY'
@@ -58,7 +58,11 @@ n_scenes=$(echo $SCENES_LIST | wc -w); n_spawn=$(echo "$SPAWNFRAMES" | tr ';' '\
 echo "=== arm: $ARM"
 echo "    encoder      ${ENCODER}   image fix ${IMGFIX:-0}   memory ${BOXMEM:-off}   chunk ${CHUNK:-1}   stack ${FRAMESTACK:-1}"
 echo "    goals        band ${GOALRANGE} -> ${GOALDIST} m, curriculum from ${GOALDIST_START:-OFF}"
-echo "    corners      ${GOALTURN:+${GOALTURN} deg, mix ${GOALTURNMIX}${GOALTURNFROM:+ ramped from ${GOALTURNFROM} m}}${GOALTURN:-none}"
+if [ -n "${GOALTURN:-}" ]; then
+    echo "    corners      ${GOALTURN} deg, mix ${GOALTURNMIX}${GOALTURNFROM:+, ramped 0 at ${GOALTURNFROM} m -> ${GOALTURNMIX} at ${GOALDIST} m}"
+else
+    echo "    corners      none"
+fi
 echo "    spawns       jitter ${SPAWNJYAW} deg / ${SPAWNJLAT} m, mirror ${MIRROR}"
 echo "    scenes       ${n_scenes} (${n_spawn} spawn lists)"
 echo "    start        ${WARM:-from scratch}"
