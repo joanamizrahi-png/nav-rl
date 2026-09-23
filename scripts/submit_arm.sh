@@ -100,6 +100,10 @@ echo "    resources    ${GPUS} GPU, ${MEM}, ${CPUS} cpu, ${TIME}"
 [ "$n_scenes" = "$n_spawn" ] || { echo "REFUSED: $n_scenes scenes but $n_spawn spawn lists"; exit 1; }
 [ "${ENCODER}" = "nature" ] && [ "${IMGFIX:-0}" = "1" ] && { echo "REFUSED: IMGFIX on a nature CNN starves it"; exit 1; }
 [ -n "${GOALTURNFROM:-}" ] && [ -z "${GOALDIST_START:-}" ] && { echo "REFUSED: GOALTURNFROM needs the distance curriculum"; exit 1; }
-[ -n "$WARM" ] && [ ! -f "$WARM" ] && [ ! -L "$WARM" ] && { echo "REFUSED: no such checkpoint $WARM"; exit 1; }
+# a DIRECTORY is allowed: the job picks the newest ppo_*_steps.zip inside it at
+# START time, so a continuation can be queued with --dependency before its parent
+# has finished writing (2026-09-23).
+[ -n "$WARM" ] && [ ! -f "$WARM" ] && [ ! -L "$WARM" ] && [ ! -d "$WARM" ] && { echo "REFUSED: no such checkpoint or directory $WARM"; exit 1; }
+[ -n "$WARM" ] && [ -d "$WARM" ] && echo "    (directory: the newest ppo_*_steps.zip in it is chosen when the job starts)"
 if [ "$DRY" = 1 ]; then echo "    (dry run, nothing submitted)"; exit 0; fi
 sbatch --gres=gpu:$GPUS --mem=$MEM --cpus-per-task=$CPUS --time=$TIME "${EXTRA[@]}" scripts/slurm/train_ppo_real.sh
