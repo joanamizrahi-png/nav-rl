@@ -35,7 +35,17 @@ for k in $(keys "$ARMF"); do
         echo "REFUSED: $ARMF sets $k, which the base does not define. Typo, or add it to $BASE."; exit 1
     fi
 done
+# 2026-09-22: sourcing the arm file OVERWRITES the caller's environment, so
+# `GPUS=2 submit_arm.sh A_dino` silently got the arm file's GPUS=4. Resource
+# knobs typed on the command line must win; everything else still comes from
+# the files. Snapshot before sourcing, restore after.
+_CALL_GPUS=${GPUS:-}; _CALL_TIME=${TIME:-}; _CALL_MEM=${MEM:-}; _CALL_CPUS=${CPUS:-}; _CALL_NSTEPS=${NSTEPS:-}
 set -a; . "$BASE"; . "$SCENESF"; . "$ARMF"; set +a
+[ -n "$_CALL_GPUS" ]   && GPUS=$_CALL_GPUS
+[ -n "$_CALL_TIME" ]   && TIME=$_CALL_TIME
+[ -n "$_CALL_MEM" ]    && MEM=$_CALL_MEM
+[ -n "$_CALL_CPUS" ]   && CPUS=$_CALL_CPUS
+[ -n "$_CALL_NSTEPS" ] && NSTEPS=$_CALL_NSTEPS
 GPUS=${GPUS:-4}; TIME=${TIME:-12:00:00}
 MEM=${MEM:-$([ "$GPUS" -ge 4 ] && echo 192G || echo 96G)}
 CPUS=${CPUS:-$([ "$GPUS" -ge 4 ] && echo 16 || echo 8)}
