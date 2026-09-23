@@ -696,6 +696,12 @@ def _dump_env_config(args, cfg):
             # somebody has to remember.
             "goal_dir_360": bool(getattr(args, "goal_dir_360", False)),
             "goal_dist_range": getattr(args, "goal_dist_range", None),
+            # 2026-09-22: goal_dist was never recorded, so eval could not adopt the target distance
+            # and fell into the random-frame branch -- 13.8 m goals for a policy trained at 2-4 m.
+            "goal_dist": getattr(args, "goal_dist", None),
+            # and the fusion window, which decides what world the policy is even shown
+            "render_window": int(getattr(args, "render_window", 0) or 0),
+            "coverage_window": int(getattr(args, "coverage_window", 0) or 0),
             "goal_dist_window": getattr(args, "goal_dist_window", None),
             "goal_cone_deg": getattr(args, "goal_cone_deg", None),
             "goal_frame_range": getattr(args, "goal_frame_range", None),

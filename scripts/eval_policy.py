@@ -70,6 +70,7 @@ def build_env(args):
         # dataclass killed six evals in four seconds on 2026-09-03.
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
         spawn_lat_jitter_m=getattr(args, "spawn_lat_jitter", 0.0),
+        goal_dist_m=getattr(args, "goal_dist", None),
         goal_dist_range=(_parse_range(args.goal_dist_range, float, "goal_dist_range")
                          if args.goal_dist_range else None),
         goal_cone_deg=args.goal_cone_deg,
@@ -379,6 +380,8 @@ def main():
     ap.add_argument("--spawn_frames", type=str, default="", help="adopted from env_config.json when present")
     ap.add_argument("--goal_case_mix", type=str, default="", help="adopted from env_config.json when present")
     ap.add_argument("--obs_frame_stack", type=int, default=None, help="adopted from env_config.json when present")
+    ap.add_argument("--goal_dist", type=float, default=None,
+                    help="target spawn-to-goal distance; adopted from env_config.json. Without it the\n                         sampler falls back to a random recorded frame, which is NOT how training drew goals")
     ap.add_argument("--goal_case_tries", type=int, default=24)
     ap.add_argument("--sem_palette", type=int, default=4,
                     help="colour table for the video semantic panels. MUST "
@@ -582,7 +585,8 @@ def main():
                        "collision_at_next_pose", "look_ahead_auto", "footprint_next_heading", "crash_requires_motion",
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test
-                       "raster_obs", "static_scene", "static_movers", "render_window", "coverage_window", "sem_palette", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix", "obs_frame_stack", "label_remap", "goal_center_clear_m",
+                       "raster_obs", "static_scene", "static_movers", "render_window", "coverage_window", "sem_palette",
+                       "reward_source", "terrain_speed_scaled", "timeout_distance_scaled", "goal_dist", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix", "obs_frame_stack", "label_remap", "goal_center_clear_m",
                        "goal_nontrav_edge_m", "goal_nontrav_tries", "goal_nontrav_cone_deg", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage
