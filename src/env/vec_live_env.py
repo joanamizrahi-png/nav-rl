@@ -358,12 +358,19 @@ class LiveVecEnv(VecEnv):
     """
 
     def __init__(self, envs: list, backend: BatchedLiveDiffusedBackend,
-                 scenes: "list[str] | None" = None, rotate_every: int = 0):
+                 scenes: "list[str] | None" = None, rotate_every: int = 0,
+                 start_idx: int = 0):
         self.envs = envs
         self.backend = backend
         self.scenes = list(scenes) if scenes else []
         self.rotate_every = int(rotate_every)
-        self._scene_i = 0
+        # 2026-09-23: every GPU worker used to start at scene 0 and rotate on its
+        # own clock, so all K workers sat on the SAME scene at the same time and a
+        # 12 h 4-GPU run only ever reached the first six of thirteen scenes (job
+        # 499454: 5 rotations per worker, never past sequoia1_21). Staggering the
+        # start spreads the workers across the list, so every batch mixes scenes
+        # and the union covers the whole list in a quarter of the steps.
+        self._scene_i = (int(start_idx) % len(self.scenes)) if self.scenes else 0
         self._steps_since_rot = 0
         self._actions: Optional[np.ndarray] = None
         self.render_mode = None

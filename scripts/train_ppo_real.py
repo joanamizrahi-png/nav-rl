@@ -1216,8 +1216,15 @@ def make_live_vec_env(args):
                      scene_ids=scenes, cfg=env_cfg)
         e.semantic_backend = InjectedLabelBackend(e)
         envs.append(e)
+    _start = int(getattr(args, "scene_start_idx", 0) or 0) % max(1, len(scenes))
+    if _start:
+        world.load_scene(scenes[_start])
+        for e in envs:
+            e.scene_ids = [scenes[_start]]
+        print(f"[make_live_vec_env] worker starts on {scenes[_start]} (index {_start})", flush=True)
     return VecMonitor(LiveVecEnv(envs, world, scenes=scenes,
-                                 rotate_every=getattr(args, "scene_rotate", 0)))
+                                 rotate_every=getattr(args, "scene_rotate", 0),
+                                 start_idx=_start))
 
 
 def _live_worker_args(args, worker_idx: int, n_workers: int):
@@ -1230,6 +1237,10 @@ def _live_worker_args(args, worker_idx: int, n_workers: int):
     if scenes and len(scenes) == n_workers:
         a.scenes = [scenes[worker_idx]]
         a.scene_rotate = 0
+    elif scenes and n_workers > 1:
+        # stagger: worker i starts a proportional way into the list so the K
+        # workers hold K DIFFERENT scenes at once (2026-09-23).
+        a.scene_start_idx = (worker_idx * len(scenes)) // n_workers
     return a
 
 
