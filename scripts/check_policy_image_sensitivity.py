@@ -54,6 +54,25 @@ for g in (np.array([5.0, 0.0, 0.0], np.float32), np.array([5.0, 2.0, 0.4], np.fl
     base = acts["frame_a"]; fb = fts["frame_a"]
     print("   max |action - action(frame_a)|:", {k: round(float(np.abs(v - base).max()), 5) for k, v in acts.items()})
     print("   |features - features(frame_a)| / |features(frame_a)|:", {k: round(float(np.linalg.norm(v - fb) / (np.linalg.norm(fb) + 1e-9)), 4) for k, v in fts.items()})
+# ---- WILL IT MOVE? the deterministic mean throttle, which is what every eval uses ----
+# 2026-09-22: a policy whose mean v is negative stands still under forward_only, however good its
+# training curve looks, because training moved it only through the exploration noise around that mean.
+print("\n== deterministic mean action (what eval runs)")
+print(f"   {'goal (dx, dy, dyaw)':<26}{'v':>9}{'w':>9}   moves?")
+_moves = 0
+for _g in (np.array([2.0, 0.0, 0.0], np.float32), np.array([4.0, 0.0, 0.0], np.float32),
+           np.array([3.0, 1.5, 0.5], np.float32), np.array([3.0, -1.5, -0.5], np.float32),
+           np.array([8.0, 0.0, 0.0], np.float32)):
+    _vs = []
+    for _name, _img in images.items():
+        _a, _ = model.predict({"rgb": to_obs(_img), "goal": _g}, deterministic=True)
+        _vs.append(np.asarray(_a, np.float32))
+    _m = np.mean(_vs, axis=0)
+    _ok = _m[0] > 0.02
+    _moves += int(_ok)
+    print(f"   {str(_g.tolist()):<26}{_m[0]:>+9.3f}{_m[1]:>+9.3f}   {'yes' if _ok else 'NO -- clamped to 0 by forward_only'}")
+print(f"   -> forward on {_moves}/5 goal vectors" + ("" if _moves else "   THIS POLICY CANNOT MOVE IN A DETERMINISTIC EVAL"))
+
 # ---- where does the image signal die? DINO tokens -> head Linear+ReLU -> 256 features ----
 ext = model.policy.pi_features_extractor
 IM_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1); IM_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
