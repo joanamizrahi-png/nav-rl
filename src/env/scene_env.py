@@ -1524,13 +1524,35 @@ class SceneEnv(gym.Env if gym is not None else object):
                        and kk != "dist_to_goal"}
             else:
                 for kk in agg:
-                    agg[kk] += float(info.get(kk, 0.0))
+                    # Reward components ARE additive over the sub-steps and are summed.
+                    # Ratios, fractions and did-it-fire flags are NOT: summing them
+                    # multiplied every chunked arm's diagnostics by k, which made
+                    # chunk-5 look like it was diverging (goal_dist_frac read 2.15 =
+                    # 5 x 0.43, i.e. exactly in line with the per-action arms) when it
+                    # was in fact ahead of them at the same step count. Only
+                    # dist_to_goal was excluded before. 2026-09-23.
+                    if kk in self.NON_ADDITIVE_INFO or kk.endswith("_frac"):
+                        agg[kk] = float(info.get(kk, agg[kk]))     # the chunk's final reading
+                    else:
+                        agg[kk] += float(info.get(kk, 0.0))
             if terminated or truncated:
                 break
         info = dict(info)          # last sub-step's flags/dist survive...
         info.update(agg)           # ...numeric reward components are summed
         info["total"] = total_r
         return obs, total_r, terminated, truncated, info
+
+    # Info fields that are a state reading rather than a quantity accumulated over
+    # the step: taking the chunk's LAST value matches what a per-action arm reports
+    # at the same pose. Anything ending in _frac is caught by name as well.
+    # (2026-09-23, after chunk-5 was misread as diverging.)
+    NON_ADDITIVE_INFO = frozenset({
+        "goal_dist_frac", "coverage", "rgb_delta", "look_ahead_m", "goal_min_width_m",
+        "box_memory_age", "collision_off_frame", "phantom", "missed", "label_agree",
+        "trav_agree", "used_generated", "goal_traversable", "halt_correct",
+        "halt_at_verge", "halt_wrong", "goal_case_open", "goal_case_corner",
+        "goal_case_narrow", "goal_detour", "passed_through_goal", "reach_on_nontrav",
+    })
 
     def _step_single(self, action: np.ndarray):
         assert self._robot_pose_world is not None, "call reset() first"

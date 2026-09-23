@@ -39,6 +39,9 @@ done
 # `GPUS=2 submit_arm.sh A_dino` silently got the arm file's GPUS=4. Resource
 # knobs typed on the command line must win; everything else still comes from
 # the files. Snapshot before sourcing, restore after.
+for k in $(cat <(keys "$BASE") <(keys "$ARMF") <(keys "$SCENESF") | sort -u); do
+    if [ -n "${!k+x}" ]; then eval "_CALLER_$k=\$$k"; fi
+done
 _CALL_GPUS=${GPUS:-}; _CALL_TIME=${TIME:-}; _CALL_MEM=${MEM:-}; _CALL_CPUS=${CPUS:-}; _CALL_NSTEPS=${NSTEPS:-}
 set -a; . "$BASE"; . "$SCENESF"; . "$ARMF"; set +a
 [ -n "$_CALL_GPUS" ]   && GPUS=$_CALL_GPUS
@@ -46,6 +49,23 @@ set -a; . "$BASE"; . "$SCENESF"; . "$ARMF"; set +a
 [ -n "$_CALL_MEM" ]    && MEM=$_CALL_MEM
 [ -n "$_CALL_CPUS" ]   && CPUS=$_CALL_CPUS
 [ -n "$_CALL_NSTEPS" ] && NSTEPS=$_CALL_NSTEPS
+# 2026-09-23: a knob typed on the command line that the arm file also sets was
+# SILENTLY discarded -- `CHUNK=2 submit_arm.sh trajectory_chunk5` submitted a
+# chunk-5 arm. Resource knobs are the caller's to override (restored above);
+# everything else belongs to the arm file, so a disagreement is refused rather
+# than ignored. The fix for "I want a different knob" is a new arm file.
+for k in $(cat <(keys "$BASE") <(keys "$ARMF") <(keys "$SCENESF") | sort -u); do
+    case " $OWNED " in *" $k "*) continue;; esac
+    eval "_pre=\${_CALLER_$k-__unset__}"
+    [ "$_pre" = "__unset__" ] && continue
+    eval "_post=\$$k"
+    if [ "$_pre" != "$_post" ]; then
+        echo "REFUSED: you set $k=$_pre on the command line but $ARMF sets $k=$_post."
+        echo "         Only $OWNED may be overridden that way. To vary $k, make an arm file:"
+        echo "           cp $ARMF configs/arms/<new-name>.env   # then edit $k there"
+        exit 1
+    fi
+done
 GPUS=${GPUS:-4}; TIME=${TIME:-12:00:00}
 MEM=${MEM:-$([ "$GPUS" -ge 4 ] && echo 192G || echo 96G)}
 CPUS=${CPUS:-$([ "$GPUS" -ge 4 ] && echo 16 || echo 8)}
