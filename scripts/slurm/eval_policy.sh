@@ -166,6 +166,15 @@ fi
 [ -n "${EXPERT:-}" ] && { EXTRA_ARGS+=(--expert "$EXPERT"); OUT_SUFFIX="${OUT_SUFFIX}_expert${EXPERT}"; }
 [ "${KEEPFAILED:-0}" = "1" ] && EXTRA_ARGS+=(--keep_failed_demos)
 [ -n "${FORCEKEYS:-}" ] && { EXTRA_ARGS+=(--force_env_keys "$FORCEKEYS"); OUT_SUFFIX="${OUT_SUFFIX}_forced"; }
+# MAXSTEPSPERM (2026-09-23): checkpoints trained before the budget knob existed have
+# no max_steps_per_m in env_config, so eval would keep the fixed 90 steps -- which
+# buys 6.3 m at the measured 0.070 m/step cruise, short of the 7.5 m band those arms
+# actually reached. Passing it here sizes their episodes the same way training now
+# does, so old and new arms are judged on the same task.
+if [ -n "${MAXSTEPSPERM:-}" ] && [ "${MAXSTEPSPERM}" != "0" ]; then
+    EXTRA_ARGS+=(--max_steps_per_m "$MAXSTEPSPERM" --max_steps_base "${MAXSTEPSBASE:-40}")
+    OUT_SUFFIX="${OUT_SUFFIX}_b${MAXSTEPSBASE:-40}p${MAXSTEPSPERM}"
+fi
 [ "${NOADOPT:-0}" = "1" ] && { EXTRA_ARGS+=(--no_adopt); OUT_SUFFIX="${OUT_SUFFIX}_noadopt"; }
 
 # Reward weights, so the reported `return=` is on TRAINING's scale. They do not
