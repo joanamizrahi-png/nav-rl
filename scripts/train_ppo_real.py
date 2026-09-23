@@ -602,8 +602,6 @@ def make_env(args):
         goal_turn_deg=float(getattr(args, "goal_turn_deg", 0.0) or 0.0),
         goal_turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0),
         goal_turn_beyond_m=float(getattr(args, "goal_turn_beyond_m", 2.0)),
-        obs_frame_stack=int(getattr(args, "obs_frame_stack", 1)),
-        obs_frame_stride=int(getattr(args, "obs_frame_stride", 1)),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
@@ -681,8 +679,8 @@ def _dump_env_config(args, cfg):
             "goal_turn_mix": float(getattr(cfg, "goal_turn_mix", 0.0) or 0.0),
             "goal_turn_beyond_m": float(getattr(cfg, "goal_turn_beyond_m", 2.0)),
             "goal_turn_from": getattr(args, "goal_turn_from", None),
-            "obs_frame_stack": int(getattr(cfg, "obs_frame_stack", 1)),
-            "obs_frame_stride": int(getattr(cfg, "obs_frame_stride", 1)),
+            "obs_frame_stack": int(getattr(args, "obs_frame_stack", 1) or 1),
+            "obs_frame_stride": int(getattr(args, "obs_frame_stride", 1) or 1),
             # the encoder was only ever in the directory name, and only for dinov2, so an eval
             # of an older run cannot tell which backbone it was (2026-09-22)
             "encoder": str(getattr(args, "encoder", "nature")),
@@ -783,6 +781,12 @@ def _dump_env_config(args, cfg):
             # 2026-09-07: the palette the generator's conditioning is colorized
             # with. Evals adopt it; they ran v1 against training's v4 until today.
             "sem_palette": int(getattr(args, "sem_palette", 1)),
+            # 2026-09-22 (Joana: "what semantics version did you use for this?"):
+            # the palette was recorded but the world model that generated every
+            # observation was not, so no eval folder could say which semantic
+            # checkpoint produced its frames. Recorded for the ledger only; eval
+            # does not adopt it (it is passed on the eval command line).
+            "live_ckpt": str(getattr(args, "live_ckpt", "") or ""),
             "halt_terminate_steps": getattr(cfg, "halt_terminate_steps", 0),
             "halt_throttle_eps": getattr(cfg, "halt_throttle_eps", 0.05),
             "halt_penalty_scale": getattr(cfg, "halt_penalty_scale", 1.0),
@@ -1073,6 +1077,12 @@ def _scene_env_cfg(args):
         lawn_progress_to_verge=bool(getattr(args, "lawn_progress_to_verge", False)),
         terrain_speed_scaled=bool(getattr(args, "terrain_speed_scaled", False)),
         reward_source=getattr(args, "reward_source", "generated"),
+        # 2026-09-22: these are SceneEnvConfig fields (the stacking happens in
+        # SceneEnv._obs). They were passed to CalibratedBackendConfig instead,
+        # which has no such field, so every arm carrying FRAMESTACK died in 8 s
+        # with a TypeError. Eval had them on the right config all along.
+        obs_frame_stack=int(getattr(args, "obs_frame_stack", 1) or 1),
+        obs_frame_stride=int(getattr(args, "obs_frame_stride", 1) or 1),
         map_res_m=float(getattr(args, "map_res_m", 0.1)),
         map_fallback_void_frac=float(getattr(args, "map_fallback_void_frac", 0.5)),
         map_fallback_min_alpha=float(getattr(args, "map_fallback_min_alpha", 0.4)),
@@ -1133,8 +1143,6 @@ def make_live_vec_env(args):
         goal_turn_deg=float(getattr(args, "goal_turn_deg", 0.0) or 0.0),
         goal_turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0),
         goal_turn_beyond_m=float(getattr(args, "goal_turn_beyond_m", 2.0)),
-        obs_frame_stack=int(getattr(args, "obs_frame_stack", 1)),
-        obs_frame_stride=int(getattr(args, "obs_frame_stride", 1)),
         spawn_label_classes=(tuple(int(v) for v in args.spawn_classes.split(","))
                              if getattr(args, "spawn_classes", None) else None),
         spawn_yaw_jitter_deg=getattr(args, "spawn_yaw_jitter", 0.0),
