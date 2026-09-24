@@ -43,10 +43,14 @@ for S in $SCENES; do
     REAL=$(awk '{for(i=4;i<=NF;i++) if ($i ~ /^SCENE=/) {sub(/^SCENE=/,"",$i); print $i; exit}}' <<< "$LINE")
     [ -n "$REAL" ] && S_REAL="$REAL" || S_REAL="$S"
     unset GOAL_FRAME GOALFRAMERANGE SPAWN_MAX SPAWNMAX   # never leak between scenes
-    # record a trajectory for EVERY episode, not the default 3 -- the path plots are
-    # how we read these, and five of eight episodes were invisible (2026-09-24)
-    export LIVE=1 LIVECKPT="$SEM" CKPT="$C" SCENE="$S_REAL" EPISODES="${EPISODES:-8}" \
-           VIDEOS="${VIDEOS:-${EPISODES:-8}}" \
+    # 16 episodes, not 8: a single 8-episode cell is a thin population, and we found
+    # that the RECORDED rollout is not the SCORED one -- same seed, deterministic
+    # actions, and episode 0 came back GOAL when scored and TIMEOUT when recorded.
+    # So the scored episodes are the numbers and the recorded ones are the pictures.
+    # VIDEOS is capped below EPISODES because each recording is a SECOND rollout and
+    # doubles the cost of the cell. 2026-09-24.
+    export LIVE=1 LIVECKPT="$SEM" CKPT="$C" SCENE="$S_REAL" EPISODES="${EPISODES:-16}" \
+           VIDEOS="${VIDEOS:-8}" \
            CLIPS_DIR=/scratch/m000204-pm06b/joana/data/campus_clips \
            MAXSTEPSPERM="${MAXSTEPSPERM:-16}" MAXSTEPSBASE="${MAXSTEPSBASE:-40}"
     eval "export $GOAL"
