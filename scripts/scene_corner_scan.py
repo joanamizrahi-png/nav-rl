@@ -158,9 +158,14 @@ def main():
         for g, (lo, hi), det, w, dmin, dmax, n in rows[:a.top]:
             print(f"  {g:>5}{f'{lo}-{hi}':>10}{n:>4}{det:>9.2f}{w:>11.2f}{f'{dmin:.1f}-{dmax:.1f} m':>16}")
         g, (lo, hi), det, w, dmin, dmax, n = rows[0]
-        print(f"\n  eval_scenes.env line:")
-        print(f"  {scene:<12} GOAL_FRAME={g:<4} SPAWN_MIN={lo},SPAWN_MAX={hi}  "
-              f"# {dmin:.1f}-{dmax:.1f} m, detour {det:.2f}x, corridor {w:.1f} m: obstacle corner")
+        # TESTDIST must be the distance the robot DRIVES, i.e. the path around the
+        # bend, not the straight line: quad2_00_far is 8.1 m straight and 13.6 m
+        # along the walkway, and the straight figure under-budgeted it by a third
+        # (2026-09-24, Joana: "did we add more steps than the training allows?").
+        path_m = dmax * det
+        print(f"\n  eval_scenes.env line   (TESTDIST is the PATH, {dmax:.1f} m straight x {det:.2f} detour):")
+        print(f"  {scene:<12} GOAL_FRAME={g:<4} SPAWN_MIN={lo},SPAWN_MAX={hi} TESTDIST={path_m:.1f}  "
+              f"# {dmin:.1f}-{dmax:.1f} m straight, detour {det:.2f}x, corridor {w:.1f} m: obstacle corner")
 
 
 if __name__ == "__main__":
