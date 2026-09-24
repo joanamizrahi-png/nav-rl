@@ -62,7 +62,39 @@ def explain_line(grid, maps, spawn_xy, goal_xy):
     return {"samples": tot, "walkable": ok, "invented": invented, "void": void}
 
 
-def plot_pair(grid, maps, walk, spawn_xy, goal_xy, out_dir, name):
+def clip_frames(clips_dir, scene, idxs):
+    """The camera views at these frame indices, from the scene's clip.
+
+    A top-down map answers "is there something in the way"; it does not answer
+    "what does the robot see there", which is what actually has to be judged when
+    choosing an eval (2026-09-24, Joana: "with the corresponding views at the
+    frames"). Returns {idx: BGR image} for whatever could be read."""
+    import cv2
+    from pathlib import Path
+    cands = sorted(Path(clips_dir).glob(f"{scene}*.mp4")) + sorted(Path(clips_dir).glob(f"{scene}/*.mp4"))
+    if not cands:
+        print(f"        (no clip for {scene} under {clips_dir}; map only)")
+        return {}
+    cap = cv2.VideoCapture(str(cands[0]))
+    want = sorted(set(int(i) for i in idxs))
+    got, i = {}, 0
+    while True:
+        ok, fr = cap.read()
+        if not ok:
+            break
+        if i in want:
+            got[i] = fr
+        i += 1
+        if want and i > max(want):
+            break
+    cap.release()
+    missing = [i for i in want if i not in got]
+    if missing:
+        print(f"        (clip {cands[0].name} has {i} frames; missing {missing})")
+    return got
+
+
+def plot_pair(grid, maps, walk, spawn_xy, goal_xy, out_dir, name, views=None, labels=None):
     """Draw the map the scan is reasoning about: walkable, wall, void, and -- in
     blue -- the cells that carry a label with NO points behind them, i.e. the ones
     build_label_grid invented by filling. Plus the walk, spawn, goal, the straight
@@ -105,9 +137,35 @@ def plot_pair(grid, maps, walk, spawn_xy, goal_xy, out_dir, name):
     cv2.putText(bar, "white=walkable  red=wall  grey=void  BLUE=label with NO points (invented by fill)"
                 "   green=straight  magenta=path  black=spawn", (6, 17),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.38, (20, 20, 20), 1, cv2.LINE_AA)
+    stack = [bar, img]
+    if views:
+        # the camera views at the spawn and goal frames, scaled to one height and
+        # laid side by side under the map
+        HV = 260
+        tiles = []
+        for k, (idx, fr) in enumerate(views):
+            if fr is None:
+                continue
+            h, w = fr.shape[:2]
+            t = cv2.resize(fr, (int(w * HV / h), HV))
+            cap = np.full((22, t.shape[1], 3), 255, np.uint8)
+            txt = (labels or {}).get(idx, f"frame {idx}")
+            cv2.putText(cap, txt, (6, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                        (20, 20, 20), 1, cv2.LINE_AA)
+            tiles.append(np.vstack([cap, t]))
+        if tiles:
+            strip = np.hstack(tiles)
+            W2 = img.shape[1]
+            if strip.shape[1] > W2:
+                sc2 = W2 / strip.shape[1]
+                strip = cv2.resize(strip, (W2, int(strip.shape[0] * sc2)))
+            elif strip.shape[1] < W2:
+                pad = np.full((strip.shape[0], W2 - strip.shape[1], 3), 255, np.uint8)
+                strip = np.hstack([strip, pad])
+            stack.append(strip)
     out = Path(out_dir); out.mkdir(parents=True, exist_ok=True)
     f = out / f"{name}.png"
-    cv2.imwrite(str(f), np.vstack([bar, img]))
+    cv2.imwrite(str(f), np.vstack(stack))
     print(f"        wrote {f}")
 
 
@@ -163,6 +221,9 @@ def main():
     ap.add_argument("--detour_min", type=float, default=1.15,
                     help="the env's goal_case_detour_min: above this the straight line is blocked")
     ap.add_argument("--top", type=int, default=6, help="how many candidate windows to print")
+    ap.add_argument("--clips", metavar="DIR",
+                    help="clip directory (e.g. /scratch/.../data/gnd_clips). With --plot, the "
+                         "camera views at the spawn and goal frames are drawn under the map.")
     ap.add_argument("--plot", metavar="DIR",
                     help="write a PNG of the label grid with the walk, spawn, goal, straight "
                          "line and geodesic path drawn on it -- so a claim about the map can "
@@ -220,8 +281,13 @@ def main():
                 r = classify_pair(grid, maps, walk[s], walk[g], detour_min=a.detour_min)
                 ex = explain_line(grid, maps, walk[s], walk[g])
                 if a.plot:
+                    vs = []
+                    if a.clips:
+                        fr = clip_frames(a.clips, scene, [s, g])
+                        vs = [(s, fr.get(s)), (g, fr.get(g))]
                     plot_pair(grid, maps, walk, walk[s], walk[g], a.plot,
-                              f"{scene}_spawn{s}_goal{g}")
+                              f"{scene}_spawn{s}_goal{g}", views=vs,
+                              labels={s: f"SPAWN  frame {s}", g: f"GOAL  frame {g}"})
                 print(f"  {s:>6}{'y' if o else 'JIT' if c >= BODY_HALF else 'NO':>5}{c:>8.2f}{r.get('straight_m',0):>10.2f}"
                       f"{r.get('detour',float('nan')):>9.2f}{r.get('min_width_m',0):>8.2f}  {r['cls']:<8}"
                       f"  {ex['walkable']}/{ex['samples']} walkable, "
