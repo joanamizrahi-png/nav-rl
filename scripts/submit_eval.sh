@@ -39,10 +39,13 @@ for S in $SCENES; do
     LINE=$(awk -v s="$S" '$1==s {print; exit}' <<< "$EVAL_SCENES")
     [ -n "$LINE" ] || { echo "REFUSED: $S is not in configs/eval_scenes.env"; exit 1; }
     GOAL=$(awk '{print $2}' <<< "$LINE"); SPAWN=$(awk '{print $3}' <<< "$LINE")
+    # a row may name a different REAL scene, so "quad2_00_far" is a variant of quad2_00
+    REAL=$(awk '{for(i=4;i<=NF;i++) if ($i ~ /^SCENE=/) {sub(/^SCENE=/,"",$i); print $i; exit}}' <<< "$LINE")
+    [ -n "$REAL" ] && S_REAL="$REAL" || S_REAL="$S"
     unset GOAL_FRAME GOALFRAMERANGE SPAWN_MAX SPAWNMAX   # never leak between scenes
     # record a trajectory for EVERY episode, not the default 3 -- the path plots are
     # how we read these, and five of eight episodes were invisible (2026-09-24)
-    export LIVE=1 LIVECKPT="$SEM" CKPT="$C" SCENE="$S" EPISODES="${EPISODES:-8}" \
+    export LIVE=1 LIVECKPT="$SEM" CKPT="$C" SCENE="$S_REAL" EPISODES="${EPISODES:-8}" \
            VIDEOS="${VIDEOS:-${EPISODES:-8}}" \
            CLIPS_DIR=/scratch/m000204-pm06b/joana/data/campus_clips \
            MAXSTEPSPERM="${MAXSTEPSPERM:-16}" MAXSTEPSBASE="${MAXSTEPSBASE:-40}"
@@ -50,7 +53,8 @@ for S in $SCENES; do
     if [ "$SPAWN" != "-" ]; then
         for kv in ${SPAWN//,/ }; do eval "export $kv"; done
     fi
-    printf "    %-13s %-22s %s\n" "$S" "$GOAL" "${SPAWN/-/spawn unbounded (goal range, safe)}"
+    printf "    %-13s %-22s %s%s\n" "$S" "$GOAL" "${SPAWN/-/spawn unbounded (goal range, safe)}" \
+        "$([ -n "$REAL" ] && echo "   [scene $REAL]")"
     [ "$DRY" = "1" ] && continue
     sbatch --export=ALL scripts/slurm/eval_policy.sh >/dev/null 2>&1 \
         && echo "        submitted" || echo "        LIMIT REACHED -- retry later"
