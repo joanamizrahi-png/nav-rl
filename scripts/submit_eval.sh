@@ -50,6 +50,9 @@ for S in $SCENES; do
     # a row may name a different REAL scene, so "quad2_00_far" is a variant of quad2_00
     REAL=$(awk '{for(i=4;i<=NF;i++) if ($i ~ /^SCENE=/) {sub(/^SCENE=/,"",$i); print $i; exit}}' <<< "$LINE")
     [ -n "$REAL" ] && S_REAL="$REAL" || S_REAL="$S"
+    # gnd clips do not live in campus_clips; a row may name its own directory
+    CLIPSUB=$(awk '{for(i=4;i<=NF;i++) if ($i ~ /^CLIPS=/) {sub(/^CLIPS=/,"",$i); print $i; exit}}' <<< "$LINE")
+    CLIPDIR=/scratch/m000204-pm06b/joana/data/${CLIPSUB:-campus_clips}
     unset GOAL_FRAME GOALFRAMERANGE SPAWN_MAX SPAWNMAX   # never leak between scenes
     # 16 episodes, not 8: a single 8-episode cell is a thin population, and we found
     # that the RECORDED rollout is not the SCORED one -- same seed, deterministic
@@ -59,14 +62,14 @@ for S in $SCENES; do
     # doubles the cost of the cell. 2026-09-24.
     export LIVE=1 LIVECKPT="$SEM" CKPT="$C" SCENE="$S_REAL" EPISODES="${EPISODES:-16}" \
            VIDEOS="${VIDEOS:-8}" \
-           CLIPS_DIR=/scratch/m000204-pm06b/joana/data/campus_clips \
+           CLIPS_DIR="$CLIPDIR" \
            MAXSTEPSPERM="${MAXSTEPSPERM:-16}" MAXSTEPSBASE="${MAXSTEPSBASE:-40}"
     eval "export $GOAL"
     if [ "$SPAWN" != "-" ]; then
         for kv in ${SPAWN//,/ }; do eval "export $kv"; done
     fi
     printf "    %-13s %-22s %s%s\n" "$S" "$GOAL" "${SPAWN/-/spawn unbounded (goal range, safe)}" \
-        "$([ -n "$REAL" ] && echo "   [scene $REAL]")"
+        "$([ -n "$REAL" ] && echo "   [scene $REAL]")$([ -n "$CLIPSUB" ] && echo "   [clips $CLIPSUB]")"
     [ "$DRY" = "1" ] && continue
     sbatch --export=ALL scripts/slurm/eval_policy.sh >/dev/null 2>&1 \
         && echo "        submitted" || echo "        LIMIT REACHED -- retry later"
