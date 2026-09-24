@@ -62,7 +62,7 @@ def explain_line(grid, maps, spawn_xy, goal_xy):
     return {"samples": tot, "walkable": ok, "invented": invented, "void": void}
 
 
-def clip_frames(clips_dir, scene, idxs):
+def clip_frames(clips_dir, scene, idxs, clip_name=None):
     """The camera views at these frame indices, from the scene's clip.
 
     A top-down map answers "is there something in the way"; it does not answer
@@ -71,9 +71,13 @@ def clip_frames(clips_dir, scene, idxs):
     frames"). Returns {idx: BGR image} for whatever could be read."""
     import cv2
     from pathlib import Path
-    cands = sorted(Path(clips_dir).glob(f"{scene}*.mp4")) + sorted(Path(clips_dir).glob(f"{scene}/*.mp4"))
+    # The clip is not always named after the cloud: the gtown scenes reconstruct as
+    # gnd_G2c1d330 but their clip is gtown2c1_w330 (2026-09-24). --clip names it.
+    stem = clip_name or scene
+    cands = sorted(Path(clips_dir).glob(f"{stem}*.mp4")) + sorted(Path(clips_dir).glob(f"{stem}/*.mp4"))
     if not cands:
-        print(f"        (no clip for {scene} under {clips_dir}; map only)")
+        print(f"        (no clip matching {stem!r} under {clips_dir}; map only. "
+              f"If the clip is named differently from the scene, pass --clip)")
         return {}
     cap = cv2.VideoCapture(str(cands[0]))
     want = sorted(set(int(i) for i in idxs))
@@ -221,6 +225,9 @@ def main():
     ap.add_argument("--detour_min", type=float, default=1.15,
                     help="the env's goal_case_detour_min: above this the straight line is blocked")
     ap.add_argument("--top", type=int, default=6, help="how many candidate windows to print")
+    ap.add_argument("--clip", metavar="NAME",
+                    help="clip file stem when it differs from the scene name, e.g. "
+                         "--clip gtown2c1_w330 for scene gnd_G2c1d330")
     ap.add_argument("--clips", metavar="DIR",
                     help="clip directory (e.g. /scratch/.../data/gnd_clips). With --plot, the "
                          "camera views at the spawn and goal frames are drawn under the map.")
@@ -283,7 +290,7 @@ def main():
                 if a.plot:
                     vs = []
                     if a.clips:
-                        fr = clip_frames(a.clips, scene, [s, g])
+                        fr = clip_frames(a.clips, scene, [s, g], a.clip)
                         vs = [(s, fr.get(s)), (g, fr.get(g))]
                     plot_pair(grid, maps, walk, walk[s], walk[g], a.plot,
                               f"{scene}_spawn{s}_goal{g}", views=vs,
