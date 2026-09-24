@@ -53,7 +53,11 @@ for S in $SCENES; do
     # gnd clips do not live in campus_clips; a row may name its own directory
     CLIPSUB=$(awk '{for(i=4;i<=NF;i++) if ($i ~ /^CLIPS=/) {sub(/^CLIPS=/,"",$i); print $i; exit}}' <<< "$LINE")
     CLIPDIR=/scratch/m000204-pm06b/joana/data/${CLIPSUB:-campus_clips}
-    unset GOAL_FRAME GOALFRAMERANGE SPAWN_MAX SPAWNMAX   # never leak between scenes
+    # the distance THIS test spans, measured; sizes the budget so every arm gets the
+    # same one on a fixed-goal scene (2026-09-24, chunk5 timed out on its budget)
+    TDIST=$(awk '{for(i=4;i<=NF;i++) if ($i ~ /^TESTDIST=/) {sub(/^TESTDIST=/,"",$i); print $i; exit}}' <<< "$LINE")
+    unset GOAL_FRAME GOALFRAMERANGE SPAWN_MAX SPAWNMAX TESTDIST   # never leak between scenes
+    [ -n "$TDIST" ] && export TESTDIST="$TDIST"
     # 16 episodes, not 8: a single 8-episode cell is a thin population, and we found
     # that the RECORDED rollout is not the SCORED one -- same seed, deterministic
     # actions, and episode 0 came back GOAL when scored and TIMEOUT when recorded.
@@ -69,7 +73,7 @@ for S in $SCENES; do
         for kv in ${SPAWN//,/ }; do eval "export $kv"; done
     fi
     printf "    %-13s %-22s %s%s\n" "$S" "$GOAL" "${SPAWN/-/spawn unbounded (goal range, safe)}" \
-        "$([ -n "$REAL" ] && echo "   [scene $REAL]")$([ -n "$CLIPSUB" ] && echo "   [clips $CLIPSUB]")"
+        "$([ -n "$REAL" ] && echo "   [scene $REAL]")$([ -n "$CLIPSUB" ] && echo "   [clips $CLIPSUB]")$([ -n "$TDIST" ] && echo "   [${TDIST} m budget]")"
     [ "$DRY" = "1" ] && continue
     sbatch --export=ALL scripts/slurm/eval_policy.sh >/dev/null 2>&1 \
         && echo "        submitted" || echo "        LIMIT REACHED -- retry later"

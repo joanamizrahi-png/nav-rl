@@ -175,6 +175,13 @@ if [ -n "${MAXSTEPSPERM:-}" ] && [ "${MAXSTEPSPERM}" != "0" ]; then
     EXTRA_ARGS+=(--max_steps_per_m "$MAXSTEPSPERM" --max_steps_base "${MAXSTEPSBASE:-40}")
     OUT_SUFFIX="${OUT_SUFFIX}_b${MAXSTEPSBASE:-40}p${MAXSTEPSPERM}"
 fi
+# TESTDIST (2026-09-24): a FIXED-GOAL scene is the same length for every arm, but
+# the budget above is sized from the ARM's curriculum reach. On the 8.1 m far corner
+# that gave chunk5 (reach 4 m) 104 actions and memDINO_warm (reach 7.5 m) 160 on the
+# identical test, and chunk5's 104 cannot cover 8.1 m at any throttle it has shown --
+# its TIMEOUT measured the budget, not the policy. Set from the scene table, which
+# carries the distance measured with scene_corner_scan.py.
+[ -n "${TESTDIST:-}" ] && EXTRA_ARGS+=(--test_goal_dist "$TESTDIST")
 [ "${NOADOPT:-0}" = "1" ] && { EXTRA_ARGS+=(--no_adopt); OUT_SUFFIX="${OUT_SUFFIX}_noadopt"; }
 
 # Reward weights, so the reported `return=` is on TRAINING's scale. They do not

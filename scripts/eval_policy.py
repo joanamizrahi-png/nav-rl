@@ -59,6 +59,21 @@ def _eval_step_budget(args) -> int:
     if per_m <= 0.0:
         return int(args.max_steps)
     d = getattr(args, "goal_dist", None)
+    # A FIXED-GOAL scene test is the same distance for every arm, but `goal_dist`
+    # is the ARM's own curriculum reach, so each arm was sized differently on the
+    # identical test: on the 8.1 m far corner chunk5 (reach 4 m) got 104 actions
+    # and memDINO_warm (reach 7.5 m) got 160, and chunk5's 104 cannot cover 8.1 m
+    # at any throttle it has ever shown. It timed out on the budget, not on skill
+    # (2026-09-24, Joana: "this one seems to time out too early"). When the caller
+    # states the test's own distance, size from whichever is larger.
+    _td = getattr(args, "test_goal_dist", None)
+    if _td:
+        _td = float(_td)
+        if d is None or _td > float(d):
+            print(f"[eval] test distance {_td:g} m exceeds the curriculum reach "
+                  f"{'unset' if d is None else format(float(d), 'g')} m; sizing the budget "
+                  f"from the test so every arm gets the same budget", flush=True)
+            d = _td
     if d is None:
         rng = getattr(args, "goal_dist_range", None)
         if isinstance(rng, str) and rng:
@@ -415,6 +430,10 @@ def main():
     ap.add_argument("--goal_case_mix", type=str, default="", help="adopted from env_config.json when present")
     ap.add_argument("--max_steps_base", type=int, default=None, help="adopted from env_config.json when present")
     ap.add_argument("--max_steps_per_m", type=float, default=None, help="adopted from env_config.json when present")
+    ap.add_argument("--test_goal_dist", type=float, default=None,
+                    help="the distance THIS test actually spans (m). A fixed-goal scene is "
+                         "the same length for every arm, so the budget must not come from "
+                         "the arm's own curriculum reach. Measured with scene_corner_scan.py.")
     ap.add_argument("--obs_frame_stack", type=int, default=None, help="adopted from env_config.json when present")
     ap.add_argument("--obs_frame_stride", type=int, default=None, help="adopted from env_config.json when present")
     ap.add_argument("--goal_dist", type=float, default=None,
