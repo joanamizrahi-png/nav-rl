@@ -757,7 +757,13 @@ def main():
     # does not read would otherwise pass silently (the 09-04 far-box evals).
     _cfg = getattr(inner_env.unwrapped, "cfg", None)
     _bad = []
+    # max_steps is DELIBERATELY recomputed when the budget scales with the goal band
+    # (40 + 16 x band). The adopted value is training's starting 90, and comparing the
+    # two makes this check refuse its own intended override. 2026-09-23.
+    _budget_scaled = float(getattr(args, "max_steps_per_m", None) or 0.0) > 0.0
     for _k, _v in (getattr(args, "_adopted", {}) or {}).items():
+        if _k == "max_steps" and _budget_scaled:
+            continue
         _have = getattr(_cfg, _k, None) if _cfg is not None else None
         if _have is None:
             continue
