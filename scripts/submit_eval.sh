@@ -40,7 +40,10 @@ for S in $SCENES; do
     [ -n "$LINE" ] || { echo "REFUSED: $S is not in configs/eval_scenes.env"; exit 1; }
     GOAL=$(awk '{print $2}' <<< "$LINE"); SPAWN=$(awk '{print $3}' <<< "$LINE")
     unset GOAL_FRAME GOALFRAMERANGE SPAWN_MAX SPAWNMAX   # never leak between scenes
+    # record a trajectory for EVERY episode, not the default 3 -- the path plots are
+    # how we read these, and five of eight episodes were invisible (2026-09-24)
     export LIVE=1 LIVECKPT="$SEM" CKPT="$C" SCENE="$S" EPISODES="${EPISODES:-8}" \
+           VIDEOS="${VIDEOS:-${EPISODES:-8}}" \
            CLIPS_DIR=/scratch/m000204-pm06b/joana/data/campus_clips \
            MAXSTEPSPERM="${MAXSTEPSPERM:-16}" MAXSTEPSBASE="${MAXSTEPSBASE:-40}"
     eval "export $GOAL"
