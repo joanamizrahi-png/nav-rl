@@ -643,7 +643,14 @@ def main():
                        # 2026-09-06: raster-observation arms; the policy must be
                        # shown the raster again or the eval is an obs-shift test
                        "raster_obs", "static_scene", "static_movers", "render_window", "coverage_window", "sem_palette",
-                       "reward_source", "terrain_speed_scaled", "timeout_distance_scaled", "goal_dist", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix", "max_steps_base", "max_steps_per_m", "obs_frame_stack", "obs_frame_stride", "label_remap", "goal_center_clear_m",
+                       "reward_source", "terrain_speed_scaled", "timeout_distance_scaled", "goal_dist", "spawn_heading_from_walk", "spawn_frames", "goal_case_mix", # 2026-09-24: eval planted the robot exactly on the recorded frame and accepted
+                       # whatever was under it, while TRAINING jitters every spawn (20 deg / 0.4 m) and
+                       # REDRAWS a spawn that starts in collision. Two consequences: episodes from the
+                       # same spawn frame were byte-identical, so 16 episodes collapsed to 5 distinct
+                       # situations; and on gnd the robot spawned on grass and crashed at step 1 in
+                       # every episode. Adopting these makes eval sample the way training does.
+                       "spawn_yaw_jitter", "spawn_lat_jitter", "spawn_support_tries",
+                       "max_steps_base", "max_steps_per_m", "obs_frame_stack", "obs_frame_stride", "label_remap", "goal_center_clear_m",
                        "goal_nontrav_edge_m", "goal_nontrav_tries", "goal_nontrav_cone_deg", "goal_nontrav_classes", "goal_mix_map_draw", "refusal_bonus", "refusal_dist_m", "refusal_verge_m", "halt_wrong_penalty", "nontrav_goal_unreachable", "goal_requires_stop", "stop_action", "lawn_progress_to_verge",
                        # 2026-09-03: the ALPHA GATE. Training runs ungated;
                        # eval defaulted to gated, which turns low-coverage
