@@ -29,7 +29,15 @@ D=$(ls -d $OUT/*_j${JOB} 2>/dev/null | head -1) || true
 if [ -n "$CKPT_WANT" ]; then
     C=$D/checkpoints/ppo_${CKPT_WANT}_steps.zip
 else
-    C=$D/checkpoints/$(cd "$D/checkpoints" && ls ppo_*_steps.zip | sort -t_ -k2 -n | tail -1)
+    LATEST=$(cd "$D/checkpoints" 2>/dev/null && ls ppo_*_steps.zip 2>/dev/null | sort -t_ -k2 -n | tail -1)
+    if [ -z "$LATEST" ]; then
+        # a continuation writes nothing until it passes its first checkpoint boundary
+        NOW=$(python3 -c "import json;print(int(json.load(open('$D/curriculum_state.json'))['num_timesteps']))" 2>/dev/null || echo "")
+        echo "REFUSED: job $JOB has written no checkpoint yet."
+        [ -n "$NOW" ] && echo "         it is at ${NOW} steps; checkpoints are every 10000, so the first lands at $(( (NOW/10000 + 1) * 10000 ))."
+        exit 1
+    fi
+    C=$D/checkpoints/$LATEST
 fi
 [ -f "$C" ] || { echo "REFUSED: no checkpoint $C"; exit 1; }
 CUR=$(python3 -c "import json;print(json.load(open('$D/curriculum_state.json'))['goal_dist'])" 2>/dev/null || echo "none")
