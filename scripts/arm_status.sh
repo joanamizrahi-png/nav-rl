@@ -22,9 +22,13 @@ name_of () {   # training job id -> arm name
     *) echo "j$1";;
   esac
 }
-# which parent each queued continuation covers, so "MISSING" is accurate
+# Which parents already HAVE a continuation. Read from the launch lines of every
+# job, not from a hardcoded list -- the list went stale within a day and reported
+# MISSING for four arms that were already continued (2026-09-24).
+PARENTS=$(grep -ho -- "--warmstart [^ ]*" /scratch/m000204-pm06b/joana/slurm-ppo-real-*.out 2>/dev/null \
+          | grep -o "_j[0-9]\+" | tr -d '_j' | sort -u)
 covered () {
-  case "$1" in 499454|499455|499460) echo yes;; 500171|500179|500180) echo no;; *) echo n/a;; esac
+  echo "$PARENTS" | grep -qx "$1" && echo yes || echo no
 }
 
 printf "%-22s %-8s %-11s %8s %6s  %-12s %s\n" ARM JOB STATE STEPS CURR CONTINUATION EVAL-CELLS
@@ -47,7 +51,7 @@ for d in $(ls -d $OUT/*_j[0-9]* 2>/dev/null); do
   case "$ST" in
     RUNNING|PENDING) MARK="(training)";;
     *) if [ "$CONT" = "no" ]; then MARK="MISSING"; TODO+=("$NAME ($J): no continuation queued");
-       elif [ "$CONT" = "yes" ]; then MARK="queued"; else MARK="-"; fi;;
+       else MARK="continued"; fi;;
   esac
   [ "$ST" != "RUNNING" ] && [ "$ST" != "PENDING" ] && [ "${N_ANY:-0}" -lt 3 ] \
       && TODO+=("$NAME ($J): only ${N_ANY:-0} eval cell(s)")
