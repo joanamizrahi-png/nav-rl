@@ -1062,6 +1062,17 @@ def main():
         "checkpoint": str(args.checkpoint),
         "scene": args.scene,
         "episodes": args.episodes,
+        # The BUDGET this cell ran under, and what sized it. Without these a reader
+        # can only reverse-engineer the budget from a truncation step count -- which
+        # is how chunk5's 104 and memDINO_warm's 160 on the same 8.1 m course went
+        # unnoticed, and left both arms' curriculum reach a matter of inference
+        # (2026-09-24, Joana: "is it also the case for the mem dino warm curriculum?").
+        "max_steps": int(getattr(args, "max_steps", 0)),
+        "curriculum_goal_dist_m": (round(float(args.goal_dist), 2)
+                                   if getattr(args, "goal_dist", None) is not None else None),
+        "test_goal_dist_m": (round(float(args.test_goal_dist), 2)
+                             if getattr(args, "test_goal_dist", None) else None),
+        "action_chunk": int(getattr(args, "action_chunk", 1) or 1),
         "outcomes": outcomes,
         "success_rate": round(len(succ) / args.episodes, 3),
         "mean_d_start": round(float(np.mean([r["d_start"] for r in results])), 2),
