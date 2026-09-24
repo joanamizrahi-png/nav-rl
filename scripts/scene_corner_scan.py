@@ -32,6 +32,85 @@ CLOUDS = "/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds"
 TRAV = "config/traversability_v14.yaml"
 
 
+def explain_line(grid, maps, spawn_xy, goal_xy):
+    """What is the straight line actually made of?
+
+    classify_pair can only say walkable/blocked. It cannot say whether the cells it
+    walked over came from POINTS or were invented: build_label_grid fills enclosed
+    void regions up to fill_max_area_m2 (10 m2 = 1000 cells) with their rim's
+    majority label, and paints a 0.4 m corridor along the recorded walk walkable.
+    The inside of a bend is precisely what the camera never sees, so a real corner
+    can be filled into a shortcut and read as "open" (2026-09-24, Joana: "the quad2
+    g55 is a corner, I can see it"). n_points == 0 under a non-void label means no
+    point voted for that cell -- the map made it up."""
+    res = grid.res
+    s = np.asarray(spawn_xy, float)[:2]; g = np.asarray(goal_xy, float)[:2]
+    n = max(2, int(np.ceil(float(np.linalg.norm(g - s)) / (res / 2))))
+    line = s[None, :] + (g - s)[None, :] * np.linspace(0, 1, n)[:, None]
+    tot = ok = invented = void = 0
+    for q in line:
+        i = int((q[1] - grid.y0) / res); j = int((q[0] - grid.x0) / res)
+        if not (0 <= i < grid.labels.shape[0] and 0 <= j < grid.labels.shape[1]):
+            continue
+        tot += 1
+        if maps["body_ok"][i, j]:
+            ok += 1
+        if grid.labels[i, j] < 0:
+            void += 1
+        elif grid.n_points[i, j] == 0:
+            invented += 1
+    return {"samples": tot, "walkable": ok, "invented": invented, "void": void}
+
+
+def plot_pair(grid, maps, walk, spawn_xy, goal_xy, out_dir, name):
+    """Draw the map the scan is reasoning about: walkable, wall, void, and -- in
+    blue -- the cells that carry a label with NO points behind them, i.e. the ones
+    build_label_grid invented by filling. Plus the walk, spawn, goal, the straight
+    line and the geodesic path. A ratio is not evidence; this is."""
+    import cv2
+    from pathlib import Path
+    from src.eval.goal_cases import snap, bfs_path
+    L, res = grid.labels, grid.res
+    H, W = L.shape
+    img = np.zeros((H, W, 3), np.uint8)
+    img[...] = (70, 70, 70)                                  # void: grey
+    img[maps["free"]] = (232, 232, 228)                      # walkable: near-white
+    img[(L >= 0) & ~maps["free"]] = (60, 60, 190)            # non-traversable: red (BGR)
+    invented = (L >= 0) & (grid.n_points == 0)
+    img[invented] = (200, 150, 60)                           # invented by the fill: blue
+    sc = max(1, int(round(3.0)))
+    img = cv2.resize(img, (W * sc, H * sc), interpolation=cv2.INTER_NEAREST)
+    def px(xy):
+        return (int((xy[0] - grid.x0) / res * sc), int((xy[1] - grid.y0) / res * sc))
+    for k in range(len(walk) - 1):
+        cv2.line(img, px(walk[k]), px(walk[k + 1]), (110, 110, 110), 1, cv2.LINE_AA)
+    s_px, g_px = px(spawn_xy), px(goal_xy)
+    cv2.line(img, s_px, g_px, (40, 160, 40), 2, cv2.LINE_AA)     # straight line: green
+    def cell(xy):
+        return (int((xy[1] - grid.y0) / res), int((xy[0] - grid.x0) / res))
+    a_ij, b_ij = snap(maps["body_ok"], cell(spawn_xy)), snap(maps["body_ok"], cell(goal_xy))
+    if a_ij is not None and b_ij is not None:
+        m = int(6.0 / res)
+        box = (max(0, min(a_ij[0], b_ij[0]) - m), min(H, max(a_ij[0], b_ij[0]) + m),
+               max(0, min(a_ij[1], b_ij[1]) - m), min(W, max(a_ij[1], b_ij[1]) + m))
+        path = bfs_path(maps["body_ok"], a_ij, b_ij, box)
+        if path:
+            for k in range(len(path) - 1):
+                cv2.line(img, (path[k][1] * sc, path[k][0] * sc),
+                         (path[k + 1][1] * sc, path[k + 1][0] * sc), (200, 80, 200), 2, cv2.LINE_AA)
+    cv2.circle(img, s_px, 5 * sc // 2, (30, 30, 30), -1)
+    cv2.circle(img, g_px, int(1.0 / res * sc), (30, 140, 30), 2)
+    img = cv2.flip(img, 0)                                    # +y up, as the paths plot
+    bar = np.full((26, img.shape[1], 3), 255, np.uint8)
+    cv2.putText(bar, "white=walkable  red=wall  grey=void  BLUE=label with NO points (invented by fill)"
+                "   green=straight  magenta=path  black=spawn", (6, 17),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.38, (20, 20, 20), 1, cv2.LINE_AA)
+    out = Path(out_dir); out.mkdir(parents=True, exist_ok=True)
+    f = out / f"{name}.png"
+    cv2.imwrite(str(f), np.vstack([bar, img]))
+    print(f"        wrote {f}")
+
+
 def load_scene(scene, clouds_dir, trav_path, collision_threshold=0.1):
     from src.eval.traversability import load_traversability
     from src.eval.reward_map import build_label_grid
@@ -54,12 +133,22 @@ def load_scene(scene, clouds_dir, trav_path, collision_threshold=0.1):
     return grid, scene_case_maps(grid, non_trav), walk
 
 
-def frame_ok(maps, grid, xy):
-    """Is the robot body clear at this frame? Same body_ok mask the reward uses."""
+BODY_HALF = 0.15          # src/eval/goal_cases.py BODY_W / 2
+
+
+def frame_ok(maps, grid, xy, jitter=0.0):
+    """Clearance at this frame, and whether a spawn there survives the jitter.
+
+    body_ok alone is not enough. EVAL jitters the spawn laterally (spawn_lat_jitter,
+    0.4 m), so a frame with 0.41 m of clearance passes body_ok and still lands the
+    robot on the boundary once jittered -- which is why every gnd_AUw170 episode of
+    both arms died at step 1 while every spawn frame read walkable (2026-09-24).
+    Require clearance >= body half-width + the jitter the eval will actually apply."""
     i = int((xy[1] - grid.y0) / grid.res); j = int((xy[0] - grid.x0) / grid.res)
     if not (0 <= i < grid.labels.shape[0] and 0 <= j < grid.labels.shape[1]):
         return False, 0.0
-    return bool(maps["body_ok"][i, j]), float(maps["dist"][i, j])
+    d = float(maps["dist"][i, j])
+    return bool(maps["body_ok"][i, j]) and d >= BODY_HALF + float(jitter), d
 
 
 def main():
@@ -74,6 +163,13 @@ def main():
     ap.add_argument("--detour_min", type=float, default=1.15,
                     help="the env's goal_case_detour_min: above this the straight line is blocked")
     ap.add_argument("--top", type=int, default=6, help="how many candidate windows to print")
+    ap.add_argument("--plot", metavar="DIR",
+                    help="write a PNG of the label grid with the walk, spawn, goal, straight "
+                         "line and geodesic path drawn on it -- so a claim about the map can "
+                         "be looked at instead of argued from a ratio")
+    ap.add_argument("--jitter", type=float, default=0.4,
+                    help="the lateral spawn jitter eval will apply (SPAWNJLAT). A spawn must "
+                         "clear body/2 + this, or the jitter puts it on the boundary.")
     a = ap.parse_args()
 
     from src.eval.goal_cases import classify_pair
@@ -86,10 +182,12 @@ def main():
             print(f"  SKIP: {e}"); continue
         N = len(walk)
 
-        ok = np.array([frame_ok(maps, grid, walk[i])[0] for i in range(N)])
-        clr = np.array([frame_ok(maps, grid, walk[i])[1] for i in range(N)])
+        ok = np.array([frame_ok(maps, grid, walk[i], a.jitter)[0] for i in range(N)])
+        clr = np.array([frame_ok(maps, grid, walk[i], a.jitter)[1] for i in range(N)])
+        bare = np.array([frame_ok(maps, grid, walk[i], 0.0)[0] for i in range(N)])
         bad = np.where(~ok)[0]
-        print(f"  {N} frames, {ok.sum()} spawnable ({100*ok.mean():.0f}%)")
+        print(f"  {N} frames, {ok.sum()} spawnable with {a.jitter:g} m jitter "
+              f"({100*ok.mean():.0f}%); {bare.sum()} would pass the body check alone")
         if len(bad):
             runs, s = [], bad[0]
             for k in range(1, len(bad) + 1):
@@ -101,11 +199,19 @@ def main():
             lo, hi = a.spawn; g = min(a.goal, N - 1)
             print(f"\n  goal {g}, spawn {lo}-{hi}:")
             print(f"  {'spawn':>6}{'ok':>5}{'clear':>8}{'straight':>10}{'detour':>9}{'width':>8}  case")
+            print(f"  {'':>6}{'':>5}{'':>8}{'':>10}{'':>9}{'':>8}         straight line: cells from POINTS vs INVENTED by the map")
             for s in range(lo, min(hi, N - 1) + 1):
-                o, c = frame_ok(maps, grid, walk[s])
+                o, c = frame_ok(maps, grid, walk[s], a.jitter)
                 r = classify_pair(grid, maps, walk[s], walk[g], detour_min=a.detour_min)
-                print(f"  {s:>6}{'y' if o else 'NO':>5}{c:>8.2f}{r.get('straight_m',0):>10.2f}"
-                      f"{r.get('detour',float('nan')):>9.2f}{r.get('min_width_m',0):>8.2f}  {r['cls']}")
+                ex = explain_line(grid, maps, walk[s], walk[g])
+                if a.plot:
+                    plot_pair(grid, maps, walk, walk[s], walk[g], a.plot,
+                              f"{scene}_spawn{s}_goal{g}")
+                print(f"  {s:>6}{'y' if o else 'JIT' if c >= BODY_HALF else 'NO':>5}{c:>8.2f}{r.get('straight_m',0):>10.2f}"
+                      f"{r.get('detour',float('nan')):>9.2f}{r.get('min_width_m',0):>8.2f}  {r['cls']:<8}"
+                      f"  {ex['walkable']}/{ex['samples']} walkable, "
+                      f"{100*ex['invented']/max(1,ex['samples']):.0f}% INVENTED (no points), "
+                      f"{100*ex['void']/max(1,ex['samples']):.0f}% void")
             continue
 
         # sweep: every (spawn, goal) pair inside the distance band, ranked by detour
