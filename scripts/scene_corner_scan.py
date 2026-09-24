@@ -197,7 +197,22 @@ def main():
 
         if a.goal is not None and a.spawn:
             lo, hi = a.spawn; g = min(a.goal, N - 1)
+            # WALK length spawn->goal: cumulative distance along the recorded poses.
+            # This is pose-only and owes nothing to the label grid, which on quad2_00
+            # is mostly void and cannot be trusted for geometry (2026-09-24, looked at
+            # the plot). It is also what the robot must actually drive on a corner,
+            # so it is the right TESTDIST -- the straight line is not.
+            seg = np.linalg.norm(np.diff(walk, axis=0), axis=1)
             print(f"\n  goal {g}, spawn {lo}-{hi}:")
+            print(f"  {'spawn':>6}{'walk to goal':>14}{'straight':>10}   <- walk length is pose-only; use it for TESTDIST")
+            for sp in range(lo, min(hi, N - 1) + 1):
+                w = float(seg[sp:g].sum()) if g > sp else 0.0
+                st = float(np.linalg.norm(walk[g] - walk[sp]))
+                print(f"  {sp:>6}{w:>14.2f}{st:>10.2f}")
+            wmax = max(float(seg[sp:g].sum()) for sp in range(lo, min(hi, N - 1) + 1) if g > sp)
+            print(f"  -> TESTDIST={wmax:.1f}  (longest walk in the spawn range; "
+                  f"budget {round(40 + 16 * wmax)} actions)")
+            print()
             print(f"  {'spawn':>6}{'ok':>5}{'clear':>8}{'straight':>10}{'detour':>9}{'width':>8}  case")
             print(f"  {'':>6}{'':>5}{'':>8}{'':>10}{'':>9}{'':>8}         straight line: cells from POINTS vs INVENTED by the map")
             for s in range(lo, min(hi, N - 1) + 1):
