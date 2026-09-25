@@ -245,9 +245,19 @@ def survey(grid, maps, walk, people, out_dir, scene, every=5, jitter=0.4):
     img[maps["free"]] = (235, 235, 232)
     img[(L >= 0) & ~maps["free"]] = (60, 60, 190)
     img[(L >= 0) & (grid.n_points == 0)] = (205, 160, 70)
-    sc = 3
-    img = cv2.resize(img, (W * sc, H * sc), interpolation=cv2.INTER_NEAREST)
-    px = lambda xy: (int((xy[0] - grid.x0) / res * sc), int((xy[1] - grid.y0) / res * sc))
+    # crop to the WALK plus a margin: the cloud reaches tens of metres past the path
+    # and without this the part anyone needs is squeezed into a corner of the image
+    # (2026-09-24, first survey was 85% empty grey).
+    MARG = 8.0
+    i0 = max(0, int((walk[:, 1].min() - grid.y0 - MARG) / res))
+    i1 = min(H, int((walk[:, 1].max() - grid.y0 + MARG) / res))
+    j0 = max(0, int((walk[:, 0].min() - grid.x0 - MARG) / res))
+    j1 = min(W, int((walk[:, 0].max() - grid.x0 + MARG) / res))
+    img = img[i0:i1, j0:j1]
+    sc = max(2, int(round(1100 / max(1, img.shape[1]))))
+    img = cv2.resize(img, (img.shape[1] * sc, img.shape[0] * sc), interpolation=cv2.INTER_NEAREST)
+    px = lambda xy: (int(((xy[0] - grid.x0) / res - j0) * sc),
+                     int(((xy[1] - grid.y0) / res - i0) * sc))
     for k in range(len(walk) - 1):
         cv2.line(img, px(walk[k]), px(walk[k + 1]), (120, 120, 120), 2, cv2.LINE_AA)
     for c, n in people:
