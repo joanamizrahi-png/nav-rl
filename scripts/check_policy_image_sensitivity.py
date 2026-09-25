@@ -22,10 +22,19 @@ from stable_baselines3 import PPO
 ckpt, video = sys.argv[1], sys.argv[2]
 model = PPO.load(ckpt, device="cpu")
 _shp = model.observation_space["rgb"].shape
-CHW = _shp[0] == 3                                   # SB3 stores the transposed (3,H,W) space
+# A frame-stacked policy (multiple_images_stack3) carries 3*K channels, so the old
+# `_shp[0] == 3` test read a (9,H,W) space as HWC with H=9 and built garbage. Detect
+# the channel axis as the one divisible by 3 and small; K = channels // 3. The
+# single test frame is tiled K times, which is exactly what the env feeds at reset.
+# (2026-09-25, Joana: stack3 "always moves the same way" -- needs a real blindness check)
+_c_first = _shp[0] % 3 == 0 and _shp[0] <= 30
+CHW = _c_first
+C = _shp[0] if CHW else _shp[2]
+K = max(1, C // 3)
 H, W = (_shp[1], _shp[2]) if CHW else (_shp[0], _shp[1])
 def to_obs(img_hwc):
-    return np.ascontiguousarray(img_hwc.transpose(2, 0, 1)) if CHW else img_hwc
+    stacked = np.concatenate([img_hwc] * K, axis=2) if K > 1 else img_hwc
+    return np.ascontiguousarray(stacked.transpose(2, 0, 1)) if CHW else stacked
 cap = cv2.VideoCapture(video); frames = []
 i = 0
 while True:
@@ -40,7 +49,7 @@ rng = np.random.default_rng(0)
 images = {"frame_a": obs_from(frames[0]), "frame_b": obs_from(frames[min(2, len(frames) - 1)]),
           "zeros": np.zeros((H, W, 3), np.uint8), "noise": rng.integers(0, 256, (H, W, 3)).astype(np.uint8),
           "flipped_a": obs_from(frames[0])[:, ::-1].copy(), "white": np.full((H, W, 3), 255, np.uint8)}
-print(f"checkpoint {ckpt}\nobs rgb space {_shp} -> H={H} W={W}, {len(frames)} frames sampled from {video}")
+print(f"checkpoint {ckpt}\nobs rgb space {_shp} -> H={H} W={W} K={K} (frame stack), {len(frames)} frames sampled from {video}")
 def feats(img, g):
     obs_t, _ = model.policy.obs_to_tensor({"rgb": to_obs(img)[None], "goal": g[None]})
     with torch.no_grad():
