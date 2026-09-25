@@ -6,13 +6,16 @@ extractor produces, and the first policy layer's weight mass on image features v
     python scripts/check_policy_image_sensitivity.py <ckpt.zip> <eval_episode.mp4>
 Runs on the login node (CPU) in the neoverse env."""
 import sys, numpy as np, cv2, torch
-# checkpoints were pickled under numpy 2 ("numpy._core"); on a numpy-1 interpreter map those
-# module names onto numpy.core so the unpickler finds them (login node, 2026-09-22)
+# checkpoints were pickled under numpy 2 ("numpy._core.*"); on a numpy-1 interpreter
+# alias EVERY real submodule of numpy.core as numpy._core.<same>, by walking the
+# package instead of a hand-typed list that missed `numeric` (2026-09-25). Guarded so
+# it does nothing on numpy 2, where numpy.core is itself a forwarder to numpy._core.
 if not hasattr(np, "_core"):
-    import importlib, types
-    for sub in ("", ".numeric", ".multiarray", ".umath", "._multiarray_umath", ".fromnumeric", "._methods"):
+    import importlib, pkgutil, numpy.core as _nc
+    sys.modules["numpy._core"] = _nc
+    for _m in pkgutil.iter_modules(_nc.__path__):
         try:
-            sys.modules["numpy._core" + sub] = importlib.import_module("numpy.core" + sub)
+            sys.modules["numpy._core." + _m.name] = importlib.import_module("numpy.core." + _m.name)
         except Exception:
             pass
 print("numpy", np.__version__, "torch", torch.__version__, "python", sys.executable)
