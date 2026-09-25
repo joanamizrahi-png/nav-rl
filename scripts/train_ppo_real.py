@@ -227,10 +227,19 @@ class GoalDistCurriculum(BaseCallback):
     def __init__(self, start: float, end: float, window: int = 100,
                  threshold: float = 0.5, notch: float = 0.5,
                  state_path: "Path | None" = None, turn_from=None, turn_mix=0.0,
-                 min_episodes: "int | None" = None):
+                 min_episodes: "int | None" = None, per_scene: bool = False):
         super().__init__()
         self.d, self.end = start, end
         self.window, self.threshold, self.notch = window, threshold, notch
+        # PER-SCENE gate (2026-09-25, Joana: "can the policy only work on one easy
+        # scene and still make the curriculum advance?"). With one shared win list,
+        # yes: a plaza whose episodes are short and mostly won fills the window
+        # faster than a corner whose episodes are long and mostly lost, so the
+        # band climbs on the plaza's record. With per_scene the notch is earned
+        # only when EVERY scene that has enough recent episodes clears the
+        # threshold -- the worst scene decides, not the average.
+        self.per_scene = bool(per_scene)
+        self._wins_by_scene: dict = {}
         # How many recent episodes must be in the window before the gate may pass.
         # The old rule was window // 2 = 50, which one 2048-step rollout supplies
         # (~40 steps per episode), so the band could climb 0.5 m EVERY rollout on a
@@ -252,17 +261,45 @@ class GoalDistCurriculum(BaseCallback):
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
             if "episode" in info:
-                self._wins.append(1.0 if info.get("goal_bonus", 0.0) > 0
-                                  else 0.0)
+                win = 1.0 if info.get("goal_bonus", 0.0) > 0 else 0.0
+                self._wins.append(win)
+                if self.per_scene:
+                    sk = info.get("scene_idx", info.get("scene_id", "?"))
+                    try:
+                        sk = int(round(float(sk)))
+                    except (TypeError, ValueError):
+                        pass
+                    self._wins_by_scene.setdefault(sk, []).append(win)
         return True
 
-    def _on_rollout_start(self) -> None:
+    def _gate_passes(self) -> bool:
         recent = self._wins[-self.window:]
-        if (len(recent) >= self.min_episodes
-                and float(np.mean(recent)) >= self.threshold
-                and self.d < self.end):
+        if len(recent) < self.min_episodes or self.d >= self.end:
+            return False
+        if not self.per_scene:
+            return float(np.mean(recent)) >= self.threshold
+        # EVERY scene seen since the last notch must (a) have enough recent episodes
+        # and (b) clear the bar. A scene with too few episodes BLOCKS -- it does not
+        # abstain. The first version let it abstain, and the test showed a plaza
+        # earning a notch every two rollouts while the corner's count was wiped
+        # before it could ever be judged (2026-09-25). The slowest scene sets the pace.
+        seen = {k: v[-self.window:] for k, v in self._wins_by_scene.items() if v}
+        if not seen:
+            return False
+        need = max(10, self.min_episodes // len(seen))
+        if any(len(v) < need for v in seen.values()):
+            return False
+        judged = {k: float(np.mean(v)) for k, v in seen.items()}
+        if self.logger is not None:
+            self.logger.record("curriculum/worst_scene_success", min(judged.values()))
+            self.logger.record("curriculum/scenes_judged", float(len(judged)))
+        return min(judged.values()) >= self.threshold
+
+    def _on_rollout_start(self) -> None:
+        if self._gate_passes():
             self.d = min(self.end, self.d + self.notch)
             self._wins.clear()               # re-earn the next notch
+            self._wins_by_scene.clear()
         rngs = self.training_env.env_method("set_goal_dist", self.d)
         # corner rule ramped on the SAME clock: no corners until the band reaches turn_from,
         # then linearly to turn_mix by the ceiling. turn_from=None leaves the mix alone.
@@ -813,6 +850,7 @@ def _dump_env_config(args, cfg):
             "cur_window": getattr(args, "cur_window", None),
             "cur_min_episodes": getattr(args, "cur_min_episodes", None),
             "cur_notch": getattr(args, "cur_notch", None),
+            "cur_per_scene": bool(getattr(args, "cur_per_scene", False)),
             # and the fusion window, which decides what world the policy is even shown
             "render_window": int(getattr(args, "render_window", 0) or 0),
             "coverage_window": int(getattr(args, "coverage_window", 0) or 0),
@@ -2058,6 +2096,9 @@ def main():
                     help="distance curriculum: episodes that must be in the window before the gate "
                          "may pass; default window//2 (the old, fast behaviour). Set = window to "
                          "require a full window.")
+    ap.add_argument("--cur_per_scene", action="store_true",
+                    help="distance curriculum: earn a notch only when the WORST scene with enough "
+                         "recent episodes clears the threshold, not the average over scenes")
     ap.add_argument("--cur_notch", type=float, default=0.5,
                     help="distance curriculum: metres the band grows per earned notch")
     ap.add_argument("--goal_dist_start", type=float, default=None,
@@ -2455,6 +2496,7 @@ def main():
             threshold=float(getattr(args, "cur_threshold", 0.5) or 0.5),
             notch=float(getattr(args, "cur_notch", 0.5) or 0.5),
             min_episodes=getattr(args, "cur_min_episodes", None),
+            per_scene=bool(getattr(args, "cur_per_scene", False)),
             state_path=args.output_dir / "curriculum_state.json",
             turn_from=getattr(args, "goal_turn_from", None),
             turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0)))

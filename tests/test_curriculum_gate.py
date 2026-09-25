@@ -15,25 +15,35 @@ import numpy as np
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
-def gate_source():
+def gate_fn():
+    """The REAL _gate_passes, lifted out of GoalDistCurriculum."""
     src = (ROOT / "scripts" / "train_ppo_real.py").read_text()
     cls = next(n for n in ast.parse(src).body
                if isinstance(n, ast.ClassDef) and n.name == "GoalDistCurriculum")
-    roll = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "_on_rollout_start")
-    body = ast.get_source_segment(src, roll).split("rngs = self.training_env")[0]
-    return textwrap.dedent("\n".join(body.splitlines()[1:]))
+    fn = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "_gate_passes")
+    ns = {"np": np}
+    exec(textwrap.dedent(ast.get_source_segment(src, fn)), ns)
+    return ns["_gate_passes"]
 
 
 class Gate:
-    def __init__(self, start, end, window, threshold, notch, min_episodes=None):
+    def __init__(self, start, end, window, threshold, notch, min_episodes=None, per_scene=False):
         self.d, self.end = start, end
         self.window, self.threshold, self.notch = window, threshold, notch
-        self._wins = []
+        self._wins = []; self._wins_by_scene = {}; self.logger = None
         self.min_episodes = int(min_episodes) if min_episodes else window // 2
-        self._src = gate_source()
+        self.per_scene = per_scene
+        self._passes = gate_fn()
+
+    def add(self, win, scene=None):
+        self._wins.append(win)
+        if scene is not None:
+            self._wins_by_scene.setdefault(scene, []).append(win)
 
     def rollout(self):
-        exec(self._src, {"np": np}, {"self": self})
+        if self._passes(self):
+            self.d = min(self.end, self.d + self.notch)
+            self._wins.clear(); self._wins_by_scene.clear()
 
 
 def climb(true_success, rollouts=400, seed=0, **kw):
@@ -41,7 +51,8 @@ def climb(true_success, rollouts=400, seed=0, **kw):
     g = Gate(2.0, 10.0, **kw)
     n = 0
     while g.d < 10.0 and n < rollouts:
-        g._wins += list((rng.random(50) < true_success).astype(float))   # ~50 episodes per rollout
+        for w in (rng.random(50) < true_success).astype(float):        # ~50 episodes per rollout
+            g.add(float(w))
         g.rollout(); n += 1
     return g.d, n
 
@@ -63,6 +74,22 @@ def main():
     ck("does advance an 85%-success policy", d == 10.0, f"in {n} rollouts = {n*2048//1000}k steps")
     ck("and takes at least 2 rollouts per notch", n >= 2 * 32, f"{n} rollouts for 32 notches")
 
+    print("\none easy scene must not carry the band (per-scene gate):")
+    def mixed(per_scene, rollouts=60, seed=1):
+        # plaza: 95% success, short episodes -> 35 per rollout; corner: 30%, long -> 15 per rollout
+        rng = np.random.default_rng(seed)
+        g = Gate(2.0, 10.0, window=100, threshold=0.75, notch=0.25, min_episodes=100, per_scene=per_scene)
+        n = 0
+        while g.d < 10.0 and n < rollouts:
+            for w in (rng.random(35) < 0.95).astype(float): g.add(float(w), scene=0)
+            for w in (rng.random(15) < 0.30).astype(float): g.add(float(w), scene=1)
+            g.rollout(); n += 1
+        return g.d
+    ck("global gate is fooled: 70% plaza + 30% corner averages 75%, band climbs",
+       mixed(False) > 2.0, f"band {mixed(False)} m")
+    ck("per-scene gate holds: the corner is at 30%, band stays put",
+       mixed(True) == 2.0, f"band {mixed(True)} m")
+
     print("\nknobs reach the constructor and the launcher:")
     tr = (ROOT / "scripts" / "train_ppo_real.py").read_text()
     ck("--cur_threshold / --cur_min_episodes / --cur_notch exist",
@@ -70,7 +97,7 @@ def main():
     ck("constructor receives them", 'min_episodes=getattr(args, "cur_min_episodes"' in tr)
     ck("env_config records them", '"cur_min_episodes":' in tr)
     sh = (ROOT / "scripts" / "slurm" / "train_ppo_real.sh").read_text()
-    ck("launcher knows CURTHRESH/CURMINEP/CURNOTCH", "CURTHRESH|CURWIN|CURMINEP|CURNOTCH" in sh and "--cur_min_episodes $CURMINEP" in sh)
+    ck("launcher knows CURTHRESH/CURMINEP/CURNOTCH/CURPERSCENE", "CURPERSCENE|CURTHRESH|CURWIN|CURMINEP|CURNOTCH" in sh and "--cur_per_scene" in sh)
     ck("base arm config defines them (submit_arm refuses undefined knobs)",
        all(k in (ROOT / "configs" / "arms" / "_base_campus.env").read_text() for k in ("CURTHRESH=", "CURMINEP=", "CURNOTCH=")))
 
