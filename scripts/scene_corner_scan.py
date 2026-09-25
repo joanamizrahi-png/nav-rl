@@ -32,7 +32,7 @@ CLOUDS = "/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds"
 TRAV = "config/traversability_v14.yaml"
 
 
-def person_clusters(clouds_dir, scene, classes=(29,), min_pts=30, cell=0.5):
+def person_clusters(clouds_dir, scene, classes=(12,), min_pts=30, cell=0.5):
     """Where the people are, in world xy.
 
     People captured mid-walk are frozen into the cloud where they stood, so a
@@ -45,6 +45,11 @@ def person_clusters(clouds_dir, scene, classes=(29,), min_pts=30, cell=0.5):
     from pathlib import Path
     d = np.load(Path(clouds_dir) / f"{scene}_cloud.npz")
     pts, labs = d["points"], d["labels"].astype(int)
+    hi = int(labs.max()) if len(labs) else 0
+    for c in classes:
+        if c > hi:
+            print(f"        WARNING: class {c} requested but {scene}'s labels only reach {hi}. "
+                  f"This cloud uses the 14-class taxonomy where person=12.")
     sel = np.isin(labs, list(classes)) & (pts[:, 2] > 0.15) & (pts[:, 2] < 2.0)
     P = pts[sel][:, :2]
     if not len(P):
@@ -280,8 +285,11 @@ def main():
     ap.add_argument("--person", action="store_true",
                     help="report people between the spawn and the goal (class 29), so a "
                          "pedestrian test can be defined the same way a corner test is")
-    ap.add_argument("--person_class", default="29",
-                    help="comma list of person-like class ids (default 29)")
+    ap.add_argument("--person_class", default="12",
+                    help="comma list of person-like class ids. 12=person, 13=vehicle in the "
+                         "14-class navigation taxonomy these clouds use (config/traversability_v14.yaml). "
+                         "NOT 29 -- that is the 30-class Go2W table in src/eval/reward.py and no cloud "
+                         "contains it, which is why the first run found zero people everywhere.")
     ap.add_argument("--person_m", type=float, default=1.5,
                     help="how close to the straight line a person must be to count")
     ap.add_argument("--clip", metavar="NAME",
