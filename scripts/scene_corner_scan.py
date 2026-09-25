@@ -32,6 +32,58 @@ CLOUDS = "/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds"
 TRAV = "config/traversability_v14.yaml"
 
 
+def person_clusters(clouds_dir, scene, classes=(29,), min_pts=30, cell=0.5):
+    """Where the people are, in world xy.
+
+    People captured mid-walk are frozen into the cloud where they stood, so a
+    pedestrian test is findable the same way a corner is: find the person points,
+    then pick a spawn and goal that put one between the robot and its target
+    (2026-09-24, Joana: "we had found a good spawn and goal ... where there was a
+    person"). They are excluded from the label grid by map_ignore_classes, so they
+    have to be read from the cloud directly rather than off the grid.
+    """
+    from pathlib import Path
+    d = np.load(Path(clouds_dir) / f"{scene}_cloud.npz")
+    pts, labs = d["points"], d["labels"].astype(int)
+    sel = np.isin(labs, list(classes)) & (pts[:, 2] > 0.15) & (pts[:, 2] < 2.0)
+    P = pts[sel][:, :2]
+    if not len(P):
+        return []
+    key = np.round(P / cell).astype(np.int64)
+    uniq, inv, cnt = np.unique(key, axis=0, return_inverse=True, return_counts=True)
+    out = []
+    for k in np.where(cnt >= min_pts)[0]:
+        out.append((P[inv == k].mean(0), int(cnt[k])))
+    # merge cells that touch, so one person is one cluster
+    merged = []
+    for c, n in sorted(out, key=lambda x: -x[1]):
+        for i, (mc, mn) in enumerate(merged):
+            if np.linalg.norm(mc - c) < 1.2:
+                merged[i] = ((mc * mn + c * n) / (mn + n), mn + n)
+                break
+        else:
+            merged.append((c, n))
+    return merged
+
+
+def on_the_line(clusters, spawn_xy, goal_xy, within_m=1.5):
+    """Person clusters lying within `within_m` of the spawn->goal segment, and how
+    far along it they sit. A person BEHIND the spawn or past the goal is not a test."""
+    s = np.asarray(spawn_xy, float)[:2]; g = np.asarray(goal_xy, float)[:2]
+    v = g - s; L = float(np.linalg.norm(v))
+    if L < 1e-6:
+        return []
+    hits = []
+    for c, n in clusters:
+        t = float(np.dot(c - s, v) / (L * L))
+        if not (0.05 <= t <= 0.95):
+            continue
+        perp = float(np.linalg.norm((s + t * v) - c))
+        if perp <= within_m:
+            hits.append({"along_m": t * L, "offset_m": perp, "points": n})
+    return sorted(hits, key=lambda h: h["along_m"])
+
+
 def explain_line(grid, maps, spawn_xy, goal_xy):
     """What is the straight line actually made of?
 
@@ -225,6 +277,13 @@ def main():
     ap.add_argument("--detour_min", type=float, default=1.15,
                     help="the env's goal_case_detour_min: above this the straight line is blocked")
     ap.add_argument("--top", type=int, default=6, help="how many candidate windows to print")
+    ap.add_argument("--person", action="store_true",
+                    help="report people between the spawn and the goal (class 29), so a "
+                         "pedestrian test can be defined the same way a corner test is")
+    ap.add_argument("--person_class", default="29",
+                    help="comma list of person-like class ids (default 29)")
+    ap.add_argument("--person_m", type=float, default=1.5,
+                    help="how close to the straight line a person must be to count")
     ap.add_argument("--clip", metavar="NAME",
                     help="clip file stem when it differs from the scene name, e.g. "
                          "--clip gtown2c1_w330 for scene gnd_G2c1d330")
@@ -282,6 +341,12 @@ def main():
                   f"budget {round(40 + 16 * wmax)} actions)")
             print()
             print(f"  {'spawn':>6}{'ok':>5}{'clear':>8}{'straight':>10}{'detour':>9}{'width':>8}  case")
+            PC = []
+            if a.person:
+                PC = person_clusters(a.clouds_dir, scene,
+                                     tuple(int(v) for v in a.person_class.split(",") if v.strip()))
+                print(f"  {len(PC)} person cluster(s) in the scene"
+                      + (f": {', '.join(f'{n} pts' for _, n in PC)}" if PC else ""))
             print(f"  {'':>6}{'':>5}{'':>8}{'':>10}{'':>9}{'':>8}         straight line: cells from POINTS vs INVENTED by the map")
             for s in range(lo, min(hi, N - 1) + 1):
                 o, c = frame_ok(maps, grid, walk[s], a.jitter)
@@ -300,6 +365,53 @@ def main():
                       f"  {ex['walkable']}/{ex['samples']} walkable, "
                       f"{100*ex['invented']/max(1,ex['samples']):.0f}% INVENTED (no points), "
                       f"{100*ex['void']/max(1,ex['samples']):.0f}% void")
+                if a.person:
+                    hits = on_the_line(PC, walk[s], walk[g], a.person_m)
+                    if hits:
+                        for h in hits:
+                            print(f"         PERSON {h['along_m']:.1f} m along the line, "
+                                  f"{h['offset_m']:.2f} m off it ({h['points']} pts)")
+                    else:
+                        print(f"         no person within {a.person_m:g} m of this line")
+            continue
+
+        if a.person:
+            PC = person_clusters(a.clouds_dir, scene,
+                                 tuple(int(v) for v in a.person_class.split(",") if v.strip()))
+            print(f"  {len(PC)} person cluster(s) in the scene")
+            if not PC:
+                print("  no people here: this scene cannot serve as a pedestrian test")
+                continue
+            best = []
+            for sp in range(N - 1):
+                if not ok[sp]:
+                    continue
+                for g in range(sp + 3, N):
+                    d = float(np.linalg.norm(walk[g] - walk[sp]))
+                    if not (a.band[0] <= d <= a.band[1]):
+                        continue
+                    hits = on_the_line(PC, walk[sp], walk[g], a.person_m)
+                    if hits:
+                        best.append((min(h["offset_m"] for h in hits), len(hits), sp, g, d, hits))
+            if not best:
+                print(f"  people exist but none sit within {a.person_m:g} m of any spawn/goal line "
+                      f"in the {a.band[0]}-{a.band[1]} m band")
+                continue
+            best.sort()
+            print(f"  {len(best)} spawn/goal pairs put a person in the way")
+            print(f"\n  {'spawn':>6}{'goal':>6}{'dist':>8}{'people':>8}{'nearest offset':>16}{'along':>8}")
+            seen = set()
+            for offs, nh, sp, g, d, hits in best[:a.top]:
+                if (sp // 2, g // 2) in seen:
+                    continue
+                seen.add((sp // 2, g // 2))
+                print(f"  {sp:>6}{g:>6}{d:>8.1f}{nh:>8}{offs:>16.2f}{hits[0]['along_m']:>8.1f}")
+            offs, nh, sp, g, d, hits = best[0]
+            seg = np.linalg.norm(np.diff(walk, axis=0), axis=1)
+            wl = float(seg[sp:g].sum())
+            print(f"\n  eval_scenes.env line:")
+            print(f"  {scene}_ped  GOAL_FRAME={g:<4} SPAWN_MIN={sp},SPAWN_MAX={sp} TESTDIST={wl:.1f} "
+                  f"SCENE={scene}  # person {hits[0]['along_m']:.1f} m along, {offs:.2f} m off the line")
             continue
 
         # sweep: every (spawn, goal) pair inside the distance band, ranked by detour
