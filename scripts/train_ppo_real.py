@@ -522,7 +522,7 @@ class WandbImagePanel(BaseCallback):
         return True
 
     @staticmethod
-    def topdown(grid, walk_xy, paths, goal_xy, scene, size=360):
+    def topdown(grid, walk_xy, paths, goal_xy, scene, size=360, non_trav=None):
         """One top-down picture: the scene's label grid (walkable light, wall dark,
         void grey), the recorded walk (thin grey), and the episode paths -- the
         last FINISHED episode in blue, the one in progress in orange -- with the
@@ -535,11 +535,15 @@ class WandbImagePanel(BaseCallback):
         if grid is not None:
             L = grid.labels; res = float(grid.res); x0, y0 = float(grid.x0), float(grid.y0)
             img = np.full((*L.shape, 3), 70, np.uint8)
-            free = L >= 0
-            img[free] = (232, 232, 228)
-            # anything the grid marks non-traversable is whatever the caller's mask says; we
-            # only have labels here, so paint known-but-void-adjacent as walkable and let the
-            # walk + paths carry the geometry. Callers pass non_trav to darken walls.
+            known = L >= 0
+            img[known] = (232, 232, 228)
+            # non-traversable cells (walls, lawn, people) dark red, from the env's own mask;
+            # the first version painted every known cell light and a wall placed in the test
+            # was invisible (2026-09-25). Without the mask the panel is walk + paths only.
+            if non_trav is not None:
+                nt = np.asarray(non_trav, bool)
+                bad = known & nt[np.clip(L, 0, len(nt) - 1)]
+                img[bad] = (60, 60, 190)
             if allxy is not None:
                 M = 5.0
                 i0 = max(0, int((allxy[:, 1].min() - y0 - M) / res)); i1 = min(L.shape[0], int((allxy[:, 1].max() - y0 + M) / res))
@@ -557,7 +561,8 @@ class WandbImagePanel(BaseCallback):
                 return None
             lo = allxy.min(0) - 3.0; hi = allxy.max(0) + 3.0
             res = max((hi - lo).max() / size, 1e-3)
-            img = np.full((int((hi[1] - lo[1]) / res) + 1, int((hi[0] - lo[0]) / res) + 1, 3), 232, np.uint8)
+            W2 = max(int((hi[0] - lo[0]) / res) + 1, 440)      # wide enough for the caption
+            img = np.full((int((hi[1] - lo[1]) / res) + 1, W2, 3), 232, np.uint8)
             px = lambda xy: (int((xy[0] - lo[0]) / res), int((xy[1] - lo[1]) / res))
         if walk_xy is not None:
             w = np.asarray(walk_xy, float)
@@ -687,7 +692,7 @@ class WandbImagePanel(BaseCallback):
                         except Exception:
                             return None
                     _last, _cur, _goal = _ga("_last_ep_xy"), _ga("_ep_xy"), _ga("_ep_goal")
-                    _td = self.topdown(_g, _walk, [_last, _cur], _goal, _nm)
+                    _td = self.topdown(_g, _walk, [_last, _cur], _goal, _nm, non_trav=_ga("_non_trav"))
                     if _td is not None:
                         tops.append(_td)
                 except Exception as _e:

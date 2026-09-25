@@ -53,13 +53,16 @@ def main():
     cur = [(2 + 0.25 * k, 10.5 - 0.03 * k) for k in range(15)]          # in progress
     goal = (13.0, 10.0)
 
-    img = topdown(grid, walk, [last, cur], goal, "synthetic")
+    non_trav = np.zeros(14, bool); non_trav[[0, 3, 10, 11, 12]] = True    # void, grass, obstacle, veg, person
+    img = topdown(grid, walk, [last, cur], goal, "synthetic", non_trav=non_trav)
     ck("returns an image", img is not None)
     if img is not None:
         ck("RGB uint8", img.dtype == np.uint8 and img.ndim == 3 and img.shape[2] == 3, str(img.shape))
         ck("not blank", float(img.std()) > 10, f"std {img.std():.1f}")
         ck("has the walkable light tone", (img == (228, 232, 232)).all(-1).sum() > 1000 or (img == (232, 232, 228)).all(-1).sum() > 1000)
         ck("cropped to the paths, not the whole 30 m scene", img.shape[1] < 3000, f"width {img.shape[1]}")
+        ck("the wall is drawn (dark red cells present)", (img == (190, 60, 60)).all(-1).sum() > 200,
+           f"{(img == (190, 60, 60)).all(-1).sum()} wall pixels")
         import cv2
         cv2.imwrite(str(OUT / "topdown_with_grid.png"), img[:, :, ::-1])
 
