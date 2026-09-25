@@ -1132,6 +1132,17 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._rgb_delta = float("nan")
         self._steps = 0
         self._halt_run = 0
+        # Episode path, for the wandb top-down panel (2026-09-25, Joana: "can we
+        # visualize actual rollouts on wandb?"). The previous episode is kept as
+        # _last_ep_* so a rollout-end snapshot can draw a COMPLETE episode even when
+        # the current one has just started.
+        if getattr(self, "_ep_xy", None):
+            self._last_ep_xy = list(self._ep_xy)
+            self._last_ep_goal = getattr(self, "_ep_goal", None)
+            self._last_ep_scene = getattr(self, "_ep_scene", None)
+        self._ep_xy = [tuple(float(v) for v in self._robot_pose_world[:2, 3])]
+        self._ep_goal = tuple(float(v) for v in np.asarray(self._goal_world)[:2])
+        self._ep_scene = getattr(self, "_scene_id", None)
         self._initial_goal_dist = float(np.linalg.norm(
             self._robot_pose_world[:3, 3] - self._goal_world))
         # 2026-09-04 (Joana): is THIS goal on traversable ground, by the map?
@@ -1732,6 +1743,8 @@ class SceneEnv(gym.Env if gym is not None else object):
         self._prev_position = robot_position
         self._advance_pose(action)
         self._steps += 1
+        if getattr(self, "_ep_xy", None) is not None:
+            self._ep_xy.append(tuple(float(v) for v in self._robot_pose_world[:2, 3]))
 
         # ---- render the new view for the NEXT step's observation ----
         if self.cfg.defer_render:

@@ -484,6 +484,61 @@ class WandbImagePanel(BaseCallback):
     def _on_step(self) -> bool:
         return True
 
+    @staticmethod
+    def topdown(grid, walk_xy, paths, goal_xy, scene, size=360):
+        """One top-down picture: the scene's label grid (walkable light, wall dark,
+        void grey), the recorded walk (thin grey), and the episode paths -- the
+        last FINISHED episode in blue, the one in progress in orange -- with the
+        goal circled. Same conventions as scene_corner_scan.py --plot, so a path
+        here and a path in the offline overheads read the same way (2026-09-25)."""
+        import cv2
+        pts = [np.asarray(p, float) for p in paths if p is not None and len(p) > 1]
+        allxy = np.concatenate(pts + ([np.asarray([goal_xy], float)] if goal_xy is not None else []), axis=0) \
+            if pts or goal_xy is not None else None
+        if grid is not None:
+            L = grid.labels; res = float(grid.res); x0, y0 = float(grid.x0), float(grid.y0)
+            img = np.full((*L.shape, 3), 70, np.uint8)
+            free = L >= 0
+            img[free] = (232, 232, 228)
+            # anything the grid marks non-traversable is whatever the caller's mask says; we
+            # only have labels here, so paint known-but-void-adjacent as walkable and let the
+            # walk + paths carry the geometry. Callers pass non_trav to darken walls.
+            if allxy is not None:
+                M = 5.0
+                i0 = max(0, int((allxy[:, 1].min() - y0 - M) / res)); i1 = min(L.shape[0], int((allxy[:, 1].max() - y0 + M) / res))
+                j0 = max(0, int((allxy[:, 0].min() - x0 - M) / res)); j1 = min(L.shape[1], int((allxy[:, 0].max() - x0 + M) / res))
+            else:
+                i0, i1, j0, j1 = 0, L.shape[0], 0, L.shape[1]
+            img = img[i0:i1, j0:j1]
+            if img.size == 0:
+                return None
+            sc = max(1, int(round(size / max(1, img.shape[0]))))
+            img = cv2.resize(img, (img.shape[1] * sc, img.shape[0] * sc), interpolation=cv2.INTER_NEAREST)
+            px = lambda xy: (int(((xy[0] - x0) / res - j0) * sc), int(((xy[1] - y0) / res - i0) * sc))
+        else:
+            if allxy is None:
+                return None
+            lo = allxy.min(0) - 3.0; hi = allxy.max(0) + 3.0
+            res = max((hi - lo).max() / size, 1e-3)
+            img = np.full((int((hi[1] - lo[1]) / res) + 1, int((hi[0] - lo[0]) / res) + 1, 3), 232, np.uint8)
+            px = lambda xy: (int((xy[0] - lo[0]) / res), int((xy[1] - lo[1]) / res))
+        if walk_xy is not None:
+            w = np.asarray(walk_xy, float)
+            for k in range(len(w) - 1):
+                cv2.line(img, px(w[k]), px(w[k + 1]), (150, 150, 150), 1, cv2.LINE_AA)
+        colours = [(190, 110, 40), (40, 140, 230)]        # BGR: blue = last finished, orange = in progress
+        for path, col in zip(pts, colours):
+            for k in range(len(path) - 1):
+                cv2.line(img, px(path[k]), px(path[k + 1]), col, 2, cv2.LINE_AA)
+            cv2.circle(img, px(path[0]), 4, col, -1)
+            cv2.circle(img, px(path[-1]), 4, (30, 30, 30), -1)
+        if goal_xy is not None:
+            cv2.circle(img, px(goal_xy), max(4, int(0.75 / res) if grid is not None else 6), (40, 160, 40), 2)
+        img = cv2.flip(img, 0)
+        cv2.putText(img, f"{scene}  blue=last episode  orange=current  dot=end", (6, 16),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (20, 20, 20), 1, cv2.LINE_AA)
+        return img[:, :, ::-1]                              # BGR -> RGB for wandb
+
     def _on_rollout_end(self) -> None:
         self._n += 1
         if self._n % self.every:
@@ -497,7 +552,7 @@ class WandbImagePanel(BaseCallback):
             n_workers = int(getattr(env, "n_workers", 1) or 1)
             stride = max(int(env.num_envs) // n_workers, 1)
             idx = [k * stride for k in range(n_workers)]
-            rows, scenes, covs = [], [], []
+            rows, scenes, covs, tops = [], [], [], []
             for i in idx:
                 rgb = env.get_attr("_last_rgb", indices=[i])[0]
                 lab = env.get_attr("_injected_labels", indices=[i])[0]
@@ -576,6 +631,30 @@ class WandbImagePanel(BaseCallback):
                     print(f"[WandbImagePanel] memory strip skipped: {type(_e).__name__}: {_e}", flush=True)
                 rows.append(np.concatenate(panel, axis=1))
                 covs.append(cov)
+                # TOP-DOWN: where this worker's robot actually went (2026-09-25)
+                try:
+                    _sid = env.get_attr("_scene_id", indices=[i])[0]
+                    _g = None
+                    try:
+                        _g = (env.get_attr("_label_grids", indices=[i])[0] or {}).get(_sid)
+                    except Exception:
+                        _g = None
+                    _walk = None
+                    try:
+                        _walk = (env.get_attr("_walk_xy", indices=[i])[0] or {}).get(_sid)
+                    except Exception:
+                        _walk = None
+                    def _ga(name):                       # attribute may not exist before the first reset
+                        try:
+                            return env.get_attr(name, indices=[i])[0]
+                        except Exception:
+                            return None
+                    _last, _cur, _goal = _ga("_last_ep_xy"), _ga("_ep_xy"), _ga("_ep_goal")
+                    _td = self.topdown(_g, _walk, [_last, _cur], _goal, _nm)
+                    if _td is not None:
+                        tops.append(_td)
+                except Exception as _e:
+                    print(f"[WandbImagePanel] topdown skipped: {type(_e).__name__}: {_e}", flush=True)
             if not rows:
                 return
             w = max(r.shape[1] for r in rows)
@@ -583,7 +662,13 @@ class WandbImagePanel(BaseCallback):
             img = np.concatenate(rows, axis=0)
             cap = f"rollout {self._n} | rows = GPU workers: " + ", ".join(
                 f"{s}" + (f" cov {float(c):.2f}" if c is not None else "") for s, c in zip(scenes, covs))
-            wandb.log({"panels/obs_labels": wandb.Image(img, caption=cap)}, step=self.num_timesteps)
+            _log = {"panels/obs_labels": wandb.Image(img, caption=cap)}
+            if tops:
+                h = max(t.shape[0] for t in tops)
+                tops = [t if t.shape[0] == h else np.pad(t, ((0, h - t.shape[0]), (0, 0), (0, 0)), constant_values=255) for t in tops]
+                _log["panels/topdown"] = wandb.Image(np.concatenate(tops, axis=1),
+                                                     caption=f"rollout {self._n} | one map per GPU worker: " + ", ".join(scenes))
+            wandb.log(_log, step=self.num_timesteps)
         except Exception as e:  # never let logging kill a run
             print(f"[WandbImagePanel] skipped: {type(e).__name__}: {e}", flush=True)
 
