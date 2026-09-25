@@ -230,6 +230,51 @@ def plot_pair(grid, maps, walk, spawn_xy, goal_xy, out_dir, name, views=None, la
     print(f"        wrote {f}")
 
 
+def survey(grid, maps, walk, people, out_dir, scene, every=5, jitter=0.4):
+    """One top-down picture of the whole scene, with the walk numbered by frame and
+    the people marked, so a spawn and a goal can be CHOSEN by eye instead of taken
+    from a ranking (2026-09-24, Joana: "i'd like to try and find spawns and goals
+    with a top down view"). Frames that cannot hold a spawn once jittered are drawn
+    hollow, so a number you pick is already known to be legal."""
+    import cv2
+    from pathlib import Path
+    L, res = grid.labels, grid.res
+    H, W = L.shape
+    img = np.zeros((H, W, 3), np.uint8)
+    img[...] = (70, 70, 70)
+    img[maps["free"]] = (235, 235, 232)
+    img[(L >= 0) & ~maps["free"]] = (60, 60, 190)
+    img[(L >= 0) & (grid.n_points == 0)] = (205, 160, 70)
+    sc = 3
+    img = cv2.resize(img, (W * sc, H * sc), interpolation=cv2.INTER_NEAREST)
+    px = lambda xy: (int((xy[0] - grid.x0) / res * sc), int((xy[1] - grid.y0) / res * sc))
+    for k in range(len(walk) - 1):
+        cv2.line(img, px(walk[k]), px(walk[k + 1]), (120, 120, 120), 2, cv2.LINE_AA)
+    for c, n in people:
+        cv2.circle(img, px(c), int(0.6 / res * sc), (200, 40, 200), 3)
+        cv2.circle(img, px(c), 4, (200, 40, 200), -1)
+    for k in range(0, len(walk), every):
+        ok = frame_ok(maps, grid, walk[k], jitter)[0]
+        p_ = px(walk[k])
+        cv2.circle(img, p_, 7, (30, 30, 30), -1 if ok else 2)
+    img = cv2.flip(img, 0)                       # +y up
+    # labels go on AFTER the flip so the text is not upside down
+    for k in range(0, len(walk), every):
+        x, y = px(walk[k]); y = img.shape[0] - y
+        cv2.putText(img, str(k), (x + 9, y + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    (255, 255, 255), 3, cv2.LINE_AA)
+        cv2.putText(img, str(k), (x + 9, y + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    (20, 20, 20), 1, cv2.LINE_AA)
+    bar = np.full((28, img.shape[1], 3), 255, np.uint8)
+    cv2.putText(bar, f"{scene}   filled dot = spawnable with {jitter:g} m jitter, hollow = not"
+                "   MAGENTA = person   white=walkable  red=wall  grey=void  blue=invented",
+                (8, 19), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (20, 20, 20), 1, cv2.LINE_AA)
+    out = Path(out_dir); out.mkdir(parents=True, exist_ok=True)
+    f = out / f"SURVEY_{scene}_path.png"
+    cv2.imwrite(str(f), np.vstack([bar, img]))
+    print(f"  wrote {f}")
+
+
 def load_scene(scene, clouds_dir, trav_path, collision_threshold=0.1):
     from src.eval.traversability import load_traversability
     from src.eval.reward_map import build_label_grid
@@ -282,6 +327,10 @@ def main():
     ap.add_argument("--detour_min", type=float, default=1.15,
                     help="the env's goal_case_detour_min: above this the straight line is blocked")
     ap.add_argument("--top", type=int, default=6, help="how many candidate windows to print")
+    ap.add_argument("--survey", metavar="DIR",
+                    help="write SURVEY_<scene>_path.png: the whole scene top-down with the walk "
+                         "numbered by frame and the people marked, for picking spawns and goals by eye")
+    ap.add_argument("--every", type=int, default=5, help="label every Nth frame in the survey")
     ap.add_argument("--person", action="store_true",
                     help="report people between the spawn and the goal (class 29), so a "
                          "pedestrian test can be defined the same way a corner test is")
@@ -316,6 +365,11 @@ def main():
         except SystemExit as e:
             print(f"  SKIP: {e}"); continue
         N = len(walk)
+
+        if a.survey:
+            _pc = person_clusters(a.clouds_dir, scene,
+                                  tuple(int(v) for v in a.person_class.split(",") if v.strip()))
+            survey(grid, maps, walk, _pc, a.survey, scene, a.every, a.jitter)
 
         ok = np.array([frame_ok(maps, grid, walk[i], a.jitter)[0] for i in range(N)])
         clr = np.array([frame_ok(maps, grid, walk[i], a.jitter)[1] for i in range(N)])
