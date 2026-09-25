@@ -439,6 +439,8 @@ def main():
     ap.add_argument("--goal_case_mix", type=str, default="", help="adopted from env_config.json when present")
     ap.add_argument("--max_steps_base", type=int, default=None, help="adopted from env_config.json when present")
     ap.add_argument("--max_steps_per_m", type=float, default=None, help="adopted from env_config.json when present")
+    ap.add_argument("--stochastic", action="store_true",
+                    help="sample actions (mean + N(0,std)) as training does, instead of the deterministic mean")
     ap.add_argument("--test_goal_dist", type=float, default=None,
                     help="the distance THIS test actually spans (m). A fixed-goal scene is "
                          "the same length for every arm, so the budget must not come from "
@@ -923,7 +925,11 @@ def main():
         bm_hit, bm_miss = 0, 0
         ep_obs, ep_goal, ep_act = [], [], []
         while not done:
-            action, _ = model.predict(obs, deterministic=True)
+            # --stochastic samples the action exactly as PPO does during rollout collection
+            # (mean + N(0, std)); the default is the deterministic mean. Training curves are
+            # of the SAMPLED policy and its std never annealed from 1.0, so the two can differ
+            # a lot (2026-09-25). This is the switch that measures how much.
+            action, _ = model.predict(obs, deterministic=not bool(getattr(args, "stochastic", False)))
             if args.expert != "none":
                 ep_obs.append(np.asarray(obs["rgb"], dtype=np.uint8).copy())
                 ep_goal.append(np.asarray(obs["goal"], dtype=np.float32).copy())
@@ -1082,6 +1088,9 @@ def main():
         "test_goal_dist_m": (round(float(args.test_goal_dist), 2)
                              if getattr(args, "test_goal_dist", None) else None),
         "action_chunk": int(getattr(args, "action_chunk", 1) or 1),
+        "deterministic": not bool(getattr(args, "stochastic", False)),
+        "policy_std": (float(__import__("torch").exp(model.policy.log_std).mean().item())
+                       if hasattr(model.policy, "log_std") else None),
         "outcomes": outcomes,
         "success_rate": round(len(succ) / args.episodes, 3),
         "mean_d_start": round(float(np.mean([r["d_start"] for r in results])), 2),

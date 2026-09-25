@@ -183,6 +183,9 @@ fi
 # carries the distance measured with scene_corner_scan.py.
 [ -n "${TESTDIST:-}" ] && EXTRA_ARGS+=(--test_goal_dist "$TESTDIST")
 [ "${NOADOPT:-0}" = "1" ] && { EXTRA_ARGS+=(--no_adopt); OUT_SUFFIX="${OUT_SUFFIX}_noadopt"; }
+# STOCH=1: sampled actions, as in training rollouts. Separate output dir so the
+# deterministic cell is not overwritten (2026-09-25).
+[ "${STOCH:-0}" = "1" ] && { EXTRA_ARGS+=(--stochastic); OUT_SUFFIX="${OUT_SUFFIX}_stoch"; }
 
 # Reward weights, so the reported `return=` is on TRAINING's scale. They do not
 # change a frozen policy's actions, but a return computed with goal_bonus 50
