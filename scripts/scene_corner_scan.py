@@ -29,7 +29,11 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 CLOUDS = "/scratch/m000204-pm06b/joana/outputs/scene_clouds/clouds"
-TRAV = "config/traversability_v14.yaml"
+# The table TRAINING and EVAL score with (configs/arms/_base_campus.env: TRAV=...walkway).
+# In it grass is 0.0 -- a collision -- while the plain v14 table gives grass 0.75. The
+# first overheads used v14 and drew every lawn as walkable, so the "grass corner" was
+# measured with its grass switched off (2026-09-25, Joana: "grass does cause collision though?").
+TRAV = "config/traversability_v14_walkway.yaml"
 
 
 def person_clusters(clouds_dir, scene, classes=(12,), min_pts=30, cell=0.5):
