@@ -16,7 +16,12 @@ import argparse, csv, glob, os, re, sys
 
 LOGS = "/scratch/m000204-pm06b/joana"
 OUT = "/scratch/m000204-pm06b/joana/outputs"
-KEYS = ("ep_rew_mean", "ep_len_mean", "success_rate", "crash_rate", "goal_dist", "throttle_mean")
+# std / entropy_loss / approx_kl / clip_fraction: whether the policy is still
+# EXPLORING. A reward flat for 100k steps at a fixed band is either a local optimum
+# or a collapsed action std -- and only the second shows up here (2026-09-25,
+# Joana: "it was at 10 m for such a long time and never adapted again").
+KEYS = ("ep_rew_mean", "ep_len_mean", "goal_dist", "std", "entropy_loss", "approx_kl", "clip_fraction",
+        "explained_variance", "value_loss")
 
 
 def out_file(job):
