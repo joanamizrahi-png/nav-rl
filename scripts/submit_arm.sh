@@ -103,7 +103,17 @@ echo "    resources    ${GPUS} GPU, ${MEM}, ${CPUS} cpu, ${TIME}"
 # a DIRECTORY is allowed: the job picks the newest ppo_*_steps.zip inside it at
 # START time, so a continuation can be queued with --dependency before its parent
 # has finished writing (2026-09-23).
-[ -n "$WARM" ] && [ ! -f "$WARM" ] && [ ! -L "$WARM" ] && [ ! -d "$WARM" ] && { echo "REFUSED: no such checkpoint or directory $WARM"; exit 1; }
+# A continuation chained with --dependency may be submitted before its parent has
+# written checkpoints/ (created at the first checkpoint, ~20 min in). Accept a
+# missing checkpoints/ when the parent RUN directory exists and a --dependency is
+# given: the job resolves the newest checkpoint at START, by which time it is there.
+# Without a --dependency the old refusal stands (2026-09-25).
+_dep=0; for _x in "${EXTRA[@]}"; do case "$_x" in --dependency=*) _dep=1;; esac; done
+if [ -n "$WARM" ] && [ ! -e "$WARM" ] && [ "$_dep" = 1 ] && [ -d "$(dirname "$WARM")" ] && [ "$(basename "$WARM")" = "checkpoints" ]; then
+    echo "    (checkpoints/ not written yet; accepted because the run exists and the job is chained)"
+elif [ -n "$WARM" ] && [ ! -f "$WARM" ] && [ ! -L "$WARM" ] && [ ! -d "$WARM" ]; then
+    echo "REFUSED: no such checkpoint or directory $WARM"; exit 1
+fi
 [ -n "$WARM" ] && [ -d "$WARM" ] && echo "    (directory: the newest ppo_*_steps.zip in it is chosen when the job starts)"
 if [ "$DRY" = 1 ]; then echo "    (dry run, nothing submitted)"; exit 0; fi
 sbatch --gres=gpu:$GPUS --mem=$MEM --cpus-per-task=$CPUS --time=$TIME "${EXTRA[@]}" scripts/slurm/train_ppo_real.sh
