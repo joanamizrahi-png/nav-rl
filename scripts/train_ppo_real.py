@@ -226,10 +226,18 @@ class GoalDistCurriculum(BaseCallback):
 
     def __init__(self, start: float, end: float, window: int = 100,
                  threshold: float = 0.5, notch: float = 0.5,
-                 state_path: "Path | None" = None, turn_from=None, turn_mix=0.0):
+                 state_path: "Path | None" = None, turn_from=None, turn_mix=0.0,
+                 min_episodes: "int | None" = None):
         super().__init__()
         self.d, self.end = start, end
         self.window, self.threshold, self.notch = window, threshold, notch
+        # How many recent episodes must be in the window before the gate may pass.
+        # The old rule was window // 2 = 50, which one 2048-step rollout supplies
+        # (~40 steps per episode), so the band could climb 0.5 m EVERY rollout on a
+        # coin-flip bar: every arm reached 10 m in 40-60k steps while still at
+        # ~50% success and stayed at 50% for the rest of training (2026-09-25,
+        # Joana reading the curves: "the curriculum went up too fast").
+        self.min_episodes = int(min_episodes) if min_episodes else window // 2
         self._wins: list = []
         # Where the curriculum ACTUALLY got to, on disk beside the checkpoints.
         # env_config.json records `goal_dist_range` from ARGS -- the range the
@@ -250,7 +258,7 @@ class GoalDistCurriculum(BaseCallback):
 
     def _on_rollout_start(self) -> None:
         recent = self._wins[-self.window:]
-        if (len(recent) >= self.window // 2
+        if (len(recent) >= self.min_episodes
                 and float(np.mean(recent)) >= self.threshold
                 and self.d < self.end):
             self.d = min(self.end, self.d + self.notch)
@@ -716,6 +724,10 @@ def _dump_env_config(args, cfg):
             # 2026-09-22: goal_dist was never recorded, so eval could not adopt the target distance
             # and fell into the random-frame branch -- 13.8 m goals for a policy trained at 2-4 m.
             "goal_dist": getattr(args, "goal_dist", None),
+            "cur_threshold": getattr(args, "cur_threshold", None),
+            "cur_window": getattr(args, "cur_window", None),
+            "cur_min_episodes": getattr(args, "cur_min_episodes", None),
+            "cur_notch": getattr(args, "cur_notch", None),
             # and the fusion window, which decides what world the policy is even shown
             "render_window": int(getattr(args, "render_window", 0) or 0),
             "coverage_window": int(getattr(args, "coverage_window", 0) or 0),
@@ -1953,6 +1965,16 @@ def main():
                          "the warm-start behaves and grows the image pathway from zero")
     ap.add_argument("--encoder_grid", type=str, default="",
                     help='region grid for the frozen ViT patch tokens, e.g. "6x8" (default 3x4)')
+    ap.add_argument("--cur_threshold", type=float, default=0.5,
+                    help="distance curriculum: recent success needed to earn a notch (default 0.5)")
+    ap.add_argument("--cur_window", type=int, default=100,
+                    help="distance curriculum: episodes the success is averaged over")
+    ap.add_argument("--cur_min_episodes", type=int, default=None,
+                    help="distance curriculum: episodes that must be in the window before the gate "
+                         "may pass; default window//2 (the old, fast behaviour). Set = window to "
+                         "require a full window.")
+    ap.add_argument("--cur_notch", type=float, default=0.5,
+                    help="distance curriculum: metres the band grows per earned notch")
     ap.add_argument("--goal_dist_start", type=float, default=None,
                     help="distance curriculum: goals start here and grow to "
                          "--goal_dist as the policy earns wins")
@@ -2344,6 +2366,10 @@ def main():
     if args.goal_dist_start is not None and args.goal_dist is not None:
         callbacks.append(GoalDistCurriculum(
             args.goal_dist_start, args.goal_dist,
+            window=int(getattr(args, "cur_window", 100) or 100),
+            threshold=float(getattr(args, "cur_threshold", 0.5) or 0.5),
+            notch=float(getattr(args, "cur_notch", 0.5) or 0.5),
+            min_episodes=getattr(args, "cur_min_episodes", None),
             state_path=args.output_dir / "curriculum_state.json",
             turn_from=getattr(args, "goal_turn_from", None),
             turn_mix=float(getattr(args, "goal_turn_mix", 0.0) or 0.0)))

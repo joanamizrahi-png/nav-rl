@@ -64,7 +64,7 @@ def main():
 
     print("\neval applies the same rule (it never calls set_goal_dist):")
     ck("eval has its own budget function", "_eval_step_budget" in ev)
-    ck("and uses it for max_steps", "max_steps=_eval_step_budget(args)" in ev)
+    ck("and uses it for max_steps", "max_steps=_resolved_budget(args)" in ev and "_eval_step_budget(args)" in ev)
     ck("old checkpoints keep their fixed budget", "if per_m <= 0.0:" in ev)
 
     print("\na FIXED-GOAL test must give every arm the same budget (2026-09-24):")
