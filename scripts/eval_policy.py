@@ -49,6 +49,15 @@ def _parse_range(text, cast, name):
     return tuple(cast(p) for p in parts)
 
 
+def _resolved_budget(args) -> int:
+    """_eval_step_budget, computed once and remembered on args so the metrics.json
+    summary can record the budget the cell actually ran under instead of the CLI
+    default (2026-09-24)."""
+    n = _eval_step_budget(args)
+    args.resolved_max_steps = int(n)
+    return int(n)
+
+
 def _eval_step_budget(args) -> int:
     """The same budget training uses: base + per_m * (top of the goal band).
 
@@ -177,7 +186,7 @@ def build_env(args):
         # set_goal_dist, where the scaling lives, so it would have kept the fixed
         # 90-step budget while training grew its own. Apply the same formula here,
         # off the goal distance the curriculum actually reached.
-        max_steps=_eval_step_budget(args),
+        max_steps=_resolved_budget(args),
         step_size_m=args.step_size_m, yaw_step_rad=args.yaw_step_rad,
         reward=RewardWeights(
             semantic=(args.semantic_weight if getattr(args, "semantic_weight", None) is not None else 1.0),
@@ -1067,7 +1076,7 @@ def main():
         # is how chunk5's 104 and memDINO_warm's 160 on the same 8.1 m course went
         # unnoticed, and left both arms' curriculum reach a matter of inference
         # (2026-09-24, Joana: "is it also the case for the mem dino warm curriculum?").
-        "max_steps": int(getattr(args, "max_steps", 0)),
+        "max_steps": int(getattr(args, "resolved_max_steps", 0) or getattr(args, "max_steps", 0)),
         "curriculum_goal_dist_m": (round(float(args.goal_dist), 2)
                                    if getattr(args, "goal_dist", None) is not None else None),
         "test_goal_dist_m": (round(float(args.test_goal_dist), 2)
