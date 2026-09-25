@@ -171,10 +171,19 @@ def plot_pair(grid, maps, walk, spawn_xy, goal_xy, out_dir, name, views=None, la
     img[(L >= 0) & ~maps["free"]] = (60, 60, 190)            # non-traversable: red (BGR)
     invented = (L >= 0) & (grid.n_points == 0)
     img[invented] = (200, 150, 60)                           # invented by the fill: blue
-    sc = max(1, int(round(3.0)))
+    # crop to the walk plus a margin, same as the survey: the cloud reaches tens of
+    # metres past the path and the first overheads were 85% empty grey (2026-09-24)
+    MARG = 6.0
+    i0 = max(0, int((walk[:, 1].min() - grid.y0 - MARG) / res))
+    i1 = min(H, int((walk[:, 1].max() - grid.y0 + MARG) / res))
+    j0 = max(0, int((walk[:, 0].min() - grid.x0 - MARG) / res))
+    j1 = min(W, int((walk[:, 0].max() - grid.x0 + MARG) / res))
+    img = img[i0:i1, j0:j1]
+    H, W = img.shape[:2]
+    sc = max(2, int(round(1100 / max(1, W))))
     img = cv2.resize(img, (W * sc, H * sc), interpolation=cv2.INTER_NEAREST)
     def px(xy):
-        return (int((xy[0] - grid.x0) / res * sc), int((xy[1] - grid.y0) / res * sc))
+        return (int(((xy[0] - grid.x0) / res - j0) * sc), int(((xy[1] - grid.y0) / res - i0) * sc))
     for k in range(len(walk) - 1):
         cv2.line(img, px(walk[k]), px(walk[k + 1]), (110, 110, 110), 1, cv2.LINE_AA)
     s_px, g_px = px(spawn_xy), px(goal_xy)
@@ -184,13 +193,14 @@ def plot_pair(grid, maps, walk, spawn_xy, goal_xy, out_dir, name, views=None, la
     a_ij, b_ij = snap(maps["body_ok"], cell(spawn_xy)), snap(maps["body_ok"], cell(goal_xy))
     if a_ij is not None and b_ij is not None:
         m = int(6.0 / res)
-        box = (max(0, min(a_ij[0], b_ij[0]) - m), min(H, max(a_ij[0], b_ij[0]) + m),
-               max(0, min(a_ij[1], b_ij[1]) - m), min(W, max(a_ij[1], b_ij[1]) + m))
+        HF, WF = L.shape
+        box = (max(0, min(a_ij[0], b_ij[0]) - m), min(HF, max(a_ij[0], b_ij[0]) + m),
+               max(0, min(a_ij[1], b_ij[1]) - m), min(WF, max(a_ij[1], b_ij[1]) + m))
         path = bfs_path(maps["body_ok"], a_ij, b_ij, box)
         if path:
             for k in range(len(path) - 1):
-                cv2.line(img, (path[k][1] * sc, path[k][0] * sc),
-                         (path[k + 1][1] * sc, path[k + 1][0] * sc), (200, 80, 200), 2, cv2.LINE_AA)
+                cv2.line(img, ((path[k][1] - j0) * sc, (path[k][0] - i0) * sc),
+                         ((path[k + 1][1] - j0) * sc, (path[k + 1][0] - i0) * sc), (200, 80, 200), 2, cv2.LINE_AA)
     cv2.circle(img, s_px, 5 * sc // 2, (30, 30, 30), -1)
     cv2.circle(img, g_px, int(1.0 / res * sc), (30, 140, 30), 2)
     img = cv2.flip(img, 0)                                    # +y up, as the paths plot
