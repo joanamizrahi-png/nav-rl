@@ -2348,7 +2348,11 @@ def main():
     ap.add_argument("--bc_epochs", type=int, default=25)
     ap.add_argument("--bc_holdout", type=float, default=0.2,
                     help="share of demo EPISODES held out of BC to report stop recall / false-stop")
+    ap.add_argument("--parse_only", action="store_true",
+                    help="exit 0 right after argument parsing (preflight on the login node)")
     args = ap.parse_args()
+    if args.parse_only:
+        print("PARSE_OK"); return
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 

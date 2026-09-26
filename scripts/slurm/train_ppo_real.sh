@@ -1113,6 +1113,15 @@ printf '%s\n\n' "$LEDGER_ENTRY" >> "$LEDGER" 2>/dev/null || true
 printf '%s\n'   "$LEDGER_ENTRY" >  "$OUT/launch.txt" 2>/dev/null || true
 echo "==> ledger: $LEDGER"
 
+# PREFLIGHT=1 (2026-09-26): print the exact argument line this job would run and stop.
+# tests/preflight_arms.py feeds it to the real argparse, so an "invalid choice" or
+# "unrecognized argument" is caught on the login node instead of costing a node and
+# a queue slot (all ten fixed arms died in 6 s on 26 Sept: reward_source=either was
+# implemented in the env but missing from the parser's choices).
+if [ "${PREFLIGHT:-0}" = "1" ]; then
+    printf 'PREFLIGHT_ARGS %s\n' "--scene ${SCENE:-rugd_trail_00} --clips_dir ${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips} --poses_dir /scratch/m000204-pm06b/joana/outputs/poses --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels --total_steps $STEPS --output_dir $OUT $BC_ARGS"
+    exit 0
+fi
 python scripts/train_ppo_real.py \
     --scene "${SCENE:-rugd_trail_00}" \
     --clips_dir "${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/rugd_clips}" \
