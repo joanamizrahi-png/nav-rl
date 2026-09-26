@@ -303,6 +303,12 @@ class SceneEnvConfig:
     coherence_tau: float = 0.4
     coherence_terminate_tau: float = 0.0    # 0 = off
     coherence_terminate_penalty: float = 100.0
+    disagree_cost_weight: float = 0.0        # 2026-09-25: per-step cost when generated labels and the map disagree under the footprint (0 = off)
+    disagree_frac: "float | None" = None     # footprint fraction one source must read as non-traversable (and the other not) to count as a disagreement; None = COLLTERM
+    rgb_align_cost_weight: float = 0.0       # 2026-09-25: per-step cost when the generated RGB drifts from the Gaussian raster where alpha is high (0 = off)
+    rgb_align_tau: float = 0.8               # similarity below this is charged: w * (tau - sim)
+    rgb_align_min_alpha: float = 0.5         # pixels compared only where the raster alpha is at least this
+    rgb_align_min_frac: float = 0.2          # ...and only if that many pixels qualify; otherwise no reference, no charge
     # Proximity cost (2026-08-24, after Run A): charge for being NEAR obstacles,
     # measured against the STATIC reconstructed geometry (scene cloud from
     # dump_scene_cloud.py) — the diffusion cannot dream this away, unlike the
@@ -519,6 +525,28 @@ class SceneEnvConfig:
 # ---------------------------------------------------------------------------
 # The env itself
 # ---------------------------------------------------------------------------
+
+def rgb_alignment(rgb, raster, alpha, min_alpha=0.5, min_frac=0.2):
+    """Similarity in [0, 1] between the generated frame and the Gaussian raster it
+    was conditioned on, over the pixels the reconstruction actually covers
+    (alpha >= min_alpha). 1 - mean |rgb - raster| / 255 on those pixels. Returns
+    None when fewer than min_frac of the pixels qualify -- then there is nothing
+    to be faithful to and the generator is SUPPOSED to be inventing. Pure numpy
+    so it can be tested without an env (2026-09-25)."""
+    if rgb is None or raster is None or alpha is None:
+        return None
+    a = np.asarray(alpha, dtype=np.float32)
+    if a.ndim == 3:
+        a = a[..., 0]
+    g = np.asarray(rgb)[..., :3].astype(np.float32)
+    r = np.asarray(raster)[..., :3].astype(np.float32)
+    if g.shape != r.shape or a.shape != g.shape[:2]:
+        return None
+    m = a >= float(min_alpha)
+    if float(m.mean()) < float(min_frac):
+        return None
+    return float(1.0 - np.abs(g[m] - r[m]).mean() / 255.0)
+
 
 class SceneEnv(gym.Env if gym is not None else object):
     """RL environment where the world model is our simulator."""
@@ -1356,7 +1384,9 @@ class SceneEnv(gym.Env if gym is not None else object):
 
     def inject_render(self, rgb: np.ndarray, K: np.ndarray, w2c: np.ndarray,
                       labels: "np.ndarray | None" = None,
-                      coverage: "float | None" = None) -> None:
+                      coverage: "float | None" = None,
+                      raster: "np.ndarray | None" = None,
+                      alpha: "np.ndarray | None" = None) -> None:
         """Batched-live path: the vec-env pushes this robot's frame in after
         the shared batched diffusion call. `labels` feeds the injected
         semantic backend (reward source for the NEXT step); `coverage` is the
@@ -1383,6 +1413,12 @@ class SceneEnv(gym.Env if gym is not None else object):
             self._injected_labels = labels
         if coverage is not None:
             self._last_coverage = float(coverage)
+        # RGB alignment (2026-09-25 meeting, Jing): the raw Gaussian render the
+        # generator was conditioned on, and its per-pixel alpha, so the reward can
+        # ask whether the generated frame still resembles the reconstruction where
+        # the reconstruction exists.
+        self._last_raster = raster
+        self._last_alpha = alpha
         self._needs_render = False
 
     def _spawn_doomed(self, pose: np.ndarray):
@@ -1578,7 +1614,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         "box_memory_age", "collision_off_frame", "phantom", "missed", "label_agree",
         "trav_agree", "used_generated", "goal_traversable", "halt_correct",
         "halt_at_verge", "halt_wrong", "goal_case_open", "goal_case_corner",
-        "goal_case_narrow", "goal_detour", "passed_through_goal", "reach_on_nontrav",
+        "goal_case_narrow", "goal_detour", "passed_through_goal", "reach_on_nontrav", "rgb_sim",
     })
 
     def _step_single(self, action: np.ndarray):
@@ -1662,7 +1698,12 @@ class SceneEnv(gym.Env if gym is not None else object):
         # the two readings of the same footprint, logged before either is chosen
         self._map_vs_gen = None
         if breakdown_map is not None:
-            _thr = max(self.cfg.collision_terminate_frac, 1e-9)
+            # The disagreement threshold used to be COLLTERM itself. With COLLTERM=0.01 in
+            # the strict arm that would flag phantom/missed on a 1% difference between two
+            # label sources and charge DISAGREE almost every step. disagree_frac decouples it;
+            # unset keeps the old behaviour so earlier diagnostics stay comparable (2026-09-25).
+            _df = getattr(self.cfg, "disagree_frac", None)
+            _thr = float(_df) if _df else max(self.cfg.collision_terminate_frac, 1e-9)
             _w = max(self.cfg.reward.collision, 1e-6)
             _fg = -float(breakdown.collision) / _w
             _fm = -float(breakdown_map.collision) / _w
@@ -1698,6 +1739,14 @@ class SceneEnv(gym.Env if gym is not None else object):
             import dataclasses
             breakdown = dataclasses.replace(breakdown, collision=breakdown_map.collision,
                                             void_frac=breakdown_map.void_frac)
+        elif self.cfg.reward_source == "either":
+            # 2026-09-25 (Jing): if EITHER the generated labels or the fused map say
+            # the footprint is on something non-traversable, it is a collision. The
+            # terrain term keeps reading the generated labels (what the policy sees);
+            # only the collision fraction is the max of the two readings.
+            import dataclasses
+            breakdown = dataclasses.replace(
+                breakdown, collision=max(float(breakdown.collision), float(breakdown_map.collision)))
         elif self.cfg.reward_source == "map_then_generated":
             # the map where it has support; the image only where the footprint
             # is mostly off the reconstruction AND the view is still well
@@ -1928,9 +1977,30 @@ class SceneEnv(gym.Env if gym is not None else object):
         if self.cfg.terrain_speed_scaled:
             _thr = min(1.0, abs(float(action[0])))
             speed_refund = -(float(breakdown.semantic) + float(breakdown.collision)) * (1.0 - _thr)
+        # ---- misalignment (2026-09-25, Jing): the generated labels and the fused map
+        # disagree about what is under the footprint. phantom = generated says crash,
+        # map says clear; missed = the reverse. Both are NaN when the box is off-frame
+        # (no comparison possible) and then cost nothing.
+        disagree_term = 0.0
+        if float(getattr(self.cfg, "disagree_cost_weight", 0.0) or 0.0) > 0.0 and self._map_vs_gen:
+            _ph = float(self._map_vs_gen.get("phantom", 0.0) or 0.0)
+            _mi = float(self._map_vs_gen.get("missed", 0.0) or 0.0)
+            _ph = 0.0 if _ph != _ph else _ph
+            _mi = 0.0 if _mi != _mi else _mi
+            disagree_term = -float(self.cfg.disagree_cost_weight) * max(_ph, _mi)
+        # ---- RGB alignment (2026-09-25, Jing): does the generated frame still look
+        # like the reconstruction where the reconstruction exists?
+        align_term, rgb_sim = 0.0, float("nan")
+        if float(getattr(self.cfg, "rgb_align_cost_weight", 0.0) or 0.0) > 0.0:
+            _sim = rgb_alignment(getattr(self, "_last_rgb", None), getattr(self, "_last_raster", None),
+                                 getattr(self, "_last_alpha", None),
+                                 float(self.cfg.rgb_align_min_alpha), float(self.cfg.rgb_align_min_frac))
+            if _sim is not None:
+                rgb_sim = _sim
+                align_term = -float(self.cfg.rgb_align_cost_weight) * max(0.0, float(self.cfg.rgb_align_tau) - _sim)
         reward = (breakdown.total + spin_term + back_term + smooth_term
                   + bonus + crash + prox_term + gprox_term + timeout_term
-                  + coh_term + coh_crash + speed_refund + refusal_term)
+                  + coh_term + coh_crash + speed_refund + refusal_term + disagree_term + align_term)
 
         info = breakdown.to_dict()
         _age = float(getattr(breakdown, "box_memory_age", 0.0))
@@ -1985,6 +2055,9 @@ class SceneEnv(gym.Env if gym is not None else object):
         info["rgb_delta"] = float(getattr(self, "_rgb_delta", float("nan")))
         info["coherence"] = coh_term
         info["coherence_crash"] = coh_crash
+        info["disagree"] = disagree_term
+        info["rgb_align"] = align_term
+        info["rgb_sim"] = rgb_sim
         info["goal_bonus"] = bonus
         info["total"] = reward
         info["dist_to_goal"] = dist_to_goal

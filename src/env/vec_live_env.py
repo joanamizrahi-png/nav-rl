@@ -387,13 +387,16 @@ class LiveVecEnv(VecEnv):
         # two coincide only when every env renders. Zip over both together.
         alphas = getattr(self.backend, "last_alpha", None)
         alphas_w = getattr(self.backend, "last_alpha_window", None)   # coverage window
+        rasters = getattr(self.backend, "last_raster", None)         # the Gaussian render the generator was conditioned on
         for j, (i, (rgb, K, w2c, lab)) in enumerate(zip(idxs, results)):
             cov = None
             if alphas_w is not None and j < len(alphas_w) and alphas_w[j] is not None:
                 cov = float(np.asarray(alphas_w[j]).mean())
             elif alphas is not None and j < len(alphas):
                 cov = float(np.asarray(alphas[j]).mean())
-            self.envs[i].inject_render(rgb, K, w2c, labels=lab, coverage=cov)
+            ras = rasters[j] if (rasters is not None and j < len(rasters)) else None
+            alp = alphas[j] if (alphas is not None and j < len(alphas)) else None
+            self.envs[i].inject_render(rgb, K, w2c, labels=lab, coverage=cov, raster=ras, alpha=alp)
 
     def _stack_obs(self, obs_list: list) -> dict:
         return {key: np.stack([o[key] for o in obs_list])

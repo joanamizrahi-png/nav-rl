@@ -856,6 +856,10 @@ def _dump_env_config(args, cfg):
             "cur_min_episodes": getattr(args, "cur_min_episodes", None),
             "cur_notch": getattr(args, "cur_notch", None),
             "cur_per_scene": bool(getattr(args, "cur_per_scene", False)),
+            "disagree_cost_weight": float(getattr(args, "disagree_cost", 0.0) or 0.0),
+            "rgb_align_cost_weight": float(getattr(args, "rgb_align_cost", 0.0) or 0.0),
+            "disagree_frac": getattr(args, "disagree_frac", None),
+            "rgb_align_tau": float(getattr(args, "rgb_align_tau", 0.8)),
             # and the fusion window, which decides what world the policy is even shown
             "render_window": int(getattr(args, "render_window", 0) or 0),
             "coverage_window": int(getattr(args, "coverage_window", 0) or 0),
@@ -1186,6 +1190,10 @@ def _scene_env_cfg(args):
         coherence_tau=getattr(args, "coherence_tau", 0.4),
         coherence_terminate_tau=getattr(args, "coherence_terminate_tau", 0.0),
         coherence_terminate_penalty=getattr(args, "coherence_terminate_penalty", 100.0),
+        disagree_cost_weight=float(getattr(args, "disagree_cost", 0.0) or 0.0),
+        rgb_align_cost_weight=float(getattr(args, "rgb_align_cost", 0.0) or 0.0),
+        disagree_frac=getattr(args, "disagree_frac", None),
+        rgb_align_tau=float(getattr(args, "rgb_align_tau", 0.8)),
         proximity_weight=getattr(args, "proximity_weight", 0.0),
         proximity_margin=getattr(args, "proximity_margin", 1.0),
         clouds_dir=getattr(args, "clouds_dir", None),
@@ -2093,6 +2101,14 @@ def main():
                          "the warm-start behaves and grows the image pathway from zero")
     ap.add_argument("--encoder_grid", type=str, default="",
                     help='region grid for the frozen ViT patch tokens, e.g. "6x8" (default 3x4)')
+    ap.add_argument("--rgb_align_cost", type=float, default=0.0,
+                    help="per-step cost when the generated RGB drifts from the Gaussian raster where alpha is high")
+    ap.add_argument("--rgb_align_tau", type=float, default=0.8,
+                    help="similarity (1 - mean|rgb-raster|/255 over covered pixels) below which the cost applies")
+    ap.add_argument("--disagree_frac", type=float, default=None,
+                    help="footprint fraction that counts as a phantom/missed disagreement (default: COLLTERM)")
+    ap.add_argument("--disagree_cost", type=float, default=0.0,
+                    help="per-step cost when the generated labels and the fused map disagree under the footprint")
     ap.add_argument("--cur_threshold", type=float, default=0.5,
                     help="distance curriculum: recent success needed to earn a notch (default 0.5)")
     ap.add_argument("--cur_window", type=int, default=100,
