@@ -1987,6 +1987,15 @@ class SceneEnv(gym.Env if gym is not None else object):
             _mi = float(self._map_vs_gen.get("missed", 0.0) or 0.0)
             _ph = 0.0 if _ph != _ph else _ph
             _mi = 0.0 if _mi != _mi else _mi
+            # VOID is not an opinion. Where the map has no reconstruction under the
+            # footprint it reads "clear" (void is excluded from its collision fraction),
+            # so a generator that paints an obstacle there would be charged as a phantom
+            # for doing exactly what it is for. No disagreement is scored when most of
+            # the footprint is void on the map (2026-09-25, Joana: "what happens when the
+            # map says void?").
+            _mv = float(self._map_vs_gen.get("map_void_frac", 0.0) or 0.0)
+            if _mv == _mv and _mv >= 0.5:
+                _ph = _mi = 0.0
             disagree_term = -float(self.cfg.disagree_cost_weight) * max(_ph, _mi)
         # ---- RGB alignment (2026-09-25, Jing): does the generated frame still look
         # like the reconstruction where the reconstruction exists?
