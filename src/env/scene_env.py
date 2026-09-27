@@ -1615,6 +1615,11 @@ class SceneEnv(gym.Env if gym is not None else object):
         "trav_agree", "used_generated", "goal_traversable", "halt_correct",
         "halt_at_verge", "halt_wrong", "goal_case_open", "goal_case_corner",
         "goal_case_narrow", "goal_detour", "passed_through_goal", "reach_on_nontrav", "rgb_sim",
+        # class ids are labels, not quantities. Summed over a chunk's sub-steps they came out
+        # as 35 (= 5 x road) in the chunk arms' eval ground_class_counts and the grass
+        # (== 3) trespass check never fired for those arms (2026-09-27). Keep the last one.
+        # Diagnostics only: the reward uses fractions, never the id.
+        "dominant_class_id", "gen_dominant_class_id", "map_dominant_class_id",
     })
 
     def _step_single(self, action: np.ndarray):
