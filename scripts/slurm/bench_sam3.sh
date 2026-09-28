@@ -8,7 +8,7 @@
 #SBATCH --time=01:30:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-sam3-bench-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-sam3-bench-%j.err
-#SBATCH --exclude=n04,n13,n17,n24
+#SBATCH --exclude=n04,n13,n17,n18,n24
 
 # Cost per step of co-generated semantics vs SAM3 on the generated frame
 # (scripts/bench_sam3_per_step.py). Two processes on one GPU, in sequence:

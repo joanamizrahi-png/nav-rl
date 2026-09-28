@@ -8,7 +8,7 @@
 #SBATCH --time=04:00:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-cov-sweep-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-cov-sweep-%j.err
-#SBATCH --exclude=n04,n13,n17,n24
+#SBATCH --exclude=n04,n13,n17,n18,n24
 # Fusion-window sweep (2026-09-15): coverage / sharpness / raster-vs-generated
 # agreement for windows of 81, 21, 9 frames at poses on and off the walk, with
 # the generator ON (--diffuse) so the numbers are what the policy would see.

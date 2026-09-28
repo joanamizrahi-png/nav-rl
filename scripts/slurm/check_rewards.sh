@@ -23,7 +23,7 @@
 # running on at that moment. Aligned to the common list. This job asks for 96G
 # (more than train's 48G), so if it starts failing on n06/n21/n30/n31, memory
 # is why and the exclusion goes back.
-#SBATCH --exclude=n04,n13,n17,n24
+#SBATCH --exclude=n04,n13,n17,n18,n24
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-check-rew-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-check-rew-%j.err
 

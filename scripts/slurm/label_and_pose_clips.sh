@@ -8,7 +8,7 @@
 #SBATCH --time=01:30:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-label-pose-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-label-pose-%j.err
-#SBATCH --exclude=n04,n13,n17,n24
+#SBATCH --exclude=n04,n13,n17,n18,n24
 
 # SAM3 labels (+ v14 remap) and reconstructor poses for NAMED clips only
 # (2026-09-07): the six gnd_survey AUw windows had clips but neither labels

@@ -8,7 +8,7 @@
 #SBATCH --time=01:30:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-live-demos-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-live-demos-%j.err
-#SBATCH --exclude=n04,n13,n17,n21,n24,n26,n31
+#SBATCH --exclude=n04,n13,n17,n18,n21,n24,n26,n31
 
 # BC demos rendered through the LIVE diffusion backend — the demo observations
 # match --live training frame for frame (the old demos_v1.npz was raster obs +

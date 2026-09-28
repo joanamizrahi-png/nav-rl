@@ -8,7 +8,7 @@
 #SBATCH --time=03:00:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-check-rew-many-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-check-rew-many-%j.err
-#SBATCH --exclude=n04,n13,n17,n24
+#SBATCH --exclude=n04,n13,n17,n18,n24
 # check_rewards.py over a LIST of scenes in one job (2026-09-15, campus scenes):
 # the same python call as check_rewards.sh, plus --clips_dir so it reads the
 # campus clips folder instead of the RUGD default, and --static_scene by default.

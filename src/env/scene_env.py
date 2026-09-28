@@ -618,6 +618,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         header carries the mean the crash rule compared against the threshold."""
         from pathlib import Path as _Path
         try:
+            import cv2   # 2026-09-28: was missing; every strip was "skipped: name 'cv2' is not defined"
             from ..eval.reward_2d import _footprint_corners_world, _project_points, GO2_BODY_LENGTH, GO2_BODY_WIDTH
             from ..eval.palette import display_palette
             out = _Path(self.cfg.failure_snap_dir); out.mkdir(parents=True, exist_ok=True)

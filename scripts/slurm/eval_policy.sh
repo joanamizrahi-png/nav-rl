@@ -13,7 +13,7 @@
 #SBATCH --time=2:00:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-eval-policy-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-eval-policy-%j.err
-#SBATCH --exclude=n04,n13,n17,n24
+#SBATCH --exclude=n04,n13,n17,n18,n24
 set -euo pipefail
 # PORTABLE (2026-09-08): the same launcher must run on Marlowe (module
 # system + the shared conda env) and on a rented cloud GPU (neither).

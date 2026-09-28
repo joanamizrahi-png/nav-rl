@@ -8,7 +8,7 @@
 #SBATCH --time=04:00:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-withheld-trust-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-withheld-trust-%j.err
-#SBATCH --exclude=n04,n13,n17,n24
+#SBATCH --exclude=n04,n13,n17,n18,n24
 # TRUST RANGE, end to end (2026-09-16). For each scene: hold frames out, rebuild
 # the scene WITHOUT them, render at the withheld poses, grade the generated
 # labels against SAM3 on the real withheld frames, and bin by coverage and by

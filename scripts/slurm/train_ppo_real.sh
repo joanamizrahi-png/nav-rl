@@ -13,7 +13,7 @@
 # Override per submission with `sbatch --time=HH:MM:SS`.
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-ppo-real-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-ppo-real-%j.err
-#SBATCH --exclude=n04,n13,n17,n24
+#SBATCH --exclude=n04,n13,n17,n18,n24
 
 # First-version RL loop (Thursday deliverable): PPO on rugd_trail_00 with
 # rasterizer-only observations + Gaussian-label reward, all in real meters.

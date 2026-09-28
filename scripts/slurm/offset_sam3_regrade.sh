@@ -8,7 +8,7 @@
 #SBATCH --time=02:00:00
 #SBATCH --output=/scratch/m000204-pm06b/joana/slurm-offset-sam3-%j.out
 #SBATCH --error=/scratch/m000204-pm06b/joana/slurm-offset-sam3-%j.err
-#SBATCH --exclude=n04,n13,n17,n24
+#SBATCH --exclude=n04,n13,n17,n18,n24
 # Re-run SAM3 for ONE offset-sweep root and regrade it (2026-09-27).
 # Why: offset_sweep.sh keys its SAM3 output by scene name only
 # (sam3_labels/offset_frames_<scene>.npz), so the second, third... sweep of the
