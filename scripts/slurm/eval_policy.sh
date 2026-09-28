@@ -165,7 +165,15 @@ fi
 # demos to <eval dir>/demos.npz (feed to a training arm with LIVE_DEMOS=...).
 [ -n "${EXPERT:-}" ] && { EXTRA_ARGS+=(--expert "$EXPERT"); OUT_SUFFIX="${OUT_SUFFIX}_expert${EXPERT}"; }
 [ "${KEEPFAILED:-0}" = "1" ] && EXTRA_ARGS+=(--keep_failed_demos)
-[ -n "${FORCEKEYS:-}" ] && { EXTRA_ARGS+=(--force_env_keys "$FORCEKEYS"); OUT_SUFFIX="${OUT_SUFFIX}_forced"; }
+# CRASHANY=1 (2026-09-27): score a footprint collision as a crash at ANY throttle. Training
+# used crash_requires_motion (throttle >= 0.15), which the strict memory_dino policy learned
+# to exploit by creeping on lawn at throttle 0.04 (gnd_AU_180: 68 collision steps per
+# episode, outcome TIMEOUT). The rule is adopted from env_config, so it is forced off here.
+if [[ "${CRASHANY:-0}" == "1" ]]; then
+    FORCEKEYS="${FORCEKEYS:+$FORCEKEYS,}crash_requires_motion"
+    OUT_SUFFIX="${OUT_SUFFIX}_crashany"
+fi
+[ -n "${FORCEKEYS:-}" ] && { EXTRA_ARGS+=(--force_env_keys "$FORCEKEYS"); [[ "${CRASHANY:-0}" == "1" && "$FORCEKEYS" == "crash_requires_motion" ]] || OUT_SUFFIX="${OUT_SUFFIX}_forced"; }
 # MAXSTEPSPERM (2026-09-23): checkpoints trained before the budget knob existed have
 # no max_steps_per_m in env_config, so eval would keep the fixed 90 steps -- which
 # buys 6.3 m at the measured 0.070 m/step cruise, short of the 7.5 m band those arms
