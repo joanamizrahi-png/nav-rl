@@ -66,6 +66,10 @@ SPAWN_MAX="${SPAWN_MAX:-${SPAWNMAX:-}}"
 SPAWN_MIN="${SPAWN_MIN:-${SPAWNMIN:-}}"
 if [[ "${SPAWN_MAX:-}" != "" ]]; then
     EXTRA_ARGS+=(--spawn_max_frame "$SPAWN_MAX")   # match the training rung
+    # 2026-09-28: the spawn window was NOT in the output name, so two tests on one scene
+    # with the same goal (quad2_04_ped 29-36 and quad2_04_pednear 39-43) overwrote each
+    # other overnight. Name the window.
+    OUT_SUFFIX="${OUT_SUFFIX}_sp${SPAWN_MIN:-0}-${SPAWN_MAX}"
 fi
 # SPAWN_MIN pins the near end of the spawn range. Essential with GOAL_XY: the
 # goal is a fixed world point, so without a floor the spawns spread back to the
