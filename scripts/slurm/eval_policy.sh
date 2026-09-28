@@ -89,11 +89,13 @@ OUT_SUFFIX=""
 # 2026-09-28: the spawn window was NOT in the output name, so two tests on one scene with
 # the same goal (quad2_04_ped 29-36 and quad2_04_pednear 39-43) overwrote each other
 # overnight. Name the window. (Must come AFTER OUT_SUFFIX is initialised: set -u.)
-[[ "${SPAWN_MAX:-}" != "" ]] && OUT_SUFFIX="${OUT_SUFFIX}_sp${SPAWN_MIN:-0}-${SPAWN_MAX}"
 if [[ "${GOAL_FRAME:-}" != "" ]]; then
     EXTRA_ARGS+=(--goal_frame "$GOAL_FRAME")       # generalization: goal the policy never trained on
     OUT_SUFFIX="_goal${GOAL_FRAME}"
 fi
+# (the goal line ASSIGNS the suffix, so the window must be appended after it -- the 11:00 version
+# appended before and was silently overwritten; today's ped/pednear cells collided again)
+[[ "${SPAWN_MAX:-}" != "" ]] && OUT_SUFFIX="${OUT_SUFFIX}_sp${SPAWN_MIN:-0}-${SPAWN_MAX}"
 # GOAL360 / GOALRANGE / GOALCONE / GOALFRAMERANGE: sample goals the way TRAINING
 # does instead of pinning one goal_xy. Eval could previously only use a fixed
 # goal or the default goal frame, so it never reproduced the distribution the
