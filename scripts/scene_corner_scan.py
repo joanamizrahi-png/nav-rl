@@ -159,7 +159,7 @@ def clip_frames(clips_dir, scene, idxs, clip_name=None):
     return got
 
 
-def plot_pair(grid, maps, walk, spawn_xy, goal_xy, out_dir, name, views=None, labels=None):
+def plot_pair(grid, maps, walk, spawn_xy, goal_xy, out_dir, name, views=None, labels=None, paths=None, geometry=True):
     """Draw the map the scan is reasoning about: walkable, wall, void, and -- in
     blue -- the cells that carry a label with NO points behind them, i.e. the ones
     build_label_grid invented by filling. Plus the walk, spawn, goal, the straight
@@ -191,11 +191,12 @@ def plot_pair(grid, maps, walk, spawn_xy, goal_xy, out_dir, name, views=None, la
     for k in range(len(walk) - 1):
         cv2.line(img, px(walk[k]), px(walk[k + 1]), (110, 110, 110), 1, cv2.LINE_AA)
     s_px, g_px = px(spawn_xy), px(goal_xy)
-    cv2.line(img, s_px, g_px, (40, 160, 40), 2, cv2.LINE_AA)     # straight line: green
+    if geometry:
+        cv2.line(img, s_px, g_px, (40, 160, 40), 2, cv2.LINE_AA)     # straight line: green
     def cell(xy):
         return (int((xy[1] - grid.y0) / res), int((xy[0] - grid.x0) / res))
     a_ij, b_ij = snap(maps["body_ok"], cell(spawn_xy)), snap(maps["body_ok"], cell(goal_xy))
-    if a_ij is not None and b_ij is not None:
+    if geometry and a_ij is not None and b_ij is not None:
         m = int(6.0 / res)
         HF, WF = L.shape
         box = (max(0, min(a_ij[0], b_ij[0]) - m), min(HF, max(a_ij[0], b_ij[0]) + m),
@@ -205,13 +206,24 @@ def plot_pair(grid, maps, walk, spawn_xy, goal_xy, out_dir, name, views=None, la
             for k in range(len(path) - 1):
                 cv2.line(img, ((path[k][1] - j0) * sc, (path[k][0] - i0) * sc),
                          ((path[k + 1][1] - j0) * sc, (path[k + 1][0] - i0) * sc), (200, 80, 200), 2, cv2.LINE_AA)
-    cv2.circle(img, s_px, 5 * sc // 2, (30, 30, 30), -1)
+    # eval episodes on the SAME map (2026-09-27): [(outcome, [(x, y), ...]), ...]. The old
+    # overheads floated on a blank page; here the lawn, walls and void are under the paths.
+    OUTCOME_BGR = {"GOAL": (60, 140, 30), "CRASH": (40, 40, 210), "TIMEOUT": (30, 140, 220), "INCOHERENT": (170, 80, 120)}
+    for outcome, xy in (paths or []):
+        col = OUTCOME_BGR.get(outcome, (90, 90, 90))
+        for k in range(len(xy) - 1):
+            cv2.line(img, px(xy[k]), px(xy[k + 1]), col, 2, cv2.LINE_AA)
+        if xy:
+            cv2.circle(img, px(xy[0]), 3 * sc // 2, col, -1)
+    if not paths:
+        cv2.circle(img, s_px, 5 * sc // 2, (30, 30, 30), -1)
     cv2.circle(img, g_px, int(1.0 / res * sc), (30, 140, 30), 2)
     img = cv2.flip(img, 0)                                    # +y up, as the paths plot
     bar = np.full((26, img.shape[1], 3), 255, np.uint8)
-    cv2.putText(bar, "white=walkable  red=wall  grey=void  BLUE=label with NO points (invented by fill)"
-                "   green=straight  magenta=path  black=spawn", (6, 17),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.38, (20, 20, 20), 1, cv2.LINE_AA)
+    legend = ("white=walkable  red=wall  grey=void  BLUE=label with NO points (invented by fill)"
+              + ("   paths: green=GOAL red=CRASH orange=TIMEOUT purple=INCOHERENT  ring=goal 1 m" if paths
+                 else "   green=straight  magenta=path  black=spawn"))
+    cv2.putText(bar, legend, (6, 17), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (20, 20, 20), 1, cv2.LINE_AA)
     stack = [bar, img]
     if views:
         # the camera views at the spawn and goal frames, scaled to one height and
@@ -375,6 +387,10 @@ def main():
                     help="write a PNG of the label grid with the walk, spawn, goal, straight "
                          "line and geodesic path drawn on it -- so a claim about the map can "
                          "be looked at instead of argued from a ratio")
+    ap.add_argument("--overlay", nargs="*", metavar="EVAL",
+                    help="eval output dirs (or metrics.json files) whose episodes are drawn on the "
+                         "label map of the scene given as the positional argument; one PNG per eval "
+                         "in --plot, named after the eval dir. Colour = outcome. (2026-09-27)")
     ap.add_argument("--jitter", type=float, default=0.4,
                     help="the lateral spawn jitter eval will apply (SPAWNJLAT). A spawn must "
                          "clear body/2 + this, or the jitter puts it on the boundary.")
@@ -407,6 +423,24 @@ def main():
                 if k == len(bad) or bad[k] != bad[k-1] + 1:
                     runs.append((s, bad[k-1])); s = bad[k] if k < len(bad) else None
             print(f"  NOT spawnable: " + ", ".join(f"{x}-{y}" if x != y else str(x) for x, y in runs))
+
+        if a.overlay:
+            import json as _json
+            for ev in a.overlay:
+                mp = Path(ev) / "metrics.json" if Path(ev).is_dir() else Path(ev)
+                if not mp.exists():
+                    print(f"  SKIP overlay: {mp} missing"); continue
+                m = _json.load(open(mp))
+                eps = [e for e in m.get("video_episodes", []) if len(e.get("traj") or []) > 1]
+                scored = {int(e.get("episode", i)): e.get("outcome") for i, e in enumerate(m.get("episodes", []))}
+                if not eps:
+                    print(f"  SKIP overlay: no trajectories in {mp}"); continue
+                paths = [(scored.get(int(e.get("episode", i)), e.get("outcome")), [(float(t[0]), float(t[1])) for t in e["traj"]])
+                         for i, e in enumerate(eps)]
+                g = eps[0].get("goal_xy") or m["episodes"][0].get("goal_xy")
+                plot_pair(grid, maps, walk, np.array(paths[0][1][0]), np.array(g[:2]), a.plot or ".",
+                          f"OVERLAY_{mp.parent.name}", paths=paths, geometry=False)
+            continue
 
         if a.goal is not None and a.spawn:
             lo, hi = a.spawn; g = min(a.goal, N - 1)
