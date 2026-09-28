@@ -622,7 +622,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             from ..eval.reward_2d import _footprint_corners_world, _project_points, GO2_BODY_LENGTH, GO2_BODY_WIDTH
             from ..eval.palette import display_palette
             out = _Path(self.cfg.failure_snap_dir); out.mkdir(parents=True, exist_ok=True)
-            pal = display_palette(int(getattr(self.cfg, "sem_palette_version", 4)))
+            pal = display_palette(int(getattr(self.cfg, "sem_palette_version", 6) or 6))
             fm = getattr(self, "_frame_memory", None) or []
             rgb = self._last_rgb
             H, W = rgb.shape[:2]
@@ -641,7 +641,33 @@ class SceneEnv(gym.Env if gym is not None else object):
             cv2.putText(cur, "NOW (box below the camera)", (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
             panels.append(cur)
             shares = []
-            for age, frac, buv in breakdown.box_memory_hits:
+            if prefix == "memory":
+                # figure mode: every stored frame, newest first, on the GENERATED RGB, the same
+                # ground box projected into each; an age whose box falls outside the image says so
+                fr = getattr(self, "_frame_memory_rgb", None) or []
+                hits = {int(a): float(f) for a, f, _ in breakdown.box_memory_hits}
+                for age in range(1, len(fm) + 1):
+                    idx = len(fm) - age
+                    m_sem, mK, mw2c = fm[idx][0], fm[idx][1], fm[idx][2]
+                    img = fr[idx] if idx < len(fr) and fr[idx] is not None else None
+                    if img is None:
+                        img = pal[np.clip(np.asarray(m_sem), 0, len(pal) - 1)].astype(np.uint8)
+                    img = np.ascontiguousarray(img.copy())
+                    if img.shape[:2] != (H, W):
+                        img = cv2.resize(img, (W, H))
+                    puv, pfront = _project_points(corners, mK, mw2c)
+                    inside = bool(pfront.all()) and bool((puv[:, 0] >= 0).all() and (puv[:, 0] < W).all() and (puv[:, 1] >= 0).all() and (puv[:, 1] < H).all())
+                    if pfront.all():
+                        cv2.polylines(img, [puv.astype(np.int32)], True, (255, 0, 255) if inside else (160, 160, 160), 2, cv2.LINE_AA)
+                    txt = f"age {age} ({age * float(self.cfg.step_size_m):.2f} m back)  " + (f"non-walkable {hits[age]:.2f}" if age in hits else "box out of view")
+                    cv2.putText(img, txt, (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 3, cv2.LINE_AA)
+                    cv2.putText(img, txt, (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+                    panels.append(img)
+                    if age in hits:
+                        shares.append(hits[age])
+                if not shares:
+                    shares = [0.0]
+            for age, frac, buv in ([] if prefix == "memory" else breakdown.box_memory_hits):
                 idx = len(fm) - int(age)
                 if idx < 0 or idx >= len(fm):
                     continue
@@ -680,7 +706,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         out = _Path(self.cfg.failure_snap_dir)
         out.mkdir(parents=True, exist_ok=True)
         rgb = self._last_rgb
-        pal = display_palette(int(getattr(self.cfg, "sem_palette_version", 4)))
+        pal = display_palette(int(getattr(self.cfg, "sem_palette_version", 6) or 6))
         col = pal[np.clip(semantic_image, 0, len(pal) - 1)]
         if col.shape[:2] != rgb.shape[:2]:
             col = cv2.resize(col, (rgb.shape[1], rgb.shape[0]),
@@ -1153,6 +1179,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         # spawn frame's footprint with the LAST episode's final heading (09-04).
         self._last_fp_heading = None
         self._frame_memory = []
+        self._frame_memory_rgb = []
         self._pos_trail = []
         self._last_decision = None
         self._decision_pose = None
@@ -1791,7 +1818,7 @@ class SceneEnv(gym.Env if gym is not None else object):
             self._save_memory_crash_strip(breakdown)
         elif (self.cfg.failure_snap_dir is not None and int(getattr(self.cfg, "memory_snap_every", 0)) > 0
                 and self._steps > 0 and self._steps % int(self.cfg.memory_snap_every) == 0
-                and int(getattr(breakdown, "memory_hits", 0)) > 0
+                and len(getattr(self, "_frame_memory", None) or []) > 0
                 and self._memory_strips < self.cfg.failure_snap_max):
             self._save_memory_crash_strip(breakdown, prefix="memory")
 
@@ -1804,6 +1831,14 @@ class SceneEnv(gym.Env if gym is not None else object):
             fm.append((semantic_image, self._last_K, self._last_w2c))
             if len(fm) > int(self.cfg.collision_box_memory):
                 del fm[0]
+            if int(getattr(self.cfg, "memory_snap_every", 0)) > 0:
+                # RGB copies for the strip figure only (2026-09-28); parallel to fm, same ages
+                fr = getattr(self, "_frame_memory_rgb", None)
+                if fr is None:
+                    fr = self._frame_memory_rgb = []
+                fr.append(None if self._last_rgb is None else self._last_rgb.copy())
+                if len(fr) > int(self.cfg.collision_box_memory):
+                    del fr[0]
         self._prev_position = robot_position
         self._advance_pose(action)
         self._steps += 1
