@@ -12,7 +12,8 @@
 
 # Moving-through-the-world diffusion preview: consecutive recorded poses,
 # any resolution/steps. HEIGHT/WIDTH multiples of 112. Knobs:
-#   HEIGHT WIDTH NSTEPS FRAMES SCENE START TARGET LIVECKPT
+#   HEIGHT WIDTH NSTEPS FRAMES SCENE START TARGET LIVECKPT CLIPS_DIR (campus_clips default; gnd_clips / gnd_survey for gnd scenes)
+# Defaults moved to the campus clips and the v35b semantic model on 2026-09-27 (they pointed at rugd + v21).
 #   GOALFRAME (goal = pose at this frame) / GOALXY "x,y" — goal marker in
 #   both panels + topdown inset + distance HUD (goal-placement design tool)
 
@@ -26,7 +27,7 @@ cd /scratch/m000204-pm06b/joana/nav-rl
 
 python scripts/drive_preview.py \
     --scene "${SCENE:-rugd_trail_00}" \
-    --clips_dir /scratch/m000204-pm06b/joana/data/rugd_clips \
+    --clips_dir "${CLIPS_DIR:-/scratch/m000204-pm06b/joana/data/campus_clips}" \
     --poses_dir /scratch/m000204-pm06b/joana/outputs/poses \
     --labels_dir /scratch/m000204-pm06b/joana/NeoVerse/outputs/sam3_labels_v14 \
     --height "${HEIGHT:-336}" \
@@ -50,7 +51,7 @@ python scripts/drive_preview.py \
     ${PANOVIEWS:+--pano_views} \
     ${SEMPAL:+--sem_palette "$SEMPAL"} \
     ${AERIAL:+--aerial "$AERIAL"} \
-    --live_ckpt "${LIVECKPT:-/scratch/m000204-pm06b/joana/runs/train_semantic_v21/checkpoint-epoch-12.safetensors}" \
+    --live_ckpt "${LIVECKPT:-/scratch/m000204-pm06b/joana/runs/train_semantic_v35b_p6_ppl5/checkpoint-epoch-3.safetensors}" \
     --out /scratch/m000204-pm06b/joana/outputs/drive_preview${OUTTAG:+_$OUTTAG}
 
 echo "==> drive preview done"
