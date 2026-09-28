@@ -261,6 +261,10 @@ class SceneEnvConfig:
     failure_snap_dir: "str | None" = None  # save a figure at each collision
                                         # (obs + semantics + reward numbers)
     failure_snap_max: int = 200         # cap so long runs don't fill the disk
+    # 2026-09-27: write the memory strip every N steps while the box is in stored frames
+    # (not only at a crash), for the figure that shows one ground patch seen from
+    # successive frames. 0 = off. Same file format as the crash strip, prefix memory_.
+    memory_snap_every: int = 0
     failure_snap_min_frac: float = 0.2  # only snapshot substantial overlaps —
                                         # tiny footprint grazes are risk, not collision
     phantom_veto: bool = False               # 2026-09-19: no crash on ground the fused map knows to be walkable
@@ -608,7 +612,7 @@ class SceneEnv(gym.Env if gym is not None else object):
         _ENV_SEQ += 1
         self._env_tag = _ENV_SEQ
 
-    def _save_memory_crash_strip(self, breakdown) -> None:
+    def _save_memory_crash_strip(self, breakdown, prefix: str = "crash_memory") -> None:
         """One picture per memory-decided crash: [current view | stored frame age 1 | age 2 ...],
         each stored frame colorized with the near box drawn and its non-walkable share; the
         header carries the mean the crash rule compared against the threshold."""
@@ -657,11 +661,11 @@ class SceneEnv(gym.Env if gym is not None else object):
             bar = np.zeros((28, panel.shape[1], 3), dtype=np.uint8)
             agg = str(getattr(self.cfg, "collision_box_memory_agg", "newest"))
             used = float(np.mean(shares)) if agg == "mean" else shares[0]
-            cv2.putText(bar, f"MEMORY CRASH  {self._scene_id}  step {self._steps}  {len(shares)} stored frame(s) contain the box  "
+            cv2.putText(bar, f"{'MEMORY CRASH' if prefix == 'crash_memory' else 'MEMORY READ'}  {self._scene_id}  step {self._steps}  {len(shares)} stored frame(s) contain the box  "
                              f"{agg} share {used:.2f} >= threshold {self.cfg.collision_terminate_frac:.2f}",
                         (6, 19), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (80, 80, 255), 1, cv2.LINE_AA)
             img = np.concatenate([bar, panel], axis=0)
-            cv2.imwrite(str(out / f"crash_memory_e{self._env_tag:02d}_{self._memory_strips:04d}_{self._scene_id}_step{self._steps:03d}.png"), img[:, :, ::-1])
+            cv2.imwrite(str(out / f"{prefix}_e{self._env_tag:02d}_{self._memory_strips:04d}_{self._scene_id}_step{self._steps:03d}.png"), img[:, :, ::-1])
             self._memory_strips += 1
         except Exception as _e:  # a picture must never end a training step
             print(f"[memory strip] skipped: {_e}", flush=True)
@@ -1784,6 +1788,11 @@ class SceneEnv(gym.Env if gym is not None else object):
                 and -float(breakdown.collision) / max(self.cfg.reward.collision, 1e-6) >= self.cfg.collision_terminate_frac
                 and self._memory_strips < self.cfg.failure_snap_max):
             self._save_memory_crash_strip(breakdown)
+        elif (self.cfg.failure_snap_dir is not None and int(getattr(self.cfg, "memory_snap_every", 0)) > 0
+                and self._steps > 0 and self._steps % int(self.cfg.memory_snap_every) == 0
+                and int(getattr(breakdown, "memory_hits", 0)) > 0
+                and self._memory_strips < self.cfg.failure_snap_max):
+            self._save_memory_crash_strip(breakdown, prefix="memory")
 
         # ---- apply the action to advance the robot pose ----
         if int(self.cfg.collision_box_memory) > 0:

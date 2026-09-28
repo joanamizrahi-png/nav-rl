@@ -269,6 +269,7 @@ def build_env(args):
         footprint_along_motion=args.footprint_along_motion,
         forward_only=args.forward_only,
         failure_snap_dir=str(args.out_dir / "failures"),
+        memory_snap_every=int(getattr(args, "memory_snap_every", 0)),
         obs_out_hw=((args.obs_height, args.obs_width)
                     if (args.render_height or args.render_width) else None),
     )
@@ -558,6 +559,8 @@ def main():
                     help="render/obs height — MUST match the checkpoint's "
                          "training resolution (policy CNN is size-locked)")
     ap.add_argument("--obs_width", type=int, default=560)
+    ap.add_argument("--memory_snap_every", type=int, default=0,
+                    help="write failures/memory_*.png (the stored frames with the same ground box) every N steps; 0 = off (2026-09-27)")
     ap.add_argument("--blind", action="store_true",
                     help="zero the rgb observation (goal vector untouched): "
                          "does the policy actually use the world model's "

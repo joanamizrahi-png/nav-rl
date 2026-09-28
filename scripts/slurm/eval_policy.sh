@@ -165,6 +165,7 @@ fi
 # demos to <eval dir>/demos.npz (feed to a training arm with LIVE_DEMOS=...).
 [ -n "${EXPERT:-}" ] && { EXTRA_ARGS+=(--expert "$EXPERT"); OUT_SUFFIX="${OUT_SUFFIX}_expert${EXPERT}"; }
 [ "${KEEPFAILED:-0}" = "1" ] && EXTRA_ARGS+=(--keep_failed_demos)
+[ -n "${MEMSNAP:-}" ] && { EXTRA_ARGS+=(--memory_snap_every "$MEMSNAP"); OUT_SUFFIX="${OUT_SUFFIX}_memsnap${MEMSNAP}"; }
 # CRASHANY=1 (2026-09-27): score a footprint collision as a crash at ANY throttle. Training
 # used crash_requires_motion (throttle >= 0.15), which the strict memory_dino policy learned
 # to exploit by creeping on lawn at throttle 0.04 (gnd_AU_180: 68 collision steps per
